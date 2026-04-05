@@ -90,7 +90,7 @@
     "recognition": "TemplateMatch",
     "action": "Click",
     "next": [
-      "Pass_SelectPassTask1",
+      "[JumpBack]Pass_SelectPassTask1",
       "Pass_GetAll"
     ],
     "post_delay": 1000,
@@ -107,29 +107,38 @@
     "doc": "选择通行证"
   },
   "Pass_SelectPassTask1": {
-    "recognition": "ColorMatch",
+    "recognition": "Or",
+    "any_of": [
+      {
+        "recognition": "OCR",
+        "roi": [
+          620,
+          167,
+          53,
+          32
+        ],
+        "only_rec": true,
+        "expected": [
+          "LEVEL"
+        ]
+      },
+      {
+        "recognition": "OCR",
+        "roi": [
+          760,
+          169,
+          45,
+          26
+        ],
+        "only_rec": true,
+        "expected": [
+          "基础"
+        ]
+      }
+    ],
     "action": "Click",
-    "next": [
-      "Pass_GetAll",
-      "Pass_SelectPassTask1"
-    ],
-    "post_delay": 1000,
+    "post_delay": 1500,
     "focus": "任务子项页色核检查",
-    "count": 100,
-    "lower": [
-      [
-        153,
-        151,
-        146
-      ]
-    ],
-    "upper": [
-      [
-        153,
-        151,
-        146
-      ]
-    ],
     "target": [
       1145,
       460

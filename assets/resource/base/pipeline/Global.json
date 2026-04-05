@@ -603,6 +603,101 @@
         "post_delay": 5000,
         "doc": "循环等待转场页面"
     },
+    "Global_SliderSwitch_To_On": {
+        "recognition": "ColorMatch",
+        "roi": "[Anchor]SliderSwitchColor",
+        "method": 40,
+        "lower": [
+            101,
+            59,
+            36
+        ],
+        "upper": [
+            110,
+            68,
+            44
+        ],
+        "count": 25,
+        "next": [
+            "Global_SliderSwitch_StateOn",
+            "[JumpBack]Global_SliderSwitch_ToggleActive"
+        ],
+        "doc": "【必须用万能识色生成box后锚点引用】，识别灰色，变成黄色"
+    },
+    "Global_SliderSwitch_To_Off": {
+        "recognition": "ColorMatch",
+        "roi": "[Anchor]SliderSwitchColor",
+        "method": 40,
+        "lower": [
+            17,
+            180,
+            152
+        ],
+        "upper": [
+            23,
+            200,
+            185
+        ],
+        "count": 25,
+        "next": [
+            "Global_SliderSwitch_StateOff",
+            "[JumpBack]Global_SliderSwitch_ToggleActive"
+        ],
+        "doc": "【必须用万能识色生成box后锚点引用】，识别黄色，变成灰色"
+    },
+    "Global_SliderSwitch_StateOn": {
+        "recognition": "ColorMatch",
+        "roi": "[Anchor]SliderSwitchColor",
+        "method": 40,
+        "lower": [
+            17,
+            180,
+            152
+        ],
+        "upper": [
+            23,
+            200,
+            185
+        ],
+        "count": 25,
+        "next": [
+            "Global_SliderSwitch_End"
+        ],
+        "doc": "滑块识别,黄色,已enable"
+    },
+    "Global_SliderSwitch_StateOff": {
+        "recognition": "ColorMatch",
+        "roi": "[Anchor]SliderSwitchColor",
+        "method": 40,
+        "lower": [
+            101,
+            59,
+            36
+        ],
+        "upper": [
+            110,
+            68,
+            44
+        ],
+        "count": 25,
+        "next": [
+            "Global_SliderSwitch_End"
+        ],
+        "doc": "滑块识别,灰色,已disable"
+    },
+    "Global_SliderSwitch_ToggleActive": {
+        "action": "Click",
+        "target": "[Anchor]SliderSwitchColor",
+        "post_delay": 800,
+        "max_hit": 10,
+        "doc": "点击滑块,改变颜色"
+    },
+    "Global_SliderSwitch_End": {
+        "next": [
+            "[Anchor]SliderSwitchColor"
+        ],
+        "doc": "调整结束"
+    },
     "Global_Hub_End": {
         "doc": "避免正常结束时,报错跳出"
     }
