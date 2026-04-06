@@ -58,12 +58,8 @@
       "node": "Custom_Fishing_Task",
       "patches": {
         "Custom_Fishing_Task": {
-          "action": {
-            "param": {
               "custom_action_param": {
                 "max_count": 1
-              }
-            }
           },
           "next": "[Anchor]Weekly_Fishing"
         }
