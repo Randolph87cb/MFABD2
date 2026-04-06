@@ -222,15 +222,24 @@ def _ensure_cache_loaded(force_refresh=False):
     if CACHE_LOADED and not force_refresh: return
 
     utils.mfaalog.info("[Py] 💾 正在建立节点数据库 (Deep Cache)...")
-    ALL_NODES_CACHE = {} 
-    base_dir = Path(".") 
-    target_path = base_dir / "resource" / "pipeline"
+    ALL_NODES_CACHE = {}
+
+    # 用 __file__ 反推项目根目录，规避 CWD 不可靠的问题
+    # pipeline_manager.py: agent/action/ -> agent/ -> project_root/
+    _project_root = Path(__file__).resolve().parent.parent.parent
+    target_path = _project_root / "assets" / "resource" / "base" / "pipeline"
+
+    # fallback：路径结构调整时的保底
     if not target_path.exists():
-        found = list(base_dir.rglob("pipeline"))
-        if found: target_path = found[0]
+        _fallback = _project_root / "resource" / "pipeline"
+        if _fallback.exists():
+            target_path = _fallback
+        else:
+            found = [p for p in _project_root.rglob("pipeline") if p.is_dir()]
+            if found: target_path = found[0]
 
     if not target_path.exists():
-        utils.mfaalog.error(f"[Py] ❌ 找不到 pipeline 目录")
+        utils.mfaalog.error(f"[Py] ❌ 找不到 pipeline 目录，project_root={_project_root}")
         return
 
     count = 0
@@ -247,8 +256,11 @@ def _ensure_cache_loaded(force_refresh=False):
         except Exception as e:
             utils.mfaalog.warning(f"[Py] 读取跳过 {file_path.name}: {e}")
 
-    CACHE_LOADED = True
-    utils.mfaalog.info(f"[Py] 💾 数据库构建完成！已索引 {count} 个节点的原始配置。")
+    if count > 0:
+        CACHE_LOADED = True
+        utils.mfaalog.info(f"[Py] 💾 数据库构建完成！已索引 {count} 个节点的原始配置。")
+    else:
+        utils.mfaalog.error(f"[Py] ❌ 数据库构建异常：索引到 0 个节点！请检查 pipeline 目录: {target_path}")
 
 def _process_reset_tags(params: dict):
     """

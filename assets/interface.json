@@ -1308,10 +1308,8 @@
             "pipeline_override": {
                 "Custom_Fishing_Task": {
                     "action": {
-                        "param": {
-                            "custom_action_param": {
-                                "max_count": "{目标钓鱼条数}"
-                            }
+                        "custom_action_param": {
+                            "max_count": "{目标钓鱼条数}"
                         }
                     }
                 }
