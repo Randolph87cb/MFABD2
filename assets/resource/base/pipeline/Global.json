@@ -83,6 +83,7 @@
         "recognition": "And",
         "all_of": [
             {
+                "sub_name": "Main_OCR",
                 "recognition": "OCR",
                 "roi": [
                     98,
@@ -171,7 +172,8 @@
         "post_delay": 3000,
         "next": [
             "Global_ToHomePage_Enter",
-            "Global_ToHomePage_HomeButton"
+            "Global_ToHomePage_HomeButton",
+            "[JumpBack]Global_OnceHomeButton"
         ],
         "focus": "G.箱庭地图已确认"
     },
@@ -204,6 +206,7 @@
         "recognition": "And",
         "all_of": [
             {
+                "sub_name": "Main_OCR",
                 "recognition": "OCR",
                 "roi": [
                     98,
@@ -215,27 +218,7 @@
                     "抽抽乐"
                 ]
             },
-            {
-                "recognition": "ColorMatch",
-                "roi": [
-                    104,
-                    664,
-                    51,
-                    17
-                ],
-                "method": 40,
-                "lower": [
-                    0,
-                    0,
-                    225
-                ],
-                "upper": [
-                    180,
-                    225,
-                    255
-                ],
-                "count": 50
-            }
+            "Global_Main_Clr"
         ]
     },
     "Global_ToSandBox": {
@@ -322,15 +305,22 @@
     },
     "Global_BackToPve2#_ToCardMenu": {
         "desc": "识别左下抽抽乐-主页-点击选择章节",
-        "recognition": "OCR",
-        "roi": [
-            89,
-            655,
-            77,
-            37
-        ],
-        "expected": [
-            "抽抽乐"
+        "recognition": "And",
+        "all_of": [
+            {
+                "sub_name": "Main_OCR",
+                "recognition": "OCR",
+                "roi": [
+                    98,
+                    656,
+                    66,
+                    32
+                ],
+                "expected": [
+                    "抽抽乐"
+                ]
+            },
+            "Global_Main_Clr"
         ],
         "action": "Click",
         "target": [
