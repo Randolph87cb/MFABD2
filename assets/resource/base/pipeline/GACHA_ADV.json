@@ -10,7 +10,7 @@
         "recognition": "And",
         "all_of": [
             {
-                "sub_name": "Global_Main_Clr",
+                "sub_name": "Main_OCR",
                 "recognition": "OCR",
                 "roi": [
                     98,
