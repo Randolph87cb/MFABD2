@@ -2042,7 +2042,102 @@
         ],
         "next": [
             "[JumpBack]Arbitrage_Sell_PriceList_FirstCalibration",
+            "[JumpBack]Arbitrage_Sell_PackShopListSwich_OCR_Entry",
             "Arbitrage_ShopSell_Active"
+        ]
+    },
+    "Arbitrage_Sell_PackShopListSwich_OCR_Entry": {
+        "desc": "价目表本身的排序,若第一项存在非120%,触发",
+        "recognition": "OCR",
+        "roi": [
+            894,
+            210,
+            72,
+            93
+        ],
+        "expected": [
+            "^(?!120%$)\\d+(?:\\.\\d+)?%?$"
+        ],
+        "next": ["Arbitrage_Sell_PackShopListSwich_Butt"]
+    },
+    "Arbitrage_Sell_PackShopListSwich_Butt": {
+        "action": "Click",
+        "target": [
+            991,
+            138,
+            21,
+            25
+        ],
+        "post_delay": 1000,
+        "next": [
+            "Arbitrage_Sell_PackShopListSwich_Type_Enter",
+            "Arbitrage_Sell_PackShopListSwich_Type_Change"
+        ]
+    },
+    "Arbitrage_Sell_PackShopListSwich_Type_Enter": {
+        "recognition": "And",
+        "all_of": [
+            {
+                "sub_name": "template",
+                "recognition": "OCR",
+                "roi": [
+                    745,
+                    189,
+                    250,
+                    45
+                ],
+                "expected": [
+                    "从高到低"
+                ]
+            },
+            {
+                "recognition": "ColorMatch",
+                "roi": "template",
+                "method": 40,
+                "lower": [
+                    18,
+                    98,
+                    110
+                ],
+                "upper": [
+                    23,
+                    230,
+                    255
+                ],
+                "connected": true,
+                "count": 10
+            }
+        ],
+        "next": ["Arbitrage_Sell_PackShopListSwich_Close"]
+    },
+    "Arbitrage_Sell_PackShopListSwich_Type_Change": {
+        "recognition": "OCR",
+        "roi": [
+            693,
+            169,
+            324,
+            299
+        ],
+        "expected": [
+            "溢价率"
+        ],
+        "action": "Click",
+        "post_delay": 800,
+        "next": [
+            "Arbitrage_Sell_PackShopListSwich_Type_Enter",
+            "Arbitrage_Sell_PackShopListSwich_Type_Change"
+        ]
+    },
+    "Arbitrage_Sell_PackShopListSwich_Close": {
+        "desc": "排序选项确认正确,消除排序三级窗口.需要点击二级窗口空白处",
+        "recognition": "And",
+        "all_of": ["Arbitrage_Sell_PackShopListSwich_Type_Change"],
+        "action": "Click",
+        "target": [
+            567,
+            129,
+            109,
+            43
         ]
     },
     "Arbitrage_Sell_PriceList_FirstCalibration": {
@@ -2381,15 +2476,15 @@
         "all_of": [
             {
                 "sub_name": "template",
-                "recognition": "TemplateMatch",
+                "recognition": "OCR",
                 "roi": [
-                    394,
-                    96,
-                    85,
-                    89
+                    895,
+                    90,
+                    249,
+                    44
                 ],
-                "template": [
-                    "UI_ShopItem_Up.png"
+                "expected": [
+                    "从高到低"
                 ]
             },
             {
