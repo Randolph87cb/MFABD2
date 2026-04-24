@@ -860,32 +860,40 @@
         "roi": "Sub_Ocr",
         "method": 40,
         "lower": [
-            10,
-            10,
-            200
+            0,
+            0,
+            215
         ],
         "upper": [
-            50,
+            180,
             40,
-            240
+            255
         ],
-        "count": 25
+        "connected": true,
+        "count": 40
     },
     "Global_Ocr_Clr_Unable_Sub": {
         "desc": "【被引用节点】对Ocr节点再次色核,灰色",
         "recognition": "ColorMatch",
         "roi": "Sub_Ocr",
+        "roi_offset": [
+            -5,
+            -5,
+            10,
+            10
+        ],
         "method": 40,
         "lower": [
             0,
             0,
-            0
+            10
         ],
         "upper": [
             180,
             20,
-            100
+            150
         ],
+        "connected": true,
         "count": 25
     }
 }
