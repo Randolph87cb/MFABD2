@@ -88,8 +88,7 @@
             "entry": "Gacha_HomePage",
             "default_check": true,
             "option": [
-                "高级抽卡-按需|强制",
-                "付费钻-总开关"
+                "一键免费抽(将禁用高级功能)"
             ],
             "description": "<b>白嫖抽卡：</b>每日免费一次的<span style=\"background-color:Silver; color:Black; border-radius:3px; padding:0 3px;\">角色</span>、<span style=\"background-color:Silver; color:Black; border-radius:3px; padding:0 3px;\">专属装备</span>抽取。<br><br>当抽取免费抽时，可顺便用90付费钻，对指定卡池每日优惠一抽，需要指定卡池名。<br><br><span style=\"color:Crimson;font-size:14px\"><b>付费钻是危险功能</b><br>务必仔细确认，平时常闭。脚本协议不承担其使用责任！<br>打开此<span style=\"background-color:Silver; color:Black; border-radius:3px; padding:0 3px;\">总开关</span>，则是你知晓并自行承担相关风险的意思表示！</span><br><br><img src=\"resource/image/GUI/CHAGA_Doc.png\" width=\"150\" />"
         },
@@ -107,7 +106,6 @@
             "entry": "Event_HomePage",
             "option": [
                 "赛季活动快速战斗难度",
-                "魔兽补刀",
                 "魔兽初始等级"
             ],
             "description": "**赛季活动：**主页面的右侧的版本剧情活动。<br>**快速战斗：**用每日免费AP打Max。若未打完所选难度15关，尝试自动刷取（不保证成功）。<br>支持选择难度。<br>**魔兽补刀:**每日快速战斗一次,拿取参与奖。"
@@ -761,24 +759,6 @@
                 }
             ]
         },
-        "魔兽补刀": {
-            "description": "1.‘补刀’：若魔兽讨伐未被击败，次日可继承残血状态快速战斗一次。<br>2.补刀失败只拿参与奖，不影响讨伐进度；次日循环拿奖励。<br>3.补刀成功，则需要手动打一次下一级魔兽，失利了再来补刀。",
-            "type": "switch",
-            "cases": [
-                {
-                    "name": "No",
-                    "pipeline_override": {
-                        "Event_Mamono_Hub": {
-                            "max_hit": 0
-                        }
-                    }
-                },
-                {
-                    "name": "Yes",
-                    "pipeline_override": {}
-                }
-            ]
-        },
         "末日之书": {
             "type": "switch",
             "cases": [
@@ -890,6 +870,35 @@
                             ]
                         }
                     }
+                }
+            ]
+        },
+        "一键免费抽(将禁用高级功能)": {
+            "type": "switch",
+            "description": "利用抽抽乐页面的'所有免费抽抽乐'抽卡。启用时，保底留存、90钻付费抽等功能无法使用。",
+            "cases": [
+                {
+                    "name": "Yes",
+                    "pipeline_override": {
+                        "Gacha_FindFreeGacha": {
+                            "enabled": false
+                        },
+                        "Gacha_Slip": {
+                            "enabled": false
+                        }
+                    }
+                },
+                {
+                    "name": "No",
+                    "pipeline_override": {
+                        "Gacha_Quick_All": {
+                            "enabled": false
+                        }
+                    },
+                    "option": [
+                        "高级抽卡-按需|强制",
+                        "付费钻-总开关"
+                    ]
                 }
             ]
         },
@@ -1631,7 +1640,7 @@
         },
         "魔兽初始等级": {
             "type": "input",
-            "label": "魔兽期望开刷等级",
+            "label": "魔兽补刀起步等级",
             "inputs": [
                 {
                     "name": "魔兽初始等级",
@@ -1658,7 +1667,7 @@
     },
     "interface_version": 2,
     "name": "MFABD2",
-    "title": "MFABD2 | 棕色尘埃2自动化助手(sunyink/MFABD2)v0.0.20 | 游戏版本：20260409 ( SHINOBI ROAD )",
+    "title": "MFABD2 | 棕色尘埃2自动化助手(sunyink/MFABD2)v0.0.20 | 游戏版本：20260423 ( AKATSUKI )",
     "github": "https://github.com/sunyink/MFABD2",
     "mirrorchyan_rid": "MFABD2",
     "mirrorchyan_multiplatform": true,

@@ -1,0 +1,127 @@
+name: Gemini PR Reviewer
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: '要审查的 PR 编号 (不填则自动识别)'
+        required: false
+        type: string
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write 
+      contents: read       
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      # 修复 1：升级 Python 到 3.12 以消除版本警告
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # 修复 2：使用全新的 google-genai 替代旧的 google-generativeai
+      - name: Install Dependencies
+        run: |
+          pip install google-genai requests
+
+      - name: Run Gemini Review and Comment
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          cat << 'EOF' > review.py
+          import os
+          import requests
+          from google import genai # 修复 3：使用新版 SDK 导入语法
+
+          api_key = os.environ.get('GEMINI_API_KEY')
+          gh_token = os.environ.get('GITHUB_TOKEN')
+          pr_number = os.environ.get('PR_NUMBER')
+          repo = os.environ.get('REPO')
+
+          if not pr_number:
+              print('未检测到 PR 编号，退出执行。')
+              exit(0)
+
+          # 修复 4：新版 SDK 的客户端初始化方式
+          client = genai.Client(api_key=api_key)
+
+          # 获取代码差异
+          headers = {
+              'Authorization': f'token {gh_token}',
+              'Accept': 'application/vnd.github.v3.diff'
+          }
+          url = f'https://api.github.com/repos/{repo}/pulls/{pr_number}'
+          response = requests.get(url, headers=headers)
+          diff_content = response.text
+
+          if not diff_content or len(diff_content.strip()) == 0:
+              print('没有发现代码变更，退出。')
+              exit(0)
+
+          prompt = f"""你是一个精通 MaaFramework (MAA) 的自动化开发专家。正在审查基于它开发的 'MFABD2' 项目。
+          【关键原则】务必以 https://github.com/MaaXYZ/MaaFramework/blob/main/docs/zh_cn 为准。如果文档内容与你的训练内容不符，请以文档为准。
+          
+          【代码“方言”与特殊前缀】
+          1. 对于 assets/resource/**/pipeline/**/*.json：
+             【业务流水线审查重点】 严格按照文档审核：https://github.com/MaaXYZ/MaaFramework/blob/main/docs/zh_cn/3.1-PipelineProtocol.md 
+             - 检查跳转，防止构成非预期的死循环（除非 doc 明确是轮询）。 
+             - 检查必须配合或参数。 
+             - 检查 JSON 字符串中的正则转义（如 regex）是否安全正确。 
+             对于逻辑错误请严厉指出，并引用该节点的 doc 内容来增强说服力。
+          
+          2. doc 是开发者写的业务逻辑注释，请严格比对它查错（例：doc说点击，action却写滑动，则报错）。
+          
+          3. 对于 agent/**/*.py：
+             看到 action:Custom 时，请在 Python 代码中寻找实现。
+             【Python 审查重点】 需要符合 MaaFW 的官方库: https://github.com/MaaXYZ/MaaFramework/tree/main/source/binding/Python/maa 
+             - 重点检查 MaaResource / MaaController / MaaTasker 的生命周期，确保资源正确释放，防止内存泄漏。 
+             - 检查是否存在异常兜底防护（try-catch），防止核心报错导致程序闪退。
+          
+          4. 对于 assets/interface.json：
+             严格按照文档审核：https://maafw.com/docs/3.3-ProjectInterfaceV2 说明是否合理清晰，符合版本，有无漏改、错别字。
+          
+          请必须使用中文回复。
+
+          代码变更如下：
+          {diff_content}"""
+
+          print('正在等待 Gemini 响应...')
+          
+          # 修复 5：新版 SDK 的内容生成调用方法
+          response = client.models.generate_content(
+              model='gemini-3.1-flash-lite-preview',
+              contents=prompt,
+              config={
+                  "temperature": 0.2, # 降低温度，让代码审查的语气更严谨、挑错更客观，减少“幻觉”
+              }
+          )
+          reply = response.text
+
+          # 提交评论
+          comment_url = f'https://api.github.com/repos/{repo}/issues/{pr_number}/comments'
+          post_response = requests.post(
+              comment_url,
+              headers={
+                  'Authorization': f'token {gh_token}', 
+                  'Accept': 'application/vnd.github.v3+json'
+              },
+              json={'body': f'### 🤖 Gemini (MaaFW 专家) 自动审查建议\n\n{reply}'}
+          )
+          
+          if post_response.status_code == 201:
+              print('评论成功！')
+          else:
+              print(f'评论失败: {post_response.text}')
+          EOF
+
+          python review.py

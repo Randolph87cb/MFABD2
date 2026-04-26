@@ -784,8 +784,10 @@
         "count": 12,
         "action": "Click",
         "target": [
-            966,
-            228
+            958,
+            186,
+            18,
+            9
         ],
         "post_delay": 1500,
         "next": [
@@ -797,10 +799,10 @@
     "Equip_+9ColorCk": {
         "recognition": "ColorMatch",
         "roi": [
-            942,
-            216,
-            55,
-            28
+            935,
+            173,
+            67,
+            38
         ],
         "lower": [
             102,
@@ -824,18 +826,20 @@
         "enabled": false,
         "recognition": "TemplateMatch",
         "roi": [
-            802,
-            285,
-            82,
-            75
+            804,
+            248,
+            83,
+            76
         ],
         "template": [
             "filterC17.png"
         ],
         "action": "Click",
         "target": [
-            840,
-            320
+            834,
+            277,
+            16,
+            9
         ],
         "post_delay": 1500,
         "next": [
@@ -847,10 +851,10 @@
     "Equip_filter<C17Ck": {
         "recognition": "ColorMatch",
         "roi": [
-            816,
-            308,
-            52,
-            26
+            821,
+            271,
+            53,
+            27
         ],
         "lower": [
             [
@@ -878,8 +882,10 @@
         "recognition": "DirectHit",
         "action": "Click",
         "target": [
-            720,
-            320
+            710,
+            275,
+            20,
+            12
         ],
         "post_delay": 1500,
         "next": [
@@ -891,10 +897,10 @@
     "Equip_filter<C10Ck": {
         "recognition": "ColorMatch",
         "roi": [
-            695,
-            307,
-            48,
-            30
+            700,
+            267,
+            49,
+            31
         ],
         "method": 40,
         "lower": [
@@ -917,10 +923,10 @@
         "desc": "应用筛选",
         "recognition": "OCR",
         "roi": [
-            842,
-            554,
-            175,
-            34
+            884,
+            558,
+            142,
+            35
         ],
         "expected": [
             "确认"
