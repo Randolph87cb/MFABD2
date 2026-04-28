@@ -71,7 +71,8 @@
             56
         ],
         "template": [
-            "ActiveGe.png"
+            "ActiveGe.png",
+            "UI_Dot_GE.png"
         ],
         "green_mask": true,
         "action": "Click",
