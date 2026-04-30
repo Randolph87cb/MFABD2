@@ -95,8 +95,15 @@ def inject_announcement(tag_name):
     ANCHOR = "<!-- Msg-Anch -->"
 
     if ANCHOR not in original_text:
-        print(f"⚠️ [警告] 锚点 '{ANCHOR}' 未找到，跳过注入。")
-        return
+        print(f"❌ [错误] 锚点 '{ANCHOR}' 在目标文件中未找到，注入失败。")
+        print("请检查 assets/resource/Announcement/1.公告.md 是否包含锚点标记。")
+        sys.exit(1)
+
+    # 消毒：防止草稿内容破坏父级结构或下次匹配点位移
+    content = content.replace(ANCHOR, ANCHOR.replace('-->', '- ->'))
+    if len(content) > 5000:
+        print(f"⚠️ 草稿过长（{len(content)} 字符），截断到 5000")
+        content = content[:5000] + "\n\n*(注：草稿过长已自动截断)*"
 
     insert_block = f"{ANCHOR}\n\n### {tag_name} 通知\n{content}\n\n---\n"
     new_text = original_text.replace(ANCHOR, insert_block)

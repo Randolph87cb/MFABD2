@@ -636,10 +636,15 @@ jobs:
           echo "::group::👀 验证注入结果"
           TARGET="install/resource/Announcement/1.公告.md"
           if [ -f "$TARGET" ]; then
-            echo "✅ 成功定位文件: $TARGET"
-            grep -A 15 "" "$TARGET" || head -n 20 "$TARGET"
+            if grep -q "^### ${{ needs.meta.outputs.tag }} 通知" "$TARGET"; then
+              echo "✅ 已注入 ${{ needs.meta.outputs.tag }} 通知"
+            else
+              echo "ℹ️ 本次未注入（草稿为空 / 不在目标版本范围 / 等）"
+            fi
+            tail -n 30 "$TARGET"
           else
-            echo "⚠️ 验证失败：文件不存在 ($TARGET) - 可能是安卓版或路径变更"
+            echo "::error::目标文件不存在: $TARGET"
+            exit 1
           fi
           echo "::endgroup::"
 
