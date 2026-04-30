@@ -2048,6 +2048,7 @@
     },
     "Arbitrage_Sell_PackShopListSwich_OCR_Entry": {
         "desc": "价目表本身的排序,若第一项存在非120%,触发",
+        "max_hit": 4,
         "recognition": "OCR",
         "roi": [
             894,
