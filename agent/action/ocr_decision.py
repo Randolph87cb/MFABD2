@@ -153,8 +153,8 @@ class OCR_RankAndPatch(CustomAction):
             # 兼容性获取
             all_res = getattr(raw_reco, "all_results", None)
             filtered_res = getattr(raw_reco, "filtered_results", None)
-            if all_res: ocr_items = all_res
-            elif filtered_res: ocr_items = filtered_res
+            if filtered_res: ocr_items = filtered_res
+            elif all_res: ocr_items = all_res
             elif isinstance(raw_reco, dict):
                 if "detail" in raw_reco and "all" in raw_reco["detail"]: ocr_items = raw_reco["detail"]["all"]
                 elif "all" in raw_reco: ocr_items = raw_reco["all"]
@@ -226,6 +226,10 @@ class OCR_RankAndPatch(CustomAction):
             if not clean_data:
                 utils.mfaalog.warning(f"[Py] ⚠️ 无有效数字")
                 return False
+
+            # 重新编号：clean_data 已按物理位置有序，重置 original_idx 消除因噪声项造成的空洞
+            for new_pos, item in enumerate(clean_data):
+                item['original_idx'] = new_pos
 
             # --- 5. 数值排序 ---
             reverse = True if sort_mode == "desc" else False
