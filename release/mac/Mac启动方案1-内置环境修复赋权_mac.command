@@ -57,9 +57,65 @@ sudo chmod +x "$CURRENT_DIR"/*.sh "$CURRENT_DIR"/*.command 2>/dev/null
 echo "✅ 附属脚本执行权限已修复"
 
 # =======================================================
-# 4. 保留上游逻辑：安装 .NET 依赖
+# 4. 修复内嵌 Python 缺失的原生库 (numpy/Pillow 的 .dylibs)
 # =======================================================
-echo -e "\n${GREEN}>>> [3/3] 检查并配置 .NET 环境...${NC}"
+echo -e "\n${GREEN}>>> [3/4] 检查 Python 原生库依赖...${NC}"
+
+PY_BIN="$CURRENT_DIR/python/bin/python3"
+if [ -f "$PY_BIN" ]; then
+    # 检测是否存在缺失的 @loader_path dylib
+    MISSING_COUNT=$("$PY_BIN" -c "
+import os, subprocess, re
+from pathlib import Path
+site = Path('$CURRENT_DIR/python/lib/python3.10/site-packages')
+if not site.exists():
+    print(0)
+    exit()
+broken = set()
+for so in site.rglob('*.so'):
+    try:
+        out = subprocess.check_output(['otool', '-L', str(so)], text=True)
+    except Exception:
+        continue
+    for line in out.split('\n'):
+        m = re.match(r'\s+(@loader_path/\S+)', line)
+        if not m:
+            continue
+        ref = m.group(1)
+        if not (so.parent / ref.replace('@loader_path/', '')).resolve().exists():
+            broken.add(so.relative_to(site).parts[0])
+for pkg in sorted(broken):
+    try:
+        import importlib.metadata
+        print(f'{pkg}=={importlib.metadata.version(pkg)}')
+    except Exception:
+        print(pkg)
+" 2>/dev/null)
+
+    if [ -n "$MISSING_COUNT" ] && [ "$MISSING_COUNT" != "0" ]; then
+        echo -e "${YELLOW}⚠️  检测到 Python 包原生库缺失，尝试联网修复...${NC}"
+        echo "缺失的包:"
+        echo "$MISSING_COUNT" | while read pkg_ver; do
+            echo "  - $pkg_ver"
+        done
+        echo "正在修复中..."
+        echo "$MISSING_COUNT" | while read pkg_ver; do
+            if [ -n "$pkg_ver" ]; then
+                "$PY_BIN" -m pip install --force-reinstall --no-cache-dir "$pkg_ver" 2>&1 | tail -1
+            fi
+        done
+        echo -e "${GREEN}✅ Python 库修复完成${NC}"
+    else
+        echo "✅ Python 原生库依赖完整"
+    fi
+else
+    echo -e "${YELLOW}⚠️  未找到内嵌 Python，跳过库检查${NC}"
+fi
+
+# =======================================================
+# 5. 保留上游逻辑：安装 .NET 依赖
+# =======================================================
+echo -e "\n${GREEN}>>> [4/4] 检查并配置 .NET 环境...${NC}"
 DOTNET_SCRIPT="DependencySetup_依赖库安装_mac.sh"
 
 if [ -f "$CURRENT_DIR/$DOTNET_SCRIPT" ]; then

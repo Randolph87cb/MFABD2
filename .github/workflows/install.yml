@@ -531,8 +531,78 @@ jobs:
           
           # 清理缓存
           "$PY_EXEC" -m pip cache purge
-          find install/python -name "__pycache__" -type d -exec rm -rf {} +     
+          find install/python -name "__pycache__" -type d -exec rm -rf {} +
 
+          # 🔧 macOS 便携 Python 的 pip 安装时可能丢失 wheel 内的 .dylibs 目录
+          # (如 numpy/.dylibs/libopenblas64_.0.dylib, PIL/.dylibs/libtiff.6.dylib 等)
+          # 此处扫描所有 .so 文件的 @loader_path 依赖,缺失则从对应 wheel 中提取补回
+          echo "🔍 Verifying native dylibs..."
+          "$PY_EXEC" -c "
+import os, sys, subprocess, tempfile, zipfile, shutil, re, importlib.metadata
+from pathlib import Path
+
+site = Path('install/python/lib/python3.10/site-packages')
+if not site.exists():
+    sys.exit(0)
+
+broken = {}  # pkg_name -> {dylib_name, ...}
+for so in site.rglob('*.so'):
+    try:
+        out = subprocess.check_output(['otool', '-L', str(so)], text=True)
+    except Exception:
+        continue
+    for line in out.split('\n'):
+        m = re.match(r'\s+(@loader_path/\S+)', line)
+        if not m:
+            continue
+        ref = m.group(1)
+        resolved = (so.parent / ref.replace('@loader_path/', '')).resolve()
+        if not resolved.exists():
+            pkg = so.relative_to(site).parts[0]
+            broken.setdefault(pkg, set()).add(os.path.basename(ref))
+
+if not broken:
+    print('✅ All native dylibs present')
+    sys.exit(0)
+
+print(f'⚠️ {len(broken)} package(s) with missing dylibs, repairing...')
+import platform
+machine = platform.machine()
+plat = 'macosx_11_0_arm64' if machine == 'arm64' else 'macosx_10_9_x86_64'
+py_ver = f'{sys.version_info.major}{sys.version_info.minor}'
+
+for pkg in sorted(broken):
+    try:
+        ver = importlib.metadata.version(pkg)
+    except Exception:
+        print(f'  ⚠️ Skip {pkg}: cannot determine version')
+        continue
+    print(f'  📦 {pkg}=={ver}')
+    with tempfile.TemporaryDirectory() as tmp:
+        subprocess.check_call([
+            sys.executable, '-m', 'pip', 'download',
+            f'{pkg}=={ver}', '--no-deps', '--dest', tmp,
+            '--platform', plat, '--python-version', py_ver,
+            '--only-binary=:all:', '--no-cache-dir',
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        whls = [f for f in os.listdir(tmp) if f.endswith('.whl')]
+        if not whls:
+            print(f'    ⚠️ No wheel found')
+            continue
+        with zipfile.ZipFile(os.path.join(tmp, whls[0])) as zf:
+            names = [n for n in zf.namelist() if n.endswith('.dylib')]
+            if not names:
+                print(f'    ℹ️ No dylibs in wheel')
+                continue
+            dst = site / pkg / '.dylibs'
+            os.makedirs(dst, exist_ok=True)
+            for n in names:
+                zf.extract(n, tmp)
+                shutil.copy2(os.path.join(tmp, n), dst / os.path.basename(n))
+                os.chmod(dst / os.path.basename(n), 0o755)
+                print(f'    ✅ {os.path.basename(n)}')
+print('✅ Dylib repair complete')
+"
       # ----------------------------------------------------------------
       # 🏗️ 构建与组装
       # ----------------------------------------------------------------
