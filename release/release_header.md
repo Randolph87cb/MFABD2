@@ -18,10 +18,10 @@
 #     ci     · 开发版
 # 
 #   【叠加示例】
-#     target: all
+# <!-- #     target: all -->
 #     这段所有版本的 Release Notes 都会显示
 # 
-#     target: stable
+# <!-- #     target: stable -->
 #     这段只出现在正式版 Release Notes 里
 # 
 #     → stable 收到：第 1 段 + 第 2 段
