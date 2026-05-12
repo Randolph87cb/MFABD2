@@ -666,7 +666,7 @@
         "next": ["[JumpBack]Global_WaitingForLoading"]
     },
     "Anc_Ocr_Enable_Clr": {
-        "desc": "【被引用节点】对Ocr节点再次色核,亮色",
+        "desc": "[识别]]对Ocr节点按钮再次色核,亮色",
         "recognition": "ColorMatch",
         "roi": "[Anchor]Ocr_clr",
         "roi_offset": [
@@ -690,7 +690,7 @@
         "count": 40
     },
     "Anc_Ocr_Unable_Clr": {
-        "desc": "【被引用节点】对Ocr节点再次色核,灰色",
+        "desc": "[识别]]对Ocr节点按钮再次色核,灰色",
         "recognition": "ColorMatch",
         "roi": "[Anchor]Ocr_clr",
         "method": 40,
@@ -708,7 +708,7 @@
         "count": 25
     },
     "Sub_Ocr_Enable_Clr": {
-        "desc": "【被引用节点】对Ocr节点再次色核,亮色",
+        "desc": "[检测]Ocr按钮背景,亮色",
         "recognition": "ColorMatch",
         "roi": "OCR",
         "method": 40,
@@ -726,7 +726,7 @@
         "count": 40
     },
     "Sub_Ocr_Unable_Clr": {
-        "desc": "【被引用节点】对Ocr节点再次色核,灰色",
+        "desc": "[检测]Ocr按钮背景,灰色",
         "recognition": "ColorMatch",
         "roi": "OCR",
         "roi_offset": [
@@ -848,6 +848,7 @@
         ]
     },
     "Sub_SandBox_Pin3_Bright_Clr": {
+        "desc": "[检测]Rec_SandBox_Pin3_Tpl,是否为黄色选中",
         "recognition": "ColorMatch",
         "roi": "Rec_SandBox_Pin3_Tpl",
         "lower": [
@@ -861,5 +862,23 @@
             129
         ],
         "count": 200
+    },
+    "Sub_SieveExpand_Yew_Clr": {
+        "desc": "[检测]下拉筛选菜单的OCR,是否为选中黄色.Mod=4",
+        "recognition": "ColorMatch",
+        "roi": "OCR",
+        "method": 40,
+        "lower": [
+            18,
+            98,
+            110
+        ],
+        "upper": [
+            23,
+            230,
+            255
+        ],
+        "connected": true,
+        "count": 10
     }
 }

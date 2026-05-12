@@ -11,18 +11,7 @@
         "desc": "识别左下抽抽乐-点击活动",
         "recognition": "And",
         "all_of": [
-            {
-                "recognition": "OCR",
-                "roi": [
-                    98,
-                    656,
-                    66,
-                    32
-                ],
-                "expected": [
-                    "抽抽乐"
-                ]
-            },
+            "Rec_HomePage_GA_Ocr",
             "Rec_HomePage_GA_Clr"
         ],
         "action": "Click",

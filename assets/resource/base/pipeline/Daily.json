@@ -251,7 +251,6 @@
         "recognition": "And",
         "all_of": [
             {
-                "sub_name": "ButtonOCR",
                 "recognition": "OCR",
                 "roi": [
                     640,
@@ -265,22 +264,7 @@
                     "回收"
                 ]
             },
-            {
-                "recognition": "ColorMatch",
-                "roi": "ButtonOCR",
-                "method": 40,
-                "lower": [
-                    17,
-                    10,
-                    210
-                ],
-                "upper": [
-                    23,
-                    18,
-                    232
-                ],
-                "count": 10
-            }
+            "Sub_Ocr_Enable_Clr"
         ],
         "action": "Click",
         "post_delay": 2000
@@ -570,6 +554,7 @@
         "focus": "GBM.无圣石情况"
     },
     "Daily_Busin_StageUp": {
+        "desc": "存在亮色按钮,餐厅星星阶段升级",
         "recognition": "And",
         "all_of": [
             {
@@ -582,32 +567,13 @@
                 ],
                 "expected": "^(?=.*[下])(?=.*[一])(?=.*[阶段]).{2,5}$"
             },
-            {
-                "recognition": "ColorMatch",
-                "roi": [
-                    1155,
-                    937,
-                    158,
-                    81
-                ],
-                "method": 40,
-                "lower": [
-                    21,
-                    14,
-                    127
-                ],
-                "upper": [
-                    24,
-                    11,
-                    241
-                ],
-                "count": 50
-            }
+            "Sub_Ocr_Enable_Clr"
         ],
         "action": "Click",
         "post_delay": 5000
     },
     "Daily_Busin_LevelUp": {
+        "desc": "存在亮色按钮,餐厅等级阶段升级",
         "recognition": "And",
         "all_of": [
             {
@@ -620,27 +586,7 @@
                 ],
                 "expected": "升级"
             },
-            {
-                "recognition": "ColorMatch",
-                "roi": [
-                    1155,
-                    937,
-                    158,
-                    81
-                ],
-                "method": 40,
-                "lower": [
-                    21,
-                    14,
-                    127
-                ],
-                "upper": [
-                    24,
-                    11,
-                    241
-                ],
-                "count": 50
-            }
+            "Sub_Ocr_Enable_Clr"
         ],
         "action": "Click",
         "post_delay": 5000,

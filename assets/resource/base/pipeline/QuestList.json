@@ -6,7 +6,7 @@
         ]
     },
     "RewardsDaily_DailyReward": {
-        "desc": "界面确认",
+        "desc": "界面确认.使用了按钮的检查色,S:255→40,也能通过",
         "recognition": "And",
         "all_of": [
             {
@@ -86,26 +86,6 @@
         "recognition": "And",
         "all_of": [
             {
-                "recognition": "ColorMatch",
-                "roi": [
-                    1022,
-                    640,
-                    138,
-                    38
-                ],
-                "lower": [
-                    222,
-                    218,
-                    208
-                ],
-                "upper": [
-                    222,
-                    220,
-                    211
-                ],
-                "count": 200
-            },
-            {
                 "recognition": "OCR",
                 "roi": [
                     1022,
@@ -116,7 +96,8 @@
                 "expected": [
                     "全部获得"
                 ]
-            }
+            },
+            "Sub_Ocr_Enable_Clr"
         ],
         "box_index": 1,
         "action": "Click",
