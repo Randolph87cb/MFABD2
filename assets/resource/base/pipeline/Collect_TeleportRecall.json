@@ -338,31 +338,8 @@
         "desc": "点击左上地图",
         "recognition": "Or",
         "any_of": [
-            {
-                "recognition": "TemplateMatch",
-                "roi": [
-                    1122,
-                    646,
-                    40,
-                    38
-                ],
-                "template": [
-                    "pin.png"
-                ]
-            },
-            {
-                "recognition": "TemplateMatch",
-                "roi": [
-                    1047,
-                    516,
-                    107,
-                    110
-                ],
-                "template": [
-                    "Run.png"
-                ],
-                "green_mask": true
-            }
+            "Rec_SandBox_Pin_Tpl",
+            "Rec_SandBox_Run_Tpl"
         ],
         "action": "Click",
         "target": [
@@ -607,31 +584,8 @@
         "desc": "[情况2]离得太近,识别失败.返回到箱庭,直接点击箱庭地图图标.",
         "recognition": "Or",
         "any_of": [
-            {
-                "recognition": "TemplateMatch",
-                "roi": [
-                    1122,
-                    646,
-                    40,
-                    38
-                ],
-                "template": [
-                    "pin.png"
-                ]
-            },
-            {
-                "recognition": "TemplateMatch",
-                "roi": [
-                    1047,
-                    516,
-                    107,
-                    110
-                ],
-                "template": [
-                    "Run.png"
-                ],
-                "green_mask": true
-            }
+            "Rec_SandBox_Pin_Tpl",
+            "Rec_SandBox_Run_Tpl"
         ],
         "next": [
             "Collect_NviMap_SpeciaEveMap1#_Field1#"
@@ -717,31 +671,8 @@
     "Collect_NviMap_SpeciaEveMap2#_Sandplay": {
         "recognition": "Or",
         "any_of": [
-            {
-                "recognition": "TemplateMatch",
-                "roi": [
-                    1122,
-                    646,
-                    40,
-                    38
-                ],
-                "template": [
-                    "pin.png"
-                ]
-            },
-            {
-                "recognition": "TemplateMatch",
-                "roi": [
-                    1047,
-                    516,
-                    107,
-                    110
-                ],
-                "template": [
-                    "Run.png"
-                ],
-                "green_mask": true
-            }
+            "Rec_SandBox_Pin_Tpl",
+            "Rec_SandBox_Run_Tpl"
         ],
         "next": [
             "Collect_NviMap_SpeciaEveMap1#_Field1#2#"

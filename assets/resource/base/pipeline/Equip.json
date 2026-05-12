@@ -34,34 +34,8 @@
         "desc": "技能页3，色核识别.next遍历是防止放置其他技能;次节点每轮next判定",
         "recognition": "And",
         "all_of": [
-            {
-                "sub_name": "Tap3_Temp",
-                "recognition": "TemplateMatch",
-                "roi": [
-                    1179,
-                    639,
-                    50,
-                    52
-                ],
-                "template": [
-                    "pin.png"
-                ]
-            },
-            {
-                "recognition": "ColorMatch",
-                "roi": "Tap3_Temp",
-                "lower": [
-                    192,
-                    141,
-                    23
-                ],
-                "upper": [
-                    223,
-                    194,
-                    129
-                ],
-                "count": 200
-            }
+            "Rec_SandBox_Pin3_Tpl",
+            "Sub_SandBox_Pin3_Bright_Clr"
         ],
         "next": [
             "[JumpBack]Setup_Entry5",
@@ -407,7 +381,7 @@
         ],
         "anchor": "SliderSwitchColor",
         "next": [
-            "Global_SliderSwitch_To_On",
+            "Anc_SliderSwitch_Gry_TurnOn_Clr",
             "Equip_EquipUp_Action",
             "Equip_EquipUpSelect_Err"
         ]

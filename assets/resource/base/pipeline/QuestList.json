@@ -10,7 +10,6 @@
         "recognition": "And",
         "all_of": [
             {
-                "sub_name": "Main_OCR",
                 "recognition": "OCR",
                 "roi": [
                     520,
@@ -22,7 +21,7 @@
                     "任务"
                 ]
             },
-            "Global_Main_Clr"
+            "Sub_Ocr_Enable_Clr"
         ],
         "timeout": 2000,
         "next": [
