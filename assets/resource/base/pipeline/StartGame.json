@@ -24,17 +24,19 @@
         }
     },
     "StartGame_RunApp": {
-        "desc": "启动游戏",
+        "desc": "启动游戏。长白屏超时防御",
         "pre_wait_freezes": 500,
         "action": "StartApp",
         "package": "com.neowizgames.game.browndust2",
         "post_delay": 8000,
+        "timeout": 60000,
         "next": [
             "[JumpBack]StartGame_LinkError",
             "[JumpBack]StartGame_Error_API",
-            "StartGame_Error_AM",
+            "StartGame_GameIsMaint",
             "StartGame_Logo",
-            "StartGame_LoadingPage"
+            "StartGame_LoadingPage",
+            "[JumpBack]Global_WaitingForLoading"
         ]
     },
     "StartGame_Logo": {
@@ -80,12 +82,12 @@
             "StartGame_Update_Data",
             "[JumpBack]StartGame_PayFailed",
             "StartGame_Error_API",
-            "StartGame_Error_AM",
             "[JumpBack]StartGame_Setup_SoundTurnOff_Start",
             "StartGame_TouchStart",
             "StartGame_Loading",
             "StartGame_LoadingPage",
-            "[JumpBack]StartGame_ModMsg"
+            "[JumpBack]StartGame_ModMsg",
+            "StartGame_GameIsMaint"
         ],
         "focus": "SM.main"
     },
@@ -277,12 +279,34 @@
         "next": [
             "[JumpBack]StartGame_Update_Data_DownLoading",
             "[JumpBack]StartGame_PayFailed",
-            "StartGame_TouchStart"
+            "StartGame_TouchStart",
+            "StartGame_GameIsMaint"
         ],
         "on_error": [
             "StartGame_UpdateCloseGame"
         ],
         "focus": "SM.数据下载循环"
+    },
+    "StartGame_GameIsMaint": {
+        "desc": "游戏服务器维护",
+        "recognition": "OCR",
+        "roi": [
+            439,
+            142,
+            397,
+            387
+        ],
+        "expected": [
+            "维护和更新",
+            "无法连接和使用游戏"
+        ],
+        "action": "StopTask",
+        "focus": {
+            "toast": [
+                "游戏服务器维护中"
+            ],
+            "aborted": true
+        }
     },
     "StartGame_Loading": {
         "desc": "游戏启动中",
@@ -305,7 +329,8 @@
             "[JumpBack]StartGame_LinkDown",
             "StartGame_TouchStart",
             "StartGame_LoadingPage",
-            "StartGame_Loading"
+            "StartGame_Loading",
+            "StartGame_GameIsMaint"
         ],
         "focus": "SM.ORC游戏启动中"
     },
@@ -655,15 +680,6 @@
             429
         ],
         "focus": "ERROR：API。特殊错误，请检查。"
-    },
-    "StartGame_Error_AM": {
-        "recognition": "OCR",
-        "expected": [
-            "无法连接和使用游戏",
-            "定期维护和更新",
-            "公告事项"
-        ],
-        "focus": "ERROR：服务端停机公告。特殊错误，请检查。"
     },
     "StartGame_Special": {
         "desc": "另类赛季奖励接收",
