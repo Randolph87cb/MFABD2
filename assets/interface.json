@@ -137,7 +137,6 @@
             "entry": "Daily_HomePage",
             "controller": ["Adb"],
             "option": [
-                "公会奖励",
                 "餐馆领装饰币",
                 "餐馆自动升级",
                 "广场每日祈求"
@@ -1247,24 +1246,6 @@
                     "name": "No",
                     "pipeline_override": {
                         "Weekly_Flishing_Hub": {
-                            "enabled": false
-                        }
-                    }
-                }
-            ]
-        },
-        "公会奖励": {
-            "type": "switch",
-            "description": "领取公会每日签到奖励。",
-            "cases": [
-                {
-                    "name": "Yes",
-                    "pipeline_override": {}
-                },
-                {
-                    "name": "No",
-                    "pipeline_override": {
-                        "Daily_Union_Hub": {
                             "enabled": false
                         }
                     }
