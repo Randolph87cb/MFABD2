@@ -1,4 +1,29 @@
 {
+    "Global_ToHomePage": {
+        "next": [
+            "Global_ToHomePage_Enter",
+            "Global_ToHomePage_HomeButton",
+            "Global_ToHomePage_GoldenColosseum",
+            "Global_ToHomePage_Reset"
+        ]
+    },
+    "Global_ToHomePage_GoldenColosseum": {
+        "desc": "[PC覆盖] 黄金竞技场战斗编队页，点击右上 Home 返回主页",
+        "recognition": "And",
+        "all_of": ["Rec_Pack_GoldenColosseum"],
+        "action": "Click",
+        "target": [
+            1186,
+            46
+        ],
+        "post_delay": 3000,
+        "next": [
+            "Global_ToHomePage_Enter",
+            "[JumpBack]Global_WaitingForLoading",
+            "Global_ToHomePage"
+        ],
+        "focus": "G.黄金竞技场编队页，返回主页"
+    },
     "Rec_HomePage_GA_Ocr": {
         "expected": [
             "抽抽乐",
