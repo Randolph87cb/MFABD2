@@ -1,0 +1,38 @@
+[
+  {
+    "name": "home_with_return_battle",
+    "file": "home_with_return_battle_2026-06-22-20-57-04.jpg",
+    "expected_home": true,
+    "expected_ocr": true,
+    "expected_home_icon": true,
+    "source": "install/debug/vision/2026.06.22-20.57.04.916_Mail_GoinMail_400000565.jpg",
+    "notes": "主页，但右下仍显示返回战场入口；旧颜色识别容易漏判。"
+  },
+  {
+    "name": "golden_colosseum_with_home_icon",
+    "file": "golden_colosseum_with_home_icon_2026-06-22-20-56-52.jpg",
+    "expected_home": false,
+    "expected_ocr": false,
+    "expected_home_icon": false,
+    "source": "install/debug/vision/2026.06.22-20.56.52.145_Global_ToHomePage_GoldenColosseum_400000524.jpg",
+    "notes": "黄金竞技场编队页，不能因为存在右上 Home 按钮而识别成主页。"
+  },
+  {
+    "name": "mailbox_empty",
+    "file": "mailbox_empty_2026-06-22-20-57-13.jpg",
+    "expected_home": false,
+    "expected_ocr": false,
+    "expected_home_icon": false,
+    "source": "install/debug/vision/2026.06.22-20.57.13.605_Global_ToHomePage_400000580.jpg",
+    "notes": "普通邮箱空页，不能被主页识别吞掉。"
+  },
+  {
+    "name": "mailbox_backhub",
+    "file": "mailbox_backhub_2026-06-22-20-57-14.jpg",
+    "expected_home": false,
+    "expected_ocr": false,
+    "expected_home_icon": false,
+    "source": "install/debug/vision/2026.06.22-20.57.14.284_Global_BackPageHub_Once_400000590.jpg",
+    "notes": "邮件页返回恢复路径截图，不能被主页识别。"
+  }
+]

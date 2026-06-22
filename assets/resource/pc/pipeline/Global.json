@@ -44,16 +44,14 @@
         "desc": "[PC覆盖] 右上 Home 图标识别",
         "recognition": "TemplateMatch",
         "roi": [
-            1132,
-            4,
-            122,
-            77
+            1098,
+            0,
+            60,
+            80
         ],
         "template": [
-            "MainHomeIceGE.png",
-            "MainHomeRIceGE.png"
-        ],
-        "green_mask": true
+            "PC_TopHomeIcon.png"
+        ]
     },
     "Rec_HomePage_GA_Ocr": {
         "expected": [
