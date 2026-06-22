@@ -66,14 +66,14 @@
         {
             "name": "[执行]快速狩猎扫荡",
             "entry": "QuickHunt_Start",
-            "controller": ["Adb"],
+            "controller": ["Adb", "PC客户端", "PC客户端(CursorPos)"],
             "default_check": true,
             "option": [
                 "冒险航线",
                 "狩猎场",
                 "圣石洞穴属性"
             ],
-            "description": "消耗每日免费米饭与火把，依次扫荡冒险航线·狩猎场、圣石洞穴。<br><span style=\"background-color:rgba(255,160,0,0.2)\"><b>注意：</b>请确认目标狩猎场已通关，且冒险航线<哥布林遗迹>已完成。</span>"
+            "description": "消耗每日免费米饭与火把，依次扫荡冒险航线·狩猎场、圣石洞穴。<br><span style=\"background-color:rgba(255,160,0,0.2)\"><b>注意：</b>请确认目标狩猎场已通关，且冒险航线<哥布林遗迹>已完成。</span><br>PC端当前为MVP适配：建议先执行启动脚本回到箱庭地图，再运行本任务。"
         },
         {
             "name": "[执行]地图采集[单章]",

@@ -1,0 +1,22 @@
+{
+    "QuickHunt_Start": {
+        "desc": "[PC覆盖] 快速狩猎扫荡入口。MVP 复用 Android 主流程，优先支持启动脚本已回到箱庭后的短链路。",
+        "next": [
+            "QuickHunt_Hub"
+        ]
+    },
+    "QuickHunt_OpenGui": {
+        "desc": "[PC覆盖] 初始界面到狩猎地图；PC MVP 优先从箱庭继续，无法恢复时显式停止，避免误点未知页面。",
+        "max_hit": 1,
+        "next": [
+            "[JumpBack]QuickHunt_MIniMap_locErr",
+            "QuickHunt_At_Sandbox",
+            "[JumpBack]Global_ToSandBox",
+            "QuickHunt_PC_OpenGui_Failed"
+        ]
+    },
+    "QuickHunt_PC_OpenGui_Failed": {
+        "action": "StopTask",
+        "focus": "[WRN]PC快速狩猎MVP未能进入箱庭/狩猎入口，请先运行启动脚本回到箱庭地图。"
+    }
+}
