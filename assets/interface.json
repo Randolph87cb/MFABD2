@@ -17,6 +17,19 @@
             },
             "permission_required": true,
             "display_short_side": 720
+        },
+        {
+            "name": "PC客户端(CursorPos)",
+            "label": "PC客户端(CursorPos)",
+            "type": "Win32",
+            "win32": {
+                "class_regex": "UnityWndClass",
+                "screencap": "FramePool",
+                "mouse": "PostMessageWithCursorPos",
+                "keyboard": "PostMessageWithCursorPos"
+            },
+            "permission_required": true,
+            "display_short_side": 720
         }
     ],
     "resource": [
@@ -34,7 +47,8 @@
                 "./resource/pc"
             ],
             "controller": [
-                "PC客户端"
+                "PC客户端",
+                "PC客户端(CursorPos)"
             ]
         }
     ],
@@ -171,7 +185,7 @@
             "name": "[领取]领取邮件",
             "default_check": true,
             "entry": "Mail_HomePage",
-            "controller": ["Adb", "PC客户端"],
+            "controller": ["Adb", "PC客户端", "PC客户端(CursorPos)"],
             "description": "领取主界面<code>邮件</code>内的全部邮件奖励（含一般与商品类）。<br>无未读红点时自动跳过，不进入邮件页面。"
         },
         {

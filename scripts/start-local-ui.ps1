@@ -1,6 +1,9 @@
 param(
     [switch]$NoLaunch,
-    [switch]$SkipDownload
+    [switch]$SkipDownload,
+    [switch]$DebugLogs,
+    [ValidateSet("Keep", "CursorPos", "WindowPos")]
+    [string]$PcInput = "Keep"
 )
 
 $ErrorActionPreference = "Stop"
@@ -142,9 +145,99 @@ function Sync-Install {
     $interface | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $interfacePath -Encoding UTF8
 }
 
+function Set-DebugLogOptions {
+    if (-not $DebugLogs) {
+        return
+    }
+
+    Write-Step "Enable local debug logging"
+    $debugDir = Join-Path $RepoRoot "install\debug"
+    $configDir = Join-Path $RepoRoot "install\config"
+    New-Item -ItemType Directory -Force -Path $debugDir | Out-Null
+    New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+
+    $maaOptionPath = Join-Path $configDir "maa_option.json"
+    $options = @{}
+    if (Test-Path -LiteralPath $maaOptionPath) {
+        $raw = Get-Content -LiteralPath $maaOptionPath -Raw -Encoding UTF8
+        if ($raw.Trim().Length -gt 0) {
+            $json = $raw | ConvertFrom-Json
+            foreach ($prop in $json.PSObject.Properties) {
+                $options[$prop.Name] = $prop.Value
+            }
+        }
+    }
+
+    $options["draw_quality"] = 85
+    $options["logging"] = $true
+    $options["save_draw"] = $true
+    $options["save_on_error"] = $true
+    $options["stdout_level"] = 7
+
+    $options | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $maaOptionPath -Encoding UTF8
+    $env:RDD_DEBUG_DIR = $debugDir
+
+    Write-Host "Debug logs enabled:" -ForegroundColor Green
+    Write-Host "  UI log:       install\logs\log-*.log"
+    Write-Host "  Maa log:      install\debug\maa.log"
+    Write-Host "  Draw images:  install\debug\vision"
+    Write-Host "  Error images: install\debug\on_error"
+    Write-Host "  Red dot:      install\debug\RedDotDetector"
+}
+
+function Set-PcInputHarness {
+    if ($PcInput -eq "Keep") {
+        return
+    }
+
+    Write-Step "Apply PC input harness: $PcInput"
+    $controllerName = "PC" + [char]0x5BA2 + [char]0x6237 + [char]0x7AEF
+    if ($PcInput -eq "CursorPos") {
+        $controllerName = $controllerName + "(CursorPos)"
+        $mouseType = "PostMessageWithCursorPos"
+        $keyboardType = "PostMessageWithCursorPos"
+    } else {
+        $mouseType = "PostMessageWithWindowPos"
+        $keyboardType = "PostMessageWithWindowPos"
+    }
+
+    $instancesDir = Join-Path $RepoRoot "install\config\instances"
+    if (-not (Test-Path -LiteralPath $instancesDir)) {
+        Write-Host "No install instance config found yet. The controller is available in the UI after launch." -ForegroundColor Yellow
+        return
+    }
+
+    $instanceFiles = Get-ChildItem -LiteralPath $instancesDir -Filter "*.json" -File
+    foreach ($file in $instanceFiles) {
+        $instance = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        $resource = ""
+        $currentController = ""
+        $currentControllerName = ""
+        if ($instance.PSObject.Properties.Name -contains "Resource") {
+            $resource = [string]$instance.Resource
+        }
+        if ($instance.PSObject.Properties.Name -contains "CurrentController") {
+            $currentController = [string]$instance.CurrentController
+        }
+        if ($instance.PSObject.Properties.Name -contains "CurrentControllerName") {
+            $currentControllerName = [string]$instance.CurrentControllerName
+        }
+
+        if ($resource -eq "PC" -or $currentController -eq "Win32" -or $currentControllerName -like "PC*") {
+            $instance.CurrentControllerName = $controllerName
+            $instance.CurrentController = "Win32"
+            $instance.Win32ControlMouseType = $mouseType
+            $instance.Win32ControlKeyboardType = $keyboardType
+            $instance | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $file.FullName -Encoding UTF8
+            Write-Host "Updated instance $($file.BaseName): $mouseType" -ForegroundColor Green
+        }
+    }
+}
+
 function Assert-LocalConfigFresh {
     Write-Step "Verify install uses current workspace config"
     $pcControllerName = "PC" + [char]0x5BA2 + [char]0x6237 + [char]0x7AEF
+    $pcCursorControllerName = $pcControllerName + "(CursorPos)"
 
     $pairs = @(
         @("assets\resource\pc\pipeline\StartGame.json", "install\resource\pc\pipeline\StartGame.json"),
@@ -167,12 +260,31 @@ function Assert-LocalConfigFresh {
     }
 
     $installInterface = Get-Content -LiteralPath (Join-Path $RepoRoot "install\interface.json") -Raw -Encoding UTF8 | ConvertFrom-Json
+    $controllerNames = @($installInterface.controller | ForEach-Object { $_.name })
+    if (-not ($controllerNames -contains $pcControllerName)) {
+        throw "install\interface.json is missing the PC client controller."
+    }
+    if (-not ($controllerNames -contains $pcCursorControllerName)) {
+        throw "install\interface.json is missing the CursorPos PC client controller."
+    }
+
+    $pcResource = $installInterface.resource | Where-Object { $_.name -eq "PC" } | Select-Object -First 1
+    if (-not $pcResource) {
+        throw "PC resource was not found in install\interface.json."
+    }
+    if (-not ($pcResource.controller -contains $pcCursorControllerName)) {
+        throw "PC resource in install\interface.json does not allow CursorPos PC client."
+    }
+
     $mailTask = $installInterface.task | Where-Object { $_.entry -eq "Mail_HomePage" } | Select-Object -First 1
     if (-not $mailTask) {
         throw "Mail_HomePage task was not found in install\interface.json."
     }
     if (-not ($mailTask.controller -contains $pcControllerName)) {
         throw "Mail task in install\interface.json does not allow PC client."
+    }
+    if (-not ($mailTask.controller -contains $pcCursorControllerName)) {
+        throw "Mail task in install\interface.json does not allow CursorPos PC client."
     }
     if ($installInterface.agent.child_exec -notlike "*\.venv\Scripts\python.exe") {
         throw "install\interface.json does not point to local .venv Python."
@@ -186,6 +298,8 @@ $venvPython = Ensure-Venv
 $mfaDir = Ensure-MfaAvalonia -MfaaTag $mfaaTag
 Ensure-CommonAssets
 Sync-Install -VenvPython $venvPython -MfaDir $mfaDir
+Set-DebugLogOptions
+Set-PcInputHarness
 Assert-LocalConfigFresh
 
 $exePath = Join-Path $RepoRoot "install\MFAAvalonia.exe"
