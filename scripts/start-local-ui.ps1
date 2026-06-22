@@ -271,6 +271,71 @@ function Set-PcInputHarness {
     }
 }
 
+function Set-JsonProperty {
+    param(
+        [Parameter(Mandatory=$true)]$Object,
+        [Parameter(Mandatory=$true)][string]$Name,
+        $Value
+    )
+
+    if ($Object.PSObject.Properties.Name -contains $Name) {
+        $Object.$Name = $Value
+    } else {
+        $Object | Add-Member -MemberType NoteProperty -Name $Name -Value $Value
+    }
+}
+
+function Sync-InstanceTaskMetadata {
+    Write-Step "Sync instance task metadata from local interface"
+
+    $interfacePath = Join-Path $RepoRoot "install\interface.json"
+    $instancesDir = Join-Path $RepoRoot "install\config\instances"
+    if (-not (Test-Path -LiteralPath $instancesDir)) {
+        Write-Host "No install instance config found yet. Task metadata will be current for new instances." -ForegroundColor Yellow
+        return
+    }
+
+    $interface = Get-Content -LiteralPath $interfacePath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $tasksByEntry = @{}
+    foreach ($task in $interface.task) {
+        if ($task.PSObject.Properties.Name -contains "entry") {
+            $tasksByEntry[[string]$task.entry] = $task
+        }
+    }
+
+    $instanceFiles = Get-ChildItem -LiteralPath $instancesDir -Filter "*.json" -File
+    foreach ($file in $instanceFiles) {
+        $instance = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (-not ($instance.PSObject.Properties.Name -contains "TaskItems")) {
+            continue
+        }
+
+        $changed = $false
+        foreach ($item in $instance.TaskItems) {
+            if (-not ($item.PSObject.Properties.Name -contains "entry")) {
+                continue
+            }
+            $entry = [string]$item.entry
+            if (-not $tasksByEntry.ContainsKey($entry)) {
+                continue
+            }
+
+            $source = $tasksByEntry[$entry]
+            foreach ($field in @("name", "default_check", "description", "controller")) {
+                if ($source.PSObject.Properties.Name -contains $field) {
+                    Set-JsonProperty -Object $item -Name $field -Value $source.$field
+                    $changed = $true
+                }
+            }
+        }
+
+        if ($changed) {
+            $instance | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $file.FullName -Encoding UTF8
+            Write-Host "Synced task metadata for instance $($file.BaseName)." -ForegroundColor Green
+        }
+    }
+}
+
 function Assert-LocalConfigFresh {
     Write-Step "Verify install uses current workspace config"
     $pcControllerName = "PC" + [char]0x5BA2 + [char]0x6237 + [char]0x7AEF
@@ -278,6 +343,7 @@ function Assert-LocalConfigFresh {
 
     $pairs = @(
         @("assets\resource\pc\pipeline\StartGame.json", "install\resource\pc\pipeline\StartGame.json"),
+        @("assets\resource\pc\pipeline\Battle.json", "install\resource\pc\pipeline\Battle.json"),
         @("assets\resource\pc\pipeline\Mail.json", "install\resource\pc\pipeline\Mail.json"),
         @("assets\resource\pc\pipeline\Dummy.json", "install\resource\pc\pipeline\Dummy.json"),
         @("assets\resource\pc\pipeline\Global.json", "install\resource\pc\pipeline\Global.json"),
@@ -323,6 +389,16 @@ function Assert-LocalConfigFresh {
     if (-not ($mailTask.controller -contains $pcCursorControllerName)) {
         throw "Mail task in install\interface.json does not allow CursorPos PC client."
     }
+    $quickHuntTask = $installInterface.task | Where-Object { $_.entry -eq "QuickHunt_Start" } | Select-Object -First 1
+    if (-not $quickHuntTask) {
+        throw "QuickHunt_Start task was not found in install\interface.json."
+    }
+    if (-not ($quickHuntTask.controller -contains $pcControllerName)) {
+        throw "QuickHunt task in install\interface.json does not allow PC client."
+    }
+    if (-not ($quickHuntTask.controller -contains $pcCursorControllerName)) {
+        throw "QuickHunt task in install\interface.json does not allow CursorPos PC client."
+    }
     if ($installInterface.agent.child_exec -notlike "*\.venv\Scripts\python.exe") {
         throw "install\interface.json does not point to local .venv Python."
     }
@@ -337,6 +413,7 @@ Ensure-CommonAssets
 Sync-Install -VenvPython $venvPython -MfaDir $mfaDir -MfaaTag $mfaaTag
 Set-DebugLogOptions
 Set-PcInputHarness
+Sync-InstanceTaskMetadata
 Assert-LocalConfigFresh
 
 $exePath = Join-Path $RepoRoot "install\MFAAvalonia.exe"

@@ -1,0 +1,46 @@
+[
+  {
+    "name": "home_quickhunt_shortcut",
+    "file": "home_quickhunt_shortcut_2026-06-22.png",
+    "expected_home": true,
+    "expected_quickhunt_shortcut": true,
+    "notes": "PC主页右侧存在快速狩猎入口；用于防止主页动画或右侧活动块导致入口识别回退到Android箱庭路线。"
+  },
+  {
+    "name": "negative_golden_colosseum_with_home_icon",
+    "file": "negative_golden_colosseum_with_home_icon_2026-06-22.jpg",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "notes": "黄金竞技场编队页，不能因为存在右上Home按钮而命中快速狩猎入口。"
+  },
+  {
+    "name": "negative_mailbox_backhub",
+    "file": "negative_mailbox_backhub_2026-06-22.jpg",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "notes": "邮件页返回恢复路径截图，不能被快速狩猎入口识别吞掉。"
+  },
+  {
+    "name": "negative_mailbox_empty",
+    "file": "negative_mailbox_empty_2026-06-22.jpg",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "notes": "普通邮箱空页，不能被快速狩猎入口识别吞掉。"
+  },
+  {
+    "name": "map_quickbattle_button",
+    "file": "map_quickbattle_button_2026-06-22.png",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "expected_map_quickbattle_button": true,
+    "notes": "PC快速狩猎地图页，右下快速狩猎按钮应命中；这是主页入口点击后的下一断点。"
+  },
+  {
+    "name": "post_reward_map_android_reset_failure",
+    "file": "post_reward_map_android_reset_failure_2026-06-22.png",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "expected_map_quickbattle_button": false,
+    "notes": "一次快速狩猎奖励返回后的地图页；曾继续进入Android地图复位链路并失败，PC MVP应在奖励领取后停止。"
+  }
+]

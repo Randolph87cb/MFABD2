@@ -6,14 +6,123 @@
         ]
     },
     "QuickHunt_OpenGui": {
-        "desc": "[PC覆盖] 初始界面到狩猎地图；PC MVP 优先从箱庭继续，无法恢复时显式停止，避免误点未知页面。",
+        "desc": "[PC覆盖] 初始界面到狩猎地图；PC MVP 优先使用主页右侧快速狩猎入口，无法恢复时显式停止，避免误点未知页面。",
         "max_hit": 1,
         "next": [
+            "QuickHunt_PC_HomeShortcut",
+            "QuickHunt_PC_MapQuickBattleButton",
             "[JumpBack]QuickHunt_MIniMap_locErr",
             "QuickHunt_At_Sandbox",
             "[JumpBack]Global_ToSandBox",
             "QuickHunt_PC_OpenGui_Failed"
         ]
+    },
+    "QuickHunt_PC_HomeShortcut": {
+        "desc": "[PC覆盖] 主页右侧快速狩猎入口；用主页稳定识别 + 入口文字确认后点击。",
+        "recognition": "And",
+        "all_of": [
+            "Rec_HomePage_PC_Stable",
+            {
+                "sub_name": "QuickHunt_PC_HomeShortcut_Ocr",
+                "recognition": "OCR",
+                "roi": [
+                    1133,
+                    189,
+                    91,
+                    30
+                ],
+                "expected": [
+                    "快速狩猎",
+                    "快速狩獵"
+                ]
+            }
+        ],
+        "action": "Click",
+        "target": [
+            1170,
+            174
+        ],
+        "post_delay": 3000,
+        "next": [
+            "[JumpBack]Global_WaitingForLoading",
+            "QuickHunt_PC_MapQuickBattleButton",
+            "QuickHunt_UIEnter",
+            "QuickHunt_At_Sandbox",
+            "QuickHunt_PC_OpenGui_Failed"
+        ],
+        "focus": "BM.PC主页快速狩猎入口"
+    },
+    "QuickHunt_PC_MapQuickBattleButton": {
+        "desc": "[PC覆盖] 快速狩猎地图页右下快速狩猎按钮。",
+        "recognition": "OCR",
+        "roi": [
+            1060,
+            649,
+            100,
+            30
+        ],
+        "expected": [
+            "快速狩猎",
+            "快速狩獵"
+        ],
+        "action": "Click",
+        "target": [
+            1096,
+            662
+        ],
+        "post_delay": 1500,
+        "next": [
+            "QuickHunt_FastBattleMAXTouchHuntingGrounds",
+            "QuickHunt_FastBattleStart",
+            "QuickHunt_PC_OpenGui_Failed"
+        ],
+        "focus": "BM.PC快速狩猎地图按钮"
+    },
+    "QuickHunt_FastBattleReward": {
+        "desc": "[PC覆盖] 快速狩猎奖励页；领取后停止MVP链路，避免继续进入Android地图复位。",
+        "recognition": "And",
+        "all_of": [
+            "Rec_Reward_Ocr"
+        ],
+        "action": "Click",
+        "target": [
+            1,
+            1
+        ],
+        "post_delay": 3000,
+        "next": [
+            "QuickHunt_PC_QuickHunt_Done"
+        ],
+        "focus": "BB.PC快速狩猎-结算-奖励页面返回"
+    },
+    "QuickHunt_NoFreeAP": {
+        "desc": "[PC覆盖] 免费AP不足时停止MVP链路，避免进入Android地图复位。",
+        "recognition": "ColorMatch",
+        "roi": [
+            646,
+            539,
+            134,
+            32
+        ],
+        "lower": [
+            241,
+            0,
+            0
+        ],
+        "upper": [
+            255,
+            139,
+            133
+        ],
+        "count": 40,
+        "next": [
+            "QuickHunt_PC_QuickHunt_Done"
+        ],
+        "focus": "BB.PC快速狩猎-免费AP不足"
+    },
+    "QuickHunt_PC_QuickHunt_Done": {
+        "action": "StopTask",
+        "focus": "BM.PC快速狩猎MVP完成一次奖励领取，停止任务。"
     },
     "QuickHunt_PC_OpenGui_Failed": {
         "action": "StopTask",

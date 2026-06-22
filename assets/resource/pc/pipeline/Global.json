@@ -51,7 +51,8 @@
         ],
         "template": [
             "PC_TopHomeIcon.png"
-        ]
+        ],
+        "threshold": 0.68
     },
     "Rec_HomePage_GA_Ocr": {
         "expected": [
