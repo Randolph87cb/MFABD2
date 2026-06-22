@@ -1,4 +1,10 @@
 {
+    "Mail_GoinMail": {
+        "desc": "[PC覆盖] 使用稳定主页识别后点击邮件",
+        "all_of": [
+            "Rec_HomePage_PC_Stable"
+        ]
+    },
     "Mail_NewRed": {
         "roi": [
             1055,

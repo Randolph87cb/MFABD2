@@ -1,11 +1,19 @@
 {
     "Global_ToHomePage": {
+        "recognition": "And",
+        "all_of": ["Rec_HomePage_PC_Stable"],
+        "inverse": true,
         "next": [
             "Global_ToHomePage_Enter",
             "Global_ToHomePage_HomeButton",
             "Global_ToHomePage_GoldenColosseum",
             "Global_ToHomePage_Reset"
         ]
+    },
+    "Global_ToHomePage_Enter": {
+        "desc": "[PC覆盖] 使用抽抽乐文字 + 右上 Home 图标确认主页，避免主页动画导致颜色误判",
+        "recognition": "And",
+        "all_of": ["Rec_HomePage_PC_Stable"]
     },
     "Global_ToHomePage_GoldenColosseum": {
         "desc": "[PC覆盖] 黄金竞技场战斗编队页，点击右上 Home 返回主页",
@@ -23,6 +31,29 @@
             "Global_ToHomePage"
         ],
         "focus": "G.黄金竞技场编队页，返回主页"
+    },
+    "Rec_HomePage_PC_Stable": {
+        "desc": "[PC覆盖] 主页稳定识别：抽抽乐文字 + 右上 Home 图标",
+        "recognition": "And",
+        "all_of": [
+            "Rec_HomePage_GA_Ocr",
+            "Rec_HomePage_PC_HomeIcon_Tpl"
+        ]
+    },
+    "Rec_HomePage_PC_HomeIcon_Tpl": {
+        "desc": "[PC覆盖] 右上 Home 图标识别",
+        "recognition": "TemplateMatch",
+        "roi": [
+            1132,
+            4,
+            122,
+            77
+        ],
+        "template": [
+            "MainHomeIceGE.png",
+            "MainHomeRIceGE.png"
+        ],
+        "green_mask": true
     },
     "Rec_HomePage_GA_Ocr": {
         "expected": [
@@ -44,12 +75,7 @@
             67,
             33
         ],
-        "count": 20,
         "desc": "[PC覆盖] 主页抽抽乐文字背景颜色识别"
-    },
-    "Sub_HomePage_GA_Bright_Clr": {
-        "count": 20,
-        "desc": "[PC覆盖] 主页抽抽乐文字高亮识别；PC主页背景动画会降低亮色命中数"
     },
     "Rec_Reward_Ocr": {
         "expected": [
