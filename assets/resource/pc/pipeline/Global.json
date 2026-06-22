@@ -44,7 +44,12 @@
             67,
             33
         ],
+        "count": 20,
         "desc": "[PC覆盖] 主页抽抽乐文字背景颜色识别"
+    },
+    "Sub_HomePage_GA_Bright_Clr": {
+        "count": 20,
+        "desc": "[PC覆盖] 主页抽抽乐文字高亮识别；PC主页背景动画会降低亮色命中数"
     },
     "Rec_Reward_Ocr": {
         "expected": [
