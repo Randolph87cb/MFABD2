@@ -1,6 +1,7 @@
 param(
     [switch]$NoLaunch,
     [switch]$SkipDownload,
+    [switch]$ForceUiMerge,
     [switch]$DebugLogs,
     [ValidateSet("Keep", "CursorPos", "WindowPos")]
     [string]$PcInput = "Keep"
@@ -125,7 +126,8 @@ function Ensure-CommonAssets {
 function Sync-Install {
     param(
         [string]$VenvPython,
-        [string]$MfaDir
+        [string]$MfaDir,
+        [string]$MfaaTag
     )
 
     Write-Step "Refresh local assets and agent into install"
@@ -134,8 +136,43 @@ function Sync-Install {
         throw "install.py failed."
     }
 
-    Write-Step "Merge MFAAvalonia UI files"
-    Copy-Item -Path (Join-Path $MfaDir "*") -Destination (Join-Path $RepoRoot "install") -Recurse -Force
+    $installDir = Join-Path $RepoRoot "install"
+    $installedExe = Join-Path $installDir "MFAAvalonia.exe"
+    $uiTagPath = Join-Path $installDir ".mfaa-ui-tag"
+    $installedTag = ""
+    if (Test-Path -LiteralPath $uiTagPath) {
+        $installedTag = (Get-Content -LiteralPath $uiTagPath -Raw -Encoding UTF8).Trim()
+    }
+
+    $needsUiMerge = $false
+    if ($ForceUiMerge) {
+        $needsUiMerge = $true
+    } elseif (-not (Test-Path -LiteralPath $installedExe)) {
+        $needsUiMerge = $true
+    } elseif ($installedTag.Length -gt 0) {
+        $needsUiMerge = ($installedTag -ne $MfaaTag)
+    } else {
+        $cachedExe = Join-Path $MfaDir "MFAAvalonia.exe"
+        if ((Test-Path -LiteralPath $cachedExe) -and ((Get-FileSha256 $installedExe) -eq (Get-FileSha256 $cachedExe))) {
+            Set-Content -LiteralPath $uiTagPath -Value $MfaaTag -Encoding UTF8
+            $installedTag = $MfaaTag
+        } else {
+            $needsUiMerge = $true
+        }
+    }
+
+    if ($needsUiMerge) {
+        Write-Step "Merge MFAAvalonia UI files"
+        try {
+            Copy-Item -Path (Join-Path $MfaDir "*") -Destination $installDir -Recurse -Force
+            Set-Content -LiteralPath $uiTagPath -Value $MfaaTag -Encoding UTF8
+        } catch {
+            throw "Failed to merge MFAAvalonia UI files. Close the running MFABD2 UI if install DLLs are locked, or rerun without -ForceUiMerge when the installed UI tag is already current. Original error: $($_.Exception.Message)"
+        }
+    } else {
+        Write-Step "Skip MFAAvalonia UI files"
+        Write-Host "Installed UI already matches $MfaaTag. Use -ForceUiMerge to copy UI files again." -ForegroundColor Green
+    }
 
     Write-Step "Patch local development agent config"
     $interfacePath = Join-Path $RepoRoot "install\interface.json"
@@ -297,7 +334,7 @@ $mfaaTag = Read-MfaaTag
 $venvPython = Ensure-Venv
 $mfaDir = Ensure-MfaAvalonia -MfaaTag $mfaaTag
 Ensure-CommonAssets
-Sync-Install -VenvPython $venvPython -MfaDir $mfaDir
+Sync-Install -VenvPython $venvPython -MfaDir $mfaDir -MfaaTag $mfaaTag
 Set-DebugLogOptions
 Set-PcInputHarness
 Assert-LocalConfigFresh
