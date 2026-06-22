@@ -120,5 +120,14 @@
         "action": "Custom",
         "custom_action": "PC_ResizeWindow",
         "desc": "[PC覆盖] 先调整窗口大小到1280x720，再截图验证窗口可用"
+    },
+    "StartGame_AtPack_GoldenColosseum": {
+        "desc": "[PC覆盖] 黄金竞技场战斗编队页没有快速卡带入口，使用右上 Home 返回主页",
+        "next": [
+            "[JumpBack]Global_HomeButton_Once",
+            "[JumpBack]Global_WaitingForLoading",
+            "StartGame_SandPlayPage",
+            "[JumpBack]Global_BackPageHub_Once"
+        ]
     }
 }
