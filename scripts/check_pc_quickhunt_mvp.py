@@ -56,6 +56,8 @@ def main() -> int:
         open_gui_next = open_gui.get("next", [])
         if not open_gui_next or open_gui_next[0] != "QuickHunt_PC_HomeShortcut":
             failures.append("QuickHunt_OpenGui must try QuickHunt_PC_HomeShortcut first")
+        if open_gui_next.index("QuickHunt_PC_MapNoFreeAP") > open_gui_next.index("QuickHunt_PC_MapQuickBattleButton"):
+            failures.append("QuickHunt_OpenGui must stop on no-AP before clicking the map quick battle button")
         if "QuickHunt_PC_OpenGui_Failed" not in open_gui.get("next", []):
             failures.append("QuickHunt_OpenGui must fail closed through QuickHunt_PC_OpenGui_Failed")
 
@@ -79,7 +81,7 @@ def main() -> int:
             failures.append("QuickHunt_PC_MapNoFreeAP must StopTask")
 
         reset_select = pc_battle.get("QuickHunt_PC_MapReset_SelectHuntingGrounds", {})
-        if reset_select.get("target") != [116, 105]:
+        if reset_select.get("target") != [642, 348]:
             failures.append("QuickHunt_PC_MapReset_SelectHuntingGrounds target changed; update fixtures if intentional")
         if "QuickHunt_PC_MapReset_Default" not in reset_select.get("next", []):
             failures.append("QuickHunt_PC_MapReset_SelectHuntingGrounds must verify QuickHunt_PC_MapReset_Default")

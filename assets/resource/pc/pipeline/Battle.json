@@ -10,8 +10,8 @@
         "max_hit": 1,
         "next": [
             "QuickHunt_PC_HomeShortcut",
-            "QuickHunt_PC_MapQuickBattleButton",
             "QuickHunt_PC_MapNoFreeAP",
+            "QuickHunt_PC_MapQuickBattleButton",
             "[JumpBack]QuickHunt_MIniMap_locErr",
             "QuickHunt_At_Sandbox",
             "[JumpBack]Global_ToSandBox",
@@ -93,7 +93,7 @@
                     25
                 ],
                 "expected": [
-                    "0/60"
+                    "^0/60$"
                 ]
             },
             {
@@ -106,6 +106,8 @@
                     31
                 ],
                 "expected": [
+                    "快速狩猎",
+                    "快速狩獵",
                     "难度挑战",
                     "難度挑戰"
                 ]
@@ -115,11 +117,11 @@
         "focus": "[WRN]PC快速狩猎AP不足或当前点位不可快速狩猎，停止任务。"
     },
     "QuickHunt_PC_MapReset_SelectHuntingGrounds": {
-        "desc": "[PC覆盖][未接入主链路] 地图复位准备：点击PC左侧狩猎场分类。",
+        "desc": "[PC覆盖][未接入主链路] 地图复位准备：点击PC地图上的默认点位1.野猪洞穴。",
         "action": "Click",
         "target": [
-            116,
-            105
+            642,
+            348
         ],
         "post_delay": 800,
         "next": [

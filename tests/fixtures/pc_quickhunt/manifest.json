@@ -33,6 +33,7 @@
     "expected_home": false,
     "expected_quickhunt_shortcut": false,
     "expected_map_quickbattle_button": true,
+    "expected_map_no_free_ap": false,
     "expected_map_reset_default": true,
     "notes": "PC快速狩猎地图页，右下快速狩猎按钮应命中；这是主页入口点击后的下一断点。"
   },
@@ -65,5 +66,25 @@
     "expected_map_no_free_ap": true,
     "expected_map_reset_default": false,
     "notes": "当前PC地图页是角斗士斗兽场且AP为0；用于验证PC地图复位默认点位不能误判。"
+  },
+  {
+    "name": "map_reset_left_category_no_effect",
+    "file": "map_reset_left_category_no_effect_2026-06-22.png",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "expected_map_quickbattle_button": false,
+    "expected_map_no_free_ap": true,
+    "expected_map_reset_default": false,
+    "notes": "错误复位样本：点击左侧狩猎场分类后仍停留在角斗士斗兽场，不能把左侧分类点击视为复位成功。"
+  },
+  {
+    "name": "map_default_no_ap_quickbattle_button",
+    "file": "map_default_no_ap_quickbattle_button_2026-06-22.png",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "expected_map_quickbattle_button": true,
+    "expected_map_no_free_ap": true,
+    "expected_map_reset_default": true,
+    "notes": "默认野猪洞穴且AP为0时右下仍显示快速狩猎；运行链路必须先命中NoAP停止，再考虑快速狩猎按钮。"
   }
 ]
