@@ -45,7 +45,7 @@
     "expected_map_quickbattle_button": false,
     "expected_map_no_free_ap": true,
     "expected_map_reset_default": false,
-    "notes": "一次快速狩猎奖励返回后的地图页；曾继续进入Android地图复位链路并失败，PC MVP应在奖励领取后停止。"
+    "notes": "一次快速狩猎奖励返回后的地图页；曾继续进入Android地图复位链路并失败，PC MVP应在奖励领取后走PC默认点复位再停止。"
   },
   {
     "name": "map_no_ap_difficulty_challenge",

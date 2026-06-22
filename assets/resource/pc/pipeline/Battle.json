@@ -142,10 +142,13 @@
             "野猪洞穴",
             "野豬洞穴"
         ],
+        "next": [
+            "QuickHunt_PC_QuickHunt_Done"
+        ],
         "focus": "BM.PC快速狩猎地图复位-默认狩猎场"
     },
     "QuickHunt_FastBattleReward": {
-        "desc": "[PC覆盖] 快速狩猎奖励页；领取后停止MVP链路，避免继续进入Android地图复位。",
+        "desc": "[PC覆盖] 快速狩猎奖励页；领取后先复位到默认野猪洞穴，再停止MVP链路。",
         "recognition": "And",
         "all_of": [
             "Rec_Reward_Ocr"
@@ -157,7 +160,7 @@
         ],
         "post_delay": 3000,
         "next": [
-            "QuickHunt_PC_QuickHunt_Done"
+            "QuickHunt_PC_MapReset_SelectHuntingGrounds"
         ],
         "focus": "BB.PC快速狩猎-结算-奖励页面返回"
     },

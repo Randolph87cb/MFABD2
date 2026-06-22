@@ -85,10 +85,13 @@ def main() -> int:
             failures.append("QuickHunt_PC_MapReset_SelectHuntingGrounds target changed; update fixtures if intentional")
         if "QuickHunt_PC_MapReset_Default" not in reset_select.get("next", []):
             failures.append("QuickHunt_PC_MapReset_SelectHuntingGrounds must verify QuickHunt_PC_MapReset_Default")
+        reset_default = pc_battle.get("QuickHunt_PC_MapReset_Default", {})
+        if reset_default.get("next") != ["QuickHunt_PC_QuickHunt_Done"]:
+            failures.append("QuickHunt_PC_MapReset_Default must stop after verifying the default point")
 
         reward = pc_battle.get("QuickHunt_FastBattleReward", {})
-        if reward.get("next") != ["QuickHunt_PC_QuickHunt_Done"]:
-            failures.append("PC QuickHunt_FastBattleReward must stop after reward via QuickHunt_PC_QuickHunt_Done")
+        if reward.get("next") != ["QuickHunt_PC_MapReset_SelectHuntingGrounds"]:
+            failures.append("PC QuickHunt_FastBattleReward must reset to the default map point before stopping")
 
         no_free_ap = pc_battle.get("QuickHunt_NoFreeAP", {})
         if no_free_ap.get("next") != ["QuickHunt_PC_QuickHunt_Done"]:
