@@ -114,6 +114,34 @@
         "action": "StopTask",
         "focus": "[WRN]PC快速狩猎AP不足或当前点位不可快速狩猎，停止任务。"
     },
+    "QuickHunt_PC_MapReset_SelectHuntingGrounds": {
+        "desc": "[PC覆盖][未接入主链路] 地图复位准备：点击PC左侧狩猎场分类。",
+        "action": "Click",
+        "target": [
+            116,
+            105
+        ],
+        "post_delay": 800,
+        "next": [
+            "QuickHunt_PC_MapReset_Default"
+        ],
+        "focus": "BM.PC快速狩猎地图复位-选择狩猎场分类"
+    },
+    "QuickHunt_PC_MapReset_Default": {
+        "desc": "[PC覆盖][未接入主链路] 地图复位验证：顶部标题为野猪洞穴。",
+        "recognition": "OCR",
+        "roi": [
+            175,
+            17,
+            150,
+            42
+        ],
+        "expected": [
+            "野猪洞穴",
+            "野豬洞穴"
+        ],
+        "focus": "BM.PC快速狩猎地图复位-默认狩猎场"
+    },
     "QuickHunt_FastBattleReward": {
         "desc": "[PC覆盖] 快速狩猎奖励页；领取后停止MVP链路，避免继续进入Android地图复位。",
         "recognition": "And",

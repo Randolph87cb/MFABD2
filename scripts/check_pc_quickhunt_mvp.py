@@ -42,6 +42,8 @@ def main() -> int:
             "QuickHunt_PC_HomeShortcut",
             "QuickHunt_PC_MapQuickBattleButton",
             "QuickHunt_PC_MapNoFreeAP",
+            "QuickHunt_PC_MapReset_SelectHuntingGrounds",
+            "QuickHunt_PC_MapReset_Default",
             "QuickHunt_FastBattleReward",
             "QuickHunt_NoFreeAP",
             "QuickHunt_PC_QuickHunt_Done",
@@ -75,6 +77,12 @@ def main() -> int:
         no_ap_map = pc_battle.get("QuickHunt_PC_MapNoFreeAP", {})
         if no_ap_map.get("action") != "StopTask":
             failures.append("QuickHunt_PC_MapNoFreeAP must StopTask")
+
+        reset_select = pc_battle.get("QuickHunt_PC_MapReset_SelectHuntingGrounds", {})
+        if reset_select.get("target") != [116, 105]:
+            failures.append("QuickHunt_PC_MapReset_SelectHuntingGrounds target changed; update fixtures if intentional")
+        if "QuickHunt_PC_MapReset_Default" not in reset_select.get("next", []):
+            failures.append("QuickHunt_PC_MapReset_SelectHuntingGrounds must verify QuickHunt_PC_MapReset_Default")
 
         reward = pc_battle.get("QuickHunt_FastBattleReward", {})
         if reward.get("next") != ["QuickHunt_PC_QuickHunt_Done"]:

@@ -33,6 +33,7 @@
     "expected_home": false,
     "expected_quickhunt_shortcut": false,
     "expected_map_quickbattle_button": true,
+    "expected_map_reset_default": true,
     "notes": "PC快速狩猎地图页，右下快速狩猎按钮应命中；这是主页入口点击后的下一断点。"
   },
   {
@@ -42,6 +43,7 @@
     "expected_quickhunt_shortcut": false,
     "expected_map_quickbattle_button": false,
     "expected_map_no_free_ap": true,
+    "expected_map_reset_default": false,
     "notes": "一次快速狩猎奖励返回后的地图页；曾继续进入Android地图复位链路并失败，PC MVP应在奖励领取后停止。"
   },
   {
@@ -51,6 +53,17 @@
     "expected_quickhunt_shortcut": false,
     "expected_map_quickbattle_button": false,
     "expected_map_no_free_ap": true,
+    "expected_map_reset_default": false,
     "notes": "AP为0/60且右下为难度挑战；再次启动快速狩猎时应停止，不应继续Android箱庭/地图复位。"
+  },
+  {
+    "name": "map_reset_candidate_no_ap",
+    "file": "map_reset_candidate_no_ap_2026-06-22.png",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "expected_map_quickbattle_button": false,
+    "expected_map_no_free_ap": true,
+    "expected_map_reset_default": false,
+    "notes": "当前PC地图页是角斗士斗兽场且AP为0；用于验证PC地图复位默认点位不能误判。"
   }
 ]

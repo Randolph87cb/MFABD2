@@ -124,6 +124,7 @@ def main() -> int:
         "expected_quickhunt_shortcut": "QuickHunt_PC_HomeShortcut",
         "expected_map_quickbattle_button": "QuickHunt_PC_MapQuickBattleButton",
         "expected_map_no_free_ap": "QuickHunt_PC_MapNoFreeAP",
+        "expected_map_reset_default": "QuickHunt_PC_MapReset_Default",
     }
 
     for case in cases:
