@@ -11,6 +11,7 @@
         "next": [
             "QuickHunt_PC_HomeShortcut",
             "QuickHunt_PC_MapQuickBattleButton",
+            "QuickHunt_PC_MapNoFreeAP",
             "[JumpBack]QuickHunt_MIniMap_locErr",
             "QuickHunt_At_Sandbox",
             "[JumpBack]Global_ToSandBox",
@@ -77,6 +78,41 @@
             "QuickHunt_PC_OpenGui_Failed"
         ],
         "focus": "BM.PC快速狩猎地图按钮"
+    },
+    "QuickHunt_PC_MapNoFreeAP": {
+        "desc": "[PC覆盖] 快速狩猎地图页AP不足/已不能快速狩猎；停止而不是进入Android复位。",
+        "recognition": "And",
+        "all_of": [
+            {
+                "sub_name": "QuickHunt_PC_MapNoFreeAP_Ap_Ocr",
+                "recognition": "OCR",
+                "roi": [
+                    1085,
+                    29,
+                    59,
+                    25
+                ],
+                "expected": [
+                    "0/60"
+                ]
+            },
+            {
+                "sub_name": "QuickHunt_PC_MapNoFreeAP_Button_Ocr",
+                "recognition": "OCR",
+                "roi": [
+                    1066,
+                    648,
+                    96,
+                    31
+                ],
+                "expected": [
+                    "难度挑战",
+                    "難度挑戰"
+                ]
+            }
+        ],
+        "action": "StopTask",
+        "focus": "[WRN]PC快速狩猎AP不足或当前点位不可快速狩猎，停止任务。"
     },
     "QuickHunt_FastBattleReward": {
         "desc": "[PC覆盖] 快速狩猎奖励页；领取后停止MVP链路，避免继续进入Android地图复位。",

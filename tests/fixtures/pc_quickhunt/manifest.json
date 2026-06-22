@@ -41,6 +41,16 @@
     "expected_home": false,
     "expected_quickhunt_shortcut": false,
     "expected_map_quickbattle_button": false,
+    "expected_map_no_free_ap": true,
     "notes": "一次快速狩猎奖励返回后的地图页；曾继续进入Android地图复位链路并失败，PC MVP应在奖励领取后停止。"
+  },
+  {
+    "name": "map_no_ap_difficulty_challenge",
+    "file": "map_no_ap_difficulty_challenge_2026-06-22.png",
+    "expected_home": false,
+    "expected_quickhunt_shortcut": false,
+    "expected_map_quickbattle_button": false,
+    "expected_map_no_free_ap": true,
+    "notes": "AP为0/60且右下为难度挑战；再次启动快速狩猎时应停止，不应继续Android箱庭/地图复位。"
   }
 ]

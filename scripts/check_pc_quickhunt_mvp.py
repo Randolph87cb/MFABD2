@@ -41,6 +41,7 @@ def main() -> int:
             "QuickHunt_OpenGui",
             "QuickHunt_PC_HomeShortcut",
             "QuickHunt_PC_MapQuickBattleButton",
+            "QuickHunt_PC_MapNoFreeAP",
             "QuickHunt_FastBattleReward",
             "QuickHunt_NoFreeAP",
             "QuickHunt_PC_QuickHunt_Done",
@@ -67,6 +68,13 @@ def main() -> int:
         map_button = pc_battle.get("QuickHunt_PC_MapQuickBattleButton", {})
         if map_button.get("target") != [1096, 662]:
             failures.append("QuickHunt_PC_MapQuickBattleButton target changed; update tests/fixtures if intentional")
+
+        if "QuickHunt_PC_MapNoFreeAP" not in open_gui_next:
+            failures.append("QuickHunt_OpenGui must stop on QuickHunt_PC_MapNoFreeAP before Android fallback")
+
+        no_ap_map = pc_battle.get("QuickHunt_PC_MapNoFreeAP", {})
+        if no_ap_map.get("action") != "StopTask":
+            failures.append("QuickHunt_PC_MapNoFreeAP must StopTask")
 
         reward = pc_battle.get("QuickHunt_FastBattleReward", {})
         if reward.get("next") != ["QuickHunt_PC_QuickHunt_Done"]:

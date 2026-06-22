@@ -123,6 +123,7 @@ def main() -> int:
         "expected_home": "Rec_HomePage_PC_Stable",
         "expected_quickhunt_shortcut": "QuickHunt_PC_HomeShortcut",
         "expected_map_quickbattle_button": "QuickHunt_PC_MapQuickBattleButton",
+        "expected_map_no_free_ap": "QuickHunt_PC_MapNoFreeAP",
     }
 
     for case in cases:
