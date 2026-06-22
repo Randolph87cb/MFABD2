@@ -1,0 +1,54 @@
+{
+    "Mail_NewRed": {
+        "roi": [
+            1055,
+            10,
+            60,
+            60
+        ]
+    },
+    "Mail_Check_MailPage": {
+        "roi": [
+            184,
+            15,
+            102,
+            36
+        ],
+        "expected": [
+            "邮箱",
+            "记录",
+            "信箱"
+        ]
+    },
+    "Mail_GetAll": {
+        "desc": "[PC覆盖] 右下全部领取按钮 OCR ROI；商品邮箱领取通过 Mail_GetBusAll 复用本节点",
+        "all_of": [
+            {
+                "recognition": "OCR",
+                "roi": [
+                    1085,
+                    652,
+                    80,
+                    34
+                ],
+                "expected": [
+                    "全部领取",
+                    "全部获得",
+                    "全部領取",
+                    "全部獲得"
+                ],
+                "only_rec": true
+            },
+            "Sub_Ocr_Enable_Clr"
+        ]
+    },
+    "Mail_TabBus": {
+        "desc": "[PC覆盖] 商品邮箱页签红点 ROI",
+        "roi": [
+            255,
+            124,
+            78,
+            40
+        ]
+    }
+}

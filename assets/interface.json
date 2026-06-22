@@ -171,7 +171,7 @@
             "name": "[领取]领取邮件",
             "default_check": true,
             "entry": "Mail_HomePage",
-            "controller": ["Adb"],
+            "controller": ["Adb", "PC客户端"],
             "description": "领取主界面<code>邮件</code>内的全部邮件奖励（含一般与商品类）。<br>无未读红点时自动跳过，不进入邮件页面。"
         },
         {

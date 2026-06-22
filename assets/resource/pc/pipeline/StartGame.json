@@ -1,0 +1,124 @@
+{
+    "StartGame_Start": {
+        "next": [
+            "[JumpBack]Env_AccountSave_Switch",
+            "StartGame_Check_App_Alive",
+            "StartGame_Check_Win32_SetSize"
+        ]
+    },
+    "StartGame_Check_App_Alive": {
+        "enabled": false,
+        "desc": "[PC覆盖] 禁用 Android shell 进程探针"
+    },
+    "StartGame_RunApp": {
+        "enabled": false,
+        "desc": "[PC覆盖] 禁用 Android StartApp 启动路径"
+    },
+    "StartGame_Update_PGM": {
+        "enabled": false,
+        "desc": "[PC覆盖] PC 程式更新外置，禁用 Android 商店更新路径"
+    },
+    "StartGame_UpdateCloseGame": {
+        "enabled": false,
+        "desc": "[PC覆盖] 禁用 Android StopApp 更新重启路径"
+    },
+    "StartGame_Update_Data": {
+        "expected": [
+            "所需资料",
+            "所需資料"
+        ],
+        "desc": "下载数据"
+    },
+    "StartGame_Update_Data_Click": {
+        "expected": [
+            "下载",
+            "下載"
+        ],
+        "desc": "下载数据"
+    },
+    "StartGame_Update_Data_DownLoading": {
+        "next": [
+            "StartGame_Update_Data_DownLoading",
+            "[JumpBack]StartGame_PayFailed",
+            "StartGame_TouchStart"
+        ],
+        "expected": [
+            "正在下载",
+            "下载中"
+        ],
+        "replace": [
+            [
+                "載",
+                "载"
+            ]
+        ],
+        "desc": "下载数据中"
+    },
+    "StartGame_GameIsMaint": {
+        "expected": [
+            "维护和更新",
+            "无法连接和使用游戏",
+            "維護和更新",
+            "無法連線和使用遊戲"
+        ],
+        "desc": "游戏服务器维护"
+    },
+    "StartGame_Loading": {
+        "expected": [
+            "游戏启动中",
+            "啟動遊戲中"
+        ],
+        "roi": [
+            808,
+            433,
+            332,
+            73
+        ],
+        "desc": "游戏启动中"
+    },
+    "StartGame_TouchStart": {
+        "roi": [
+            787,
+            442,
+            121,
+            57
+        ],
+        "desc": "点击进入"
+    },
+    "StartGame_Special": {
+        "expected": [
+            "赛季奖励",
+            "奖励已发放至",
+            "奖励已通过",
+            "邮件发放",
+            "獎勵已透過郵件發放"
+        ],
+        "desc": "另类赛季奖励接收[PC覆盖]"
+    },
+    "StartGame_LinkDown_TouchCk": {
+        "expected": [
+            "确认",
+            "確認"
+        ]
+    },
+    "StartGame_Check_Win32_SetSize": {
+        "focus": {
+            "Node.Action.Failed": "[color:red]PC窗口未找到或调整失败[/color]",
+            "Node.Action.Succeeded": "[color:green]PC窗口已就绪（1280x720）[/color]"
+        },
+        "next": [
+            "StartGame_Logo",
+            "StartGame_LoadingPage",
+            "StartGame_Update_Data",
+            "StartGame_TouchStart",
+            "StartGame_SandPlayPage",
+            "StartGame_MainMsgBox_Remove"
+        ],
+        "on_error": [
+            "StartGame_RunApp"
+        ],
+        "action": "Custom",
+        "custom_action": "PC_ResizeWindow",
+        "desc": "[PC覆盖] 先调整窗口大小到1280x720，再截图验证窗口可用"
+    }
+}

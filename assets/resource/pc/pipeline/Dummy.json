@@ -1,0 +1,45 @@
+{
+    "Global_Null_Panic": {
+        "desc": "[PC覆盖] PC端不支持 StopApp，禁用。管路失控时仅记录日志，不尝试重启游戏。",
+        "enabled": false,
+        "post_delay": 2000,
+        "focus": "[color:red][WRN][PC] 管路逻辑失控，无法恢复。\n\nPC端不支持自动重启游戏，请检查游戏状态后手动重新运行任务。[/color]"
+    },
+    "Agt_RedDot_Preset": {
+        "desc": "[PC覆盖] 通用红点预设，放宽 PC 端红点面积阈值。",
+        "custom_recognition_param": {
+            "gap_ratio": 0.35,
+            "hsv_ranges": [
+                {
+                    "lower": [
+                        0,
+                        140,
+                        120
+                    ],
+                    "upper": [
+                        12,
+                        255,
+                        255
+                    ]
+                },
+                {
+                    "lower": [
+                        165,
+                        140,
+                        120
+                    ],
+                    "upper": [
+                        180,
+                        255,
+                        255
+                    ]
+                }
+            ],
+            "min_confidence": 0.25,
+            "red_area": [
+                30,
+                1200
+            ]
+        }
+    }
+}

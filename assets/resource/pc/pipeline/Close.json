@@ -1,0 +1,6 @@
+{
+    "Close_HomePage": {
+        "enabled": false,
+        "desc": "[PC覆盖] PC端不支持 StopApp，禁用。PC端请手动关闭游戏窗口。"
+    }
+}
