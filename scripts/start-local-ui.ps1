@@ -3,8 +3,8 @@ param(
     [switch]$SkipDownload,
     [switch]$ForceUiMerge,
     [switch]$DebugLogs,
-    [ValidateSet("Keep", "CursorPos", "WindowPos")]
-    [string]$PcInput = "Keep"
+    [ValidateSet("NoMove")]
+    [string]$PcInput = "NoMove"
 )
 
 $ErrorActionPreference = "Stop"
@@ -223,20 +223,10 @@ function Set-DebugLogOptions {
 }
 
 function Set-PcInputHarness {
-    if ($PcInput -eq "Keep") {
-        return
-    }
-
-    Write-Step "Apply PC input harness: $PcInput"
+    Write-Step "Apply PC input harness: NoMove"
     $controllerName = "PC" + [char]0x5BA2 + [char]0x6237 + [char]0x7AEF
-    if ($PcInput -eq "CursorPos") {
-        $controllerName = $controllerName + "(CursorPos)"
-        $mouseType = "PostMessageWithCursorPos"
-        $keyboardType = "PostMessageWithCursorPos"
-    } else {
-        $mouseType = "PostMessageWithWindowPos"
-        $keyboardType = "PostMessageWithWindowPos"
-    }
+    $mouseType = "PostMessage"
+    $keyboardType = "PostMessage"
 
     $instancesDir = Join-Path $RepoRoot "install\config\instances"
     if (-not (Test-Path -LiteralPath $instancesDir)) {
@@ -339,8 +329,6 @@ function Sync-InstanceTaskMetadata {
 function Assert-LocalConfigFresh {
     Write-Step "Verify install uses current workspace config"
     $pcControllerName = "PC" + [char]0x5BA2 + [char]0x6237 + [char]0x7AEF
-    $pcCursorControllerName = $pcControllerName + "(CursorPos)"
-
     $pairs = @(
         @("assets\resource\pc\pipeline\StartGame.json", "install\resource\pc\pipeline\StartGame.json"),
         @("assets\resource\pc\pipeline\Battle.json", "install\resource\pc\pipeline\Battle.json"),
@@ -372,16 +360,20 @@ function Assert-LocalConfigFresh {
     if (-not ($controllerNames -contains $pcControllerName)) {
         throw "install\interface.json is missing the PC client controller."
     }
-    if (-not ($controllerNames -contains $pcCursorControllerName)) {
-        throw "install\interface.json is missing the CursorPos PC client controller."
+    if ($controllerNames -contains ($pcControllerName + "(CursorPos)")) {
+        throw "install\interface.json must not expose CursorPos PC client controller."
+    }
+    $pcController = $installInterface.controller | Where-Object { $_.name -eq $pcControllerName } | Select-Object -First 1
+    if (-not $pcController) {
+        throw "PC client controller was not found in install\interface.json."
+    }
+    if ($pcController.win32.mouse -ne "PostMessage" -or $pcController.win32.keyboard -ne "PostMessage") {
+        throw "PC client controller must use PostMessage to avoid moving the game window."
     }
 
     $pcResource = $installInterface.resource | Where-Object { $_.name -eq "PC" } | Select-Object -First 1
     if (-not $pcResource) {
         throw "PC resource was not found in install\interface.json."
-    }
-    if (-not ($pcResource.controller -contains $pcCursorControllerName)) {
-        throw "PC resource in install\interface.json does not allow CursorPos PC client."
     }
 
     $mailTask = $installInterface.task | Where-Object { $_.entry -eq "Mail_HomePage" } | Select-Object -First 1
@@ -391,9 +383,6 @@ function Assert-LocalConfigFresh {
     if (-not ($mailTask.controller -contains $pcControllerName)) {
         throw "Mail task in install\interface.json does not allow PC client."
     }
-    if (-not ($mailTask.controller -contains $pcCursorControllerName)) {
-        throw "Mail task in install\interface.json does not allow CursorPos PC client."
-    }
     $quickHuntTask = $installInterface.task | Where-Object { $_.entry -eq "QuickHunt_Start" } | Select-Object -First 1
     if (-not $quickHuntTask) {
         throw "QuickHunt_Start task was not found in install\interface.json."
@@ -401,18 +390,12 @@ function Assert-LocalConfigFresh {
     if (-not ($quickHuntTask.controller -contains $pcControllerName)) {
         throw "QuickHunt task in install\interface.json does not allow PC client."
     }
-    if (-not ($quickHuntTask.controller -contains $pcCursorControllerName)) {
-        throw "QuickHunt task in install\interface.json does not allow CursorPos PC client."
-    }
     $collectTask = $installInterface.task | Where-Object { $_.entry -eq "Collect_StartGame_HomePage_OnlyOnce" } | Select-Object -First 1
     if (-not $collectTask) {
         throw "Collect_StartGame_HomePage_OnlyOnce task was not found in install\interface.json."
     }
     if (-not ($collectTask.controller -contains $pcControllerName)) {
         throw "Collect task in install\interface.json does not allow PC client."
-    }
-    if (-not ($collectTask.controller -contains $pcCursorControllerName)) {
-        throw "Collect task in install\interface.json does not allow CursorPos PC client."
     }
     if ($installInterface.agent.child_exec -notlike "*\.venv\Scripts\python.exe") {
         throw "install\interface.json does not point to local .venv Python."

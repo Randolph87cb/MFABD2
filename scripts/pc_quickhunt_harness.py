@@ -127,7 +127,7 @@ def main() -> int:
         sys.stdout.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser(description="PC QuickHunt runtime harness")
-    parser.add_argument("--input", default="PostMessageWithCursorPos")
+    parser.add_argument("--input", default="PostMessage", choices=["PostMessage"])
     parser.add_argument("--screenshot", action="store_true")
     parser.add_argument("--run-task", action="store_true")
     parser.add_argument("--entry", default="QuickHunt_Start")

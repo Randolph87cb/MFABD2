@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-PC_CONTROLLERS = {"PC客户端", "PC客户端(CursorPos)"}
+PC_CONTROLLERS = {"PC客户端"}
 
 
 def load_json(path: Path):
@@ -20,6 +20,12 @@ def main() -> int:
     failures: list[str] = []
 
     interface = load_json(ROOT / "assets" / "interface.json")
+    pc_controllers = [controller for controller in interface["controller"] if controller.get("name", "").startswith("PC客户端")]
+    if [controller.get("name") for controller in pc_controllers] != ["PC客户端"]:
+        failures.append("interface must expose only the no-move PC客户端 controller")
+    elif pc_controllers[0].get("win32", {}).get("mouse") != "PostMessage" or pc_controllers[0].get("win32", {}).get("keyboard") != "PostMessage":
+        failures.append("PC客户端 must use PostMessage to avoid moving the game window")
+
     quickhunt_tasks = [
         task for task in interface["task"] if task.get("entry") == "QuickHunt_Start"
     ]
@@ -30,6 +36,9 @@ def main() -> int:
         missing = sorted(PC_CONTROLLERS - controllers)
         if missing:
             failures.append(f"QuickHunt_Start missing PC controllers: {missing}")
+        unsupported = sorted(controller for controller in controllers if controller.startswith("PC客户端") and controller not in PC_CONTROLLERS)
+        if unsupported:
+            failures.append(f"QuickHunt_Start exposes unsupported PC controllers: {unsupported}")
 
     pc_battle_path = ROOT / "assets" / "resource" / "pc" / "pipeline" / "Battle.json"
     if not pc_battle_path.exists():

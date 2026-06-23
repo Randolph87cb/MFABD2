@@ -91,7 +91,7 @@ $env:PYTHONIOENCODING = "utf-8"
 本地 UI 配置刷新和校验：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local-ui.ps1 -NoLaunch -DebugLogs -PcInput CursorPos
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-local-ui.ps1 -NoLaunch -DebugLogs
 ```
 
 Git 空白检查：
