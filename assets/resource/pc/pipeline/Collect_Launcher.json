@@ -1,0 +1,57 @@
+{
+    "Collect_StartGame_HomePage_OnlyOnce": {
+        "desc": "[PC覆盖] 地图采集单章入口安全骨架；先识别PC箱庭并停止，避免误走Android采集坐标。",
+        "action": "DoNothing",
+        "next": [
+            "Collect_PC_Sandplay_SafeStop",
+            "Collect_PC_OpenGui_Failed"
+        ]
+    },
+    "Collect_PC_Sandplay_Stable": {
+        "desc": "[PC覆盖] PC箱庭稳定识别：左上章节号 + 右上Home图标。",
+        "recognition": "And",
+        "all_of": [
+            {
+                "sub_name": "Collect_PC_Sandplay_Chapter_Ocr",
+                "recognition": "OCR",
+                "roi": [
+                    5,
+                    32,
+                    74,
+                    31
+                ],
+                "expected": [
+                    "^Ch"
+                ]
+            },
+            {
+                "sub_name": "Collect_PC_Sandplay_HomeIcon_Tpl",
+                "recognition": "TemplateMatch",
+                "roi": [
+                    1172,
+                    13,
+                    67,
+                    67
+                ],
+                "template": [
+                    "PC_TopHomeIcon.png"
+                ],
+                "threshold": 0.68
+            }
+        ],
+        "focus": "CM.PC地图采集-箱庭识别"
+    },
+    "Collect_PC_Sandplay_SafeStop": {
+        "desc": "[PC覆盖] 已确认PC箱庭；采集技能尚未复刻，先停止作为安全边界。",
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Sandplay_Stable"
+        ],
+        "action": "StopTask",
+        "focus": "[WRN]PC地图采集已识别箱庭，但采集技能尚未复刻，安全停止。"
+    },
+    "Collect_PC_OpenGui_Failed": {
+        "action": "StopTask",
+        "focus": "[WRN]PC地图采集未识别到箱庭入口，停止任务，避免误走Android采集坐标。"
+    }
+}

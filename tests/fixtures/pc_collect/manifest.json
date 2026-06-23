@@ -1,0 +1,9 @@
+[
+  {
+    "name": "sandbox_field",
+    "file": "sandbox_field_2026-06-23.png",
+    "expected_pc_sandplay": true,
+    "expected_home": false,
+    "notes": "PC箱庭/地图场景，单章地图采集入口应识别为PC箱庭；当前骨架识别后安全停止。"
+  }
+]
