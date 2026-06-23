@@ -345,9 +345,14 @@ function Assert-LocalConfigFresh {
         @("assets\resource\pc\pipeline\StartGame.json", "install\resource\pc\pipeline\StartGame.json"),
         @("assets\resource\pc\pipeline\Battle.json", "install\resource\pc\pipeline\Battle.json"),
         @("assets\resource\pc\pipeline\Mail.json", "install\resource\pc\pipeline\Mail.json"),
+        @("assets\resource\pc\pipeline\Collect_Launcher.json", "install\resource\pc\pipeline\Collect_Launcher.json"),
         @("assets\resource\pc\pipeline\Dummy.json", "install\resource\pc\pipeline\Dummy.json"),
         @("assets\resource\pc\pipeline\Global.json", "install\resource\pc\pipeline\Global.json"),
         @("assets\resource\pc\pipeline\Close.json", "install\resource\pc\pipeline\Close.json"),
+        @("assets\resource\pc\image\PC_QuickCartIcon.png", "install\resource\pc\image\PC_QuickCartIcon.png"),
+        @("assets\resource\pc\image\PC_CollectSkill2Icon.png", "install\resource\pc\image\PC_CollectSkill2Icon.png"),
+        @("assets\resource\pc\image\PC_CollectSkill2Available.png", "install\resource\pc\image\PC_CollectSkill2Available.png"),
+        @("assets\resource\pc\image\PC_CollectSkill2Unavailable.png", "install\resource\pc\image\PC_CollectSkill2Unavailable.png"),
         @("agent\action\pc_window.py", "install\agent\action\pc_window.py")
     )
 
@@ -398,6 +403,16 @@ function Assert-LocalConfigFresh {
     }
     if (-not ($quickHuntTask.controller -contains $pcCursorControllerName)) {
         throw "QuickHunt task in install\interface.json does not allow CursorPos PC client."
+    }
+    $collectTask = $installInterface.task | Where-Object { $_.entry -eq "Collect_StartGame_HomePage_OnlyOnce" } | Select-Object -First 1
+    if (-not $collectTask) {
+        throw "Collect_StartGame_HomePage_OnlyOnce task was not found in install\interface.json."
+    }
+    if (-not ($collectTask.controller -contains $pcControllerName)) {
+        throw "Collect task in install\interface.json does not allow PC client."
+    }
+    if (-not ($collectTask.controller -contains $pcCursorControllerName)) {
+        throw "Collect task in install\interface.json does not allow CursorPos PC client."
     }
     if ($installInterface.agent.child_exec -notlike "*\.venv\Scripts\python.exe") {
         throw "install\interface.json does not point to local .venv Python."

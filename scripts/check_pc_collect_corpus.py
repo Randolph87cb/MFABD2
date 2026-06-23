@@ -121,7 +121,15 @@ def main() -> int:
 
     checks = {
         "expected_pc_sandplay": "Collect_PC_Sandplay_Stable",
-        "expected_skill1_ready": "Collect_PC_Skill1_Ready",
+        "expected_pc_field": "Collect_PC_Field_Stable",
+        "expected_skill2_depleted": "Collect_PC_Skill2_Depleted",
+        "expected_skill2_available": "Collect_PC_Skill2_Available_Clr",
+        "expected_skill2_unavailable": "Collect_PC_Skill2_Unavailable_Clr",
+        "expected_field_unavailable_to_card2": "Collect_PC_FieldSkill2_Unavailable_ToCard2",
+        "expected_quickcart_icon": "Collect_PC_QuickCart_Open",
+        "expected_quickcart_menu": "Collect_PC_QuickCart_Menu",
+        "expected_story_tab": "Collect_PC_QuickCart_SelectStoryTab",
+        "expected_story_card": "Collect_PC_QuickCart_StoryCardAvailable",
         "expected_home": "Rec_HomePage_PC_Stable",
     }
 

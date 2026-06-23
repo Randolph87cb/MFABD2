@@ -1,15 +1,21 @@
 {
     "Collect_StartGame_HomePage_OnlyOnce": {
-        "desc": "[PC覆盖] 地图采集单章入口MVP；先识别PC箱庭，再尝试一次1号采集技能，避免误走Android采集坐标。",
+        "desc": "[PC覆盖] 地图采集单章入口MVP：可从PC箱庭/快速卡带菜单启动，进入剧情卡带地图后使用2号吸取技能；技能耗尽或当前地图稳定灰色不可吸取时安全退出。",
         "action": "DoNothing",
         "next": [
-            "Collect_PC_Skill1_Ready",
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Ready_ToCard2",
+            "Collect_PC_FieldSkill2_Unavailable_ToCard2",
+            "Collect_PC_QuickCart_StoryCardAvailable",
+            "Collect_PC_QuickCart_SelectStoryTab",
+            "Collect_PC_QuickCart_Menu",
+            "Collect_PC_QuickCart_Open",
             "Collect_PC_Sandplay_SafeStop",
             "Collect_PC_OpenGui_Failed"
         ]
     },
     "Collect_PC_Sandplay_Stable": {
-        "desc": "[PC覆盖] PC箱庭稳定识别：左上章节号 + 右上Home图标。",
+        "desc": "[PC覆盖] PC箱庭/广场稳定识别：左上章节号 + 右上Home图标。",
         "recognition": "And",
         "all_of": [
             {
@@ -43,60 +49,615 @@
         ],
         "focus": "CM.PC地图采集-箱庭识别"
     },
-    "Collect_PC_Skill1_Ready": {
-        "desc": "[PC覆盖] PC箱庭内1号采集技能高亮可用，点击一次后停止MVP链路。",
+    "Collect_PC_Field_Stable": {
+        "desc": "[PC覆盖] PC卡带地图稳定识别：右上Home图标 + 卡带地图位置的2号吸取技能图标，避免在广场误点吸取。",
+        "recognition": "And",
+        "all_of": [
+            {
+                "sub_name": "Collect_PC_Field_HomeIcon_Tpl",
+                "recognition": "TemplateMatch",
+                "roi": [
+                    1172,
+                    13,
+                    67,
+                    67
+                ],
+                "template": [
+                    "PC_TopHomeIcon.png"
+                ],
+                "threshold": 0.68
+            },
+            {
+                "sub_name": "Collect_PC_Field_Skill2_Tpl",
+                "recognition": "TemplateMatch",
+                "roi": [
+                    970,
+                    550,
+                    95,
+                    95
+                ],
+                "template": [
+                    "PC_CollectSkill2Icon.png"
+                ],
+                "threshold": 0.62
+            }
+        ],
+        "focus": "CM.PC地图采集-卡带地图识别"
+    },
+    "Collect_PC_Skill2_Depleted": {
+        "desc": "[PC覆盖] 2号吸取技能次数耗尽：类似21/21时停止。",
+        "recognition": "OCR",
+        "roi": [
+            996,
+            590,
+            52,
+            25
+        ],
+        "expected": [
+            "(\\d+)\\s*[/:：|\\-~]\\s*\\1(?!\\d)"
+        ],
+        "only_rec": true,
+        "action": "StopTask",
+        "focus": "CSB.PC技能'吸取'施放次数已满，结束流程。"
+    },
+    "Collect_PC_FieldSkill2_Ready_ToCard2": {
+        "desc": "[PC覆盖] 当前卡带地图内2号吸取按钮白亮可用时点击；灰色后安全停止，等待后续实现PC返回箱庭/区域图。",
+        "max_hit": 30,
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Available_Clr"
+        ],
+        "action": "Click",
+        "target": [
+            1015,
+            596
+        ],
+        "post_delay": 3800,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Unavailable_ToCard2",
+            "Collect_PC_FieldSkill2_Ready_ToCard2",
+            "Collect_PC_FieldSkill2_Limit_Stop"
+        ],
+        "focus": "CM.PC地图采集-点击2号吸取技能"
+    },
+    "Collect_PC_FieldSkill2_Ready_ToCard3": {
+        "desc": "[PC覆盖] 当前卡带地图内2号吸取按钮白亮可用时点击；灰色后安全停止，等待后续实现PC返回箱庭/区域图。",
+        "max_hit": 30,
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Available_Clr"
+        ],
+        "action": "Click",
+        "target": [
+            1015,
+            596
+        ],
+        "post_delay": 3800,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Unavailable_ToCard3",
+            "Collect_PC_FieldSkill2_Ready_ToCard3",
+            "Collect_PC_FieldSkill2_Limit_Stop"
+        ],
+        "focus": "CM.PC地图采集-点击2号吸取技能"
+    },
+    "Collect_PC_FieldSkill2_Ready_ToCard4": {
+        "desc": "[PC覆盖] 当前卡带地图内2号吸取按钮白亮可用时点击；灰色后安全停止，等待后续实现PC返回箱庭/区域图。",
+        "max_hit": 30,
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Available_Clr"
+        ],
+        "action": "Click",
+        "target": [
+            1015,
+            596
+        ],
+        "post_delay": 3800,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Unavailable_ToCard4",
+            "Collect_PC_FieldSkill2_Ready_ToCard4",
+            "Collect_PC_FieldSkill2_Limit_Stop"
+        ],
+        "focus": "CM.PC地图采集-点击2号吸取技能"
+    },
+    "Collect_PC_FieldSkill2_Ready_Final": {
+        "desc": "[PC覆盖] 当前卡带地图内2号吸取按钮白亮可用时点击；灰色后结束本轮PC MVP。",
+        "max_hit": 30,
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Available_Clr"
+        ],
+        "action": "Click",
+        "target": [
+            1015,
+            596
+        ],
+        "post_delay": 3800,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Unavailable_Final",
+            "Collect_PC_FieldSkill2_Ready_Final",
+            "Collect_PC_FieldSkill2_Limit_Stop"
+        ],
+        "focus": "CM.PC地图采集-点击2号吸取技能"
+    },
+    "Collect_PC_Skill2_Available_Clr": {
+        "desc": "[PC覆盖] 2号吸取技能白亮可用；灰掉时视为当前地图已吸取过。",
+        "recognition": "TemplateMatch",
+        "roi": [
+            985,
+            555,
+            85,
+            85
+        ],
+        "template": [
+            "PC_CollectSkill2Available.png"
+        ],
+        "threshold": 0.95
+    },
+    "Collect_PC_FieldSkill2_Unavailable_ToCard2": {
+        "desc": "[PC覆盖] 当前地图2号吸取按钮为稳定灰色，表示当前地图不可吸取；PC返回箱庭/下一地图尚未验证，先安全停止。",
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Unavailable_Clr"
+        ],
+        "action": "StopTask",
+        "focus": "CSB.PC技能'吸取'按钮已变灰，当前地图不可吸取；PC下一地图链路尚未验证，安全停止。"
+    },
+    "Collect_PC_FieldSkill2_Unavailable_ToCard3": {
+        "desc": "[PC覆盖] 当前地图2号吸取按钮为稳定灰色，表示当前地图不可吸取；PC返回箱庭/下一地图尚未验证，先安全停止。",
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Unavailable_Clr"
+        ],
+        "action": "StopTask",
+        "focus": "CSB.PC技能'吸取'按钮已变灰，当前地图不可吸取；PC下一地图链路尚未验证，安全停止。"
+    },
+    "Collect_PC_FieldSkill2_Unavailable_ToCard4": {
+        "desc": "[PC覆盖] 当前地图2号吸取按钮为稳定灰色，表示当前地图不可吸取；PC返回箱庭/下一地图尚未验证，先安全停止。",
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Unavailable_Clr"
+        ],
+        "action": "StopTask",
+        "focus": "CSB.PC技能'吸取'按钮已变灰，当前地图不可吸取；PC下一地图链路尚未验证，安全停止。"
+    },
+    "Collect_PC_FieldSkill2_Unavailable_Final": {
+        "desc": "[PC覆盖] 固定剧情卡带MVP序列已走完，仍未耗尽则结束本轮。",
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Field_Stable",
+            "Collect_PC_Skill2_Unavailable_Clr"
+        ],
+        "action": "StopTask",
+        "focus": "CSB.PC剧情卡带MVP序列已走完，当前地图也不可吸取，结束流程。"
+    },
+    "Collect_PC_Skill2_Unavailable_Clr": {
+        "desc": "[PC覆盖] 2号吸取技能不再白亮可用。",
+        "recognition": "TemplateMatch",
+        "roi": [
+            985,
+            555,
+            85,
+            85
+        ],
+        "template": [
+            "PC_CollectSkill2Unavailable.png"
+        ],
+        "threshold": 0.95
+    },
+    "Collect_PC_FieldSkill2_Limit_Stop": {
+        "action": "StopTask",
+        "focus": "[WRN]PC地图采集达到吸取点击安全上限，停止任务；请检查按钮亮度识别或OCR耗尽识别。"
+    },
+    "Collect_PC_QuickCart_Open": {
+        "desc": "[PC覆盖] 点击PC底部快速卡带图标。",
+        "max_hit": 4,
         "recognition": "And",
         "all_of": [
             "Collect_PC_Sandplay_Stable",
             {
-                "sub_name": "Collect_PC_Skill1_Gold_Clr",
-                "recognition": "ColorMatch",
+                "sub_name": "Collect_PC_QuickCart_Open_Icon_Tpl",
+                "recognition": "TemplateMatch",
                 "roi": [
-                    1088,
-                    650,
-                    50,
-                    50
+                    470,
+                    625,
+                    360,
+                    90
                 ],
-                "method": 40,
-                "lower": [
-                    0,
-                    120,
-                    180
+                "template": [
+                    "PC_QuickCartIcon.png"
                 ],
-                "upper": [
-                    100,
-                    210,
-                    255
-                ],
-                "count": 250
+                "threshold": 0.68
             }
         ],
         "action": "Click",
-        "target": [
-            1114,
-            674
-        ],
-        "post_delay": 2500,
+        "post_delay": 1200,
         "next": [
-            "Collect_PC_CollectOnce_Done"
+            "Collect_PC_QuickCart_Menu",
+            "Collect_PC_QuickCart_Open",
+            "Collect_PC_OpenGui_Failed"
         ],
-        "focus": "CM.PC地图采集-点击1号采集技能"
+        "focus": "GO.PC调出快速卡带"
     },
-    "Collect_PC_CollectOnce_Done": {
+    "Collect_PC_QuickCart_Menu": {
+        "desc": "[PC覆盖] PC快速卡带菜单已打开。",
+        "max_hit": 1,
+        "recognition": "OCR",
+        "roi": [
+            40,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "最近"
+        ],
+        "next": [
+            "Collect_PC_QuickCart_SelectStoryTab"
+        ],
+        "focus": "GO.PC快速卡带调出成功"
+    },
+    "Collect_PC_QuickCart_SelectStoryTab": {
+        "desc": "[PC覆盖] 切到剧情游戏卡页。",
+        "recognition": "OCR",
+        "roi": [
+            165,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "剧情游戏卡"
+        ],
+        "action": "Click",
+        "target": [
+            240,
+            584
+        ],
+        "post_delay": 900,
+        "next": [
+            "Collect_PC_QuickCart_StoryCardAvailable",
+            "Collect_PC_QuickCart_NoMap_Stop"
+        ],
+        "focus": "CM.PC快速卡带-剧情游戏卡"
+    },
+    "Collect_PC_QuickCart_StoryCardAvailable": {
+        "desc": "[PC覆盖] 剧情卡带页存在可进入卡带，点击第一张可见卡带。",
+        "recognition": "OCR",
+        "roi": [
+            45,
+            610,
+            1180,
+            105
+        ],
+        "expected": [
+            "可进行"
+        ],
+        "action": "Click",
+        "target": [
+            96,
+            650
+        ],
+        "post_delay": 8000,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Ready_ToCard2",
+            "Collect_PC_FieldSkill2_Unavailable_ToCard2",
+            "Collect_PC_OpenGui_Failed"
+        ],
+        "focus": "CM.PC快速卡带-进入首个剧情卡带"
+    },
+    "Collect_PC_QuickCart_Open_ForCard2": {
+        "desc": "[PC覆盖] 返回快速卡带，准备尝试第2张剧情卡带。",
+        "max_hit": 4,
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Sandplay_Stable",
+            {
+                "sub_name": "Collect_PC_QuickCart_Open_ForCard2_Icon_Tpl",
+                "recognition": "TemplateMatch",
+                "roi": [
+                    470,
+                    625,
+                    360,
+                    90
+                ],
+                "template": [
+                    "PC_QuickCartIcon.png"
+                ],
+                "threshold": 0.68
+            }
+        ],
+        "action": "Click",
+        "post_delay": 1200,
+        "next": [
+            "Collect_PC_QuickCart_Menu_ForCard2",
+            "Collect_PC_QuickCart_Open_ForCard2",
+            "Collect_PC_OpenGui_Failed"
+        ],
+        "focus": "GO.PC调出快速卡带-第2张"
+    },
+    "Collect_PC_QuickCart_Open_ForCard3": {
+        "desc": "[PC覆盖] 返回快速卡带，准备尝试第3张剧情卡带。",
+        "max_hit": 4,
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Sandplay_Stable",
+            {
+                "sub_name": "Collect_PC_QuickCart_Open_ForCard3_Icon_Tpl",
+                "recognition": "TemplateMatch",
+                "roi": [
+                    470,
+                    625,
+                    360,
+                    90
+                ],
+                "template": [
+                    "PC_QuickCartIcon.png"
+                ],
+                "threshold": 0.68
+            }
+        ],
+        "action": "Click",
+        "post_delay": 1200,
+        "next": [
+            "Collect_PC_QuickCart_Menu_ForCard3",
+            "Collect_PC_QuickCart_Open_ForCard3",
+            "Collect_PC_OpenGui_Failed"
+        ],
+        "focus": "GO.PC调出快速卡带-第3张"
+    },
+    "Collect_PC_QuickCart_Open_ForCard4": {
+        "desc": "[PC覆盖] 返回快速卡带，准备尝试第4张剧情卡带。",
+        "max_hit": 4,
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Sandplay_Stable",
+            {
+                "sub_name": "Collect_PC_QuickCart_Open_ForCard4_Icon_Tpl",
+                "recognition": "TemplateMatch",
+                "roi": [
+                    470,
+                    625,
+                    360,
+                    90
+                ],
+                "template": [
+                    "PC_QuickCartIcon.png"
+                ],
+                "threshold": 0.68
+            }
+        ],
+        "action": "Click",
+        "post_delay": 1200,
+        "next": [
+            "Collect_PC_QuickCart_Menu_ForCard4",
+            "Collect_PC_QuickCart_Open_ForCard4",
+            "Collect_PC_OpenGui_Failed"
+        ],
+        "focus": "GO.PC调出快速卡带-第4张"
+    },
+    "Collect_PC_QuickCart_Menu_ForCard2": {
+        "recognition": "OCR",
+        "roi": [
+            40,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "最近"
+        ],
+        "next": [
+            "Collect_PC_QuickCart_SelectStoryTab_ForCard2"
+        ],
+        "focus": "GO.PC快速卡带调出成功-第2张"
+    },
+    "Collect_PC_QuickCart_Menu_ForCard3": {
+        "recognition": "OCR",
+        "roi": [
+            40,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "最近"
+        ],
+        "next": [
+            "Collect_PC_QuickCart_SelectStoryTab_ForCard3"
+        ],
+        "focus": "GO.PC快速卡带调出成功-第3张"
+    },
+    "Collect_PC_QuickCart_Menu_ForCard4": {
+        "recognition": "OCR",
+        "roi": [
+            40,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "最近"
+        ],
+        "next": [
+            "Collect_PC_QuickCart_SelectStoryTab_ForCard4"
+        ],
+        "focus": "GO.PC快速卡带调出成功-第4张"
+    },
+    "Collect_PC_QuickCart_SelectStoryTab_ForCard2": {
+        "recognition": "OCR",
+        "roi": [
+            165,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "剧情游戏卡"
+        ],
+        "action": "Click",
+        "target": [
+            240,
+            584
+        ],
+        "post_delay": 900,
+        "next": [
+            "Collect_PC_QuickCart_StoryCard2Available",
+            "Collect_PC_QuickCart_NoMap_Stop"
+        ],
+        "focus": "CM.PC快速卡带-剧情游戏卡-第2张"
+    },
+    "Collect_PC_QuickCart_SelectStoryTab_ForCard3": {
+        "recognition": "OCR",
+        "roi": [
+            165,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "剧情游戏卡"
+        ],
+        "action": "Click",
+        "target": [
+            240,
+            584
+        ],
+        "post_delay": 900,
+        "next": [
+            "Collect_PC_QuickCart_StoryCard3Available",
+            "Collect_PC_QuickCart_NoMap_Stop"
+        ],
+        "focus": "CM.PC快速卡带-剧情游戏卡-第3张"
+    },
+    "Collect_PC_QuickCart_SelectStoryTab_ForCard4": {
+        "recognition": "OCR",
+        "roi": [
+            165,
+            555,
+            145,
+            55
+        ],
+        "expected": [
+            "剧情游戏卡"
+        ],
+        "action": "Click",
+        "target": [
+            240,
+            584
+        ],
+        "post_delay": 900,
+        "next": [
+            "Collect_PC_QuickCart_StoryCard4Available",
+            "Collect_PC_QuickCart_NoMap_Stop"
+        ],
+        "focus": "CM.PC快速卡带-剧情游戏卡-第4张"
+    },
+    "Collect_PC_QuickCart_StoryCard2Available": {
+        "desc": "[PC覆盖] 剧情卡带页存在可进入卡带，点击第2张可见卡带。",
+        "recognition": "OCR",
+        "roi": [
+            45,
+            610,
+            1180,
+            105
+        ],
+        "expected": [
+            "可进行"
+        ],
+        "action": "Click",
+        "target": [
+            216,
+            650
+        ],
+        "post_delay": 8000,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Ready_ToCard3",
+            "Collect_PC_FieldSkill2_Unavailable_ToCard3",
+            "Collect_PC_OpenGui_Failed"
+        ],
+        "focus": "CM.PC快速卡带-进入第2张剧情卡带"
+    },
+    "Collect_PC_QuickCart_StoryCard3Available": {
+        "desc": "[PC覆盖] 剧情卡带页存在可进入卡带，点击第3张可见卡带。",
+        "recognition": "OCR",
+        "roi": [
+            45,
+            610,
+            1180,
+            105
+        ],
+        "expected": [
+            "可进行"
+        ],
+        "action": "Click",
+        "target": [
+            336,
+            650
+        ],
+        "post_delay": 8000,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Ready_ToCard4",
+            "Collect_PC_FieldSkill2_Unavailable_ToCard4",
+            "Collect_PC_OpenGui_Failed"
+        ],
+        "focus": "CM.PC快速卡带-进入第3张剧情卡带"
+    },
+    "Collect_PC_QuickCart_StoryCard4Available": {
+        "desc": "[PC覆盖] 剧情卡带页存在可进入卡带，点击第4张可见卡带。",
+        "recognition": "OCR",
+        "roi": [
+            45,
+            610,
+            1180,
+            105
+        ],
+        "expected": [
+            "可进行"
+        ],
+        "action": "Click",
+        "target": [
+            456,
+            650
+        ],
+        "post_delay": 8000,
+        "next": [
+            "Collect_PC_Skill2_Depleted",
+            "Collect_PC_FieldSkill2_Ready_Final",
+            "Collect_PC_FieldSkill2_Unavailable_Final",
+            "Collect_PC_OpenGui_Failed"
+        ],
+        "focus": "CM.PC快速卡带-进入第4张剧情卡带"
+    },
+    "Collect_PC_QuickCart_NoMap_Stop": {
         "action": "StopTask",
-        "focus": "CM.PC地图采集MVP已尝试一次采集技能，停止任务。"
+        "focus": "[WRN]PC快速卡带未识别到可进入剧情卡带，视为没有可采集地图，停止任务。"
     },
     "Collect_PC_Sandplay_SafeStop": {
-        "desc": "[PC覆盖] 已确认PC箱庭；采集技能尚未复刻，先停止作为安全边界。",
+        "desc": "[PC覆盖] 已确认PC箱庭，但快速卡带入口或地图入口未命中，先停止作为安全边界。",
         "recognition": "And",
         "all_of": [
             "Collect_PC_Sandplay_Stable"
         ],
         "action": "StopTask",
-        "focus": "[WRN]PC地图采集已识别箱庭，但采集技能尚未复刻，安全停止。"
+        "focus": "[WRN]PC地图采集已识别箱庭，但未命中快速卡带入口，安全停止。"
     },
     "Collect_PC_OpenGui_Failed": {
         "action": "StopTask",
-        "focus": "[WRN]PC地图采集未识别到箱庭入口，停止任务，避免误走Android采集坐标。"
+        "focus": "[WRN]PC地图采集未识别到可处理页面，停止任务，避免误走Android采集坐标。"
     }
 }

@@ -140,20 +140,28 @@ git diff --check
 ```text
 Collect_StartGame_HomePage_OnlyOnce
 -> 识别 PC 箱庭
--> 识别右下 1 号采集技能高亮可用
--> 点击一次 1 号技能
--> StopTask
+-> 打开 PC 快速卡带
+-> 切到剧情游戏卡
+-> 进入首个可见剧情卡带地图
+-> 识别 2 号吸取技能
+-> 白亮可用时点击吸取
+-> 技能次数 OCR 命中 n/n 时 StopTask
+-> 按钮稳定灰色不可用时 StopTask
 ```
 
-这一步的目标不是完整完成采集循环，而是先验证 PC 入口不会误跑 Android 采集坐标，并能执行一次可控的 PC 技能点击。
+这一步的目标不是完整完成采集循环，而是先验证 PC 入口不会误跑 Android 采集坐标，并能执行一段可控的 PC 吸取链路。
 
 关键经验：
 
 - base 的 `Collect_StartGame_HomePage_OnlyOnce` 带有 `PatchBatch` action；PC 覆盖必须显式写 `action: "DoNothing"`，否则 base action 会残留。
 - 当前 PC 箱庭识别使用左上 `Ch` OCR + 右上 Home 图标模板。
 - 左上章节 OCR 在真实窗口可能从 `Ch` 抖成 `h`，需要加入易错库并保留组合识别。
-- PC 1 号技能高亮颜色在 MAA `ColorMatch` 中按 BGR 语义配置，不要按截图 RGB 直接填阈值。
-- 采集技能按钮在 PC 上与 Android 坐标不同，必须单独复刻。
+- PC 2 号吸取技能的 OCR 次数可作为 `n/n` 耗尽出口，但不能把 `1/21`、`17/21` 误当作耗尽。
+- 2 号按钮白亮表示可用；稳定灰色只表示当前地图不可吸取，不等于总次数耗尽。
+- 释放技能中的紫色动画是过渡态，不应误判为白亮可点或稳定灰色不可用。
+- 卡带地图底部快速卡带图标可见但不可作为“可直接打开菜单”的依据；真实 harness 已验证 action success 后菜单仍不打开。
+- `Collect_PC_QuickCart_Open*` 必须绑定 PC 箱庭稳定识别，禁止从卡带地图灰色节点直接跳快速卡带。
+- PC 下一地图/返回箱庭链路尚未验证前，灰色不可用节点应 `StopTask`，保持 fail-closed。
 
 相关文件：
 

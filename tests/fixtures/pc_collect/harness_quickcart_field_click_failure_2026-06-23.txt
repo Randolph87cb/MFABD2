@@ -1,0 +1,19 @@
+Context:
+- Entry: Collect_StartGame_HomePage_OnlyOnce
+- Input modes tried: PostMessageWithWindowPos, PostMessageWithCursorPos
+- Start page: PC story field with skill2 stable gray/unavailable, OCR 1/21
+
+Observed node sequence:
+- Collect_PC_FieldSkill2_Unavailable_ToCard2 hit:
+  - Collect_PC_Field_Stable hit
+  - Collect_PC_Skill2_Unavailable_Clr score ~= 0.9999
+- Collect_PC_QuickCart_Open_ForCard2 hit repeatedly:
+  - PC_QuickCartIcon.png score ~= 0.9998-0.9999
+  - Click action success, points around [556..585, 646..685]
+- Collect_PC_QuickCart_Menu_ForCard2 never hit:
+  - OCR result empty or low-confidence "-"
+- Final screenshot remained on the same field page.
+
+Conclusion:
+- The bottom quick-cart icon can be visible and template-matchable on a PC card field, but clicking it from that page did not open the menu in the harness.
+- A PC collect pipeline must not jump directly from Collect_PC_FieldSkill2_Unavailable_* to Collect_PC_QuickCart_Open_* until a PC field -> sandbox/home/area-map return path is separately verified.

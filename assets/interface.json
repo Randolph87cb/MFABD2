@@ -80,7 +80,7 @@
             "entry": "Collect_StartGame_HomePage_OnlyOnce",
             "controller": ["Adb", "PC客户端", "PC客户端(CursorPos)"],
             "default_check": true,
-            "description": "<地图采集[完整]>的单卡带模式，满足日常任务所需即停止。<br>PC端当前为安全骨架：能识别PC箱庭并停止，避免误走Android采集坐标；具体采集技能复刻仍在推进。",
+            "description": "<地图采集[完整]>的单卡带模式，满足日常任务所需即停止。<br>PC端当前为MVP：从PC箱庭快速卡带进入可见剧情卡带地图，2号吸取技能白亮时点击；按钮稳定变灰表示当前地图不可吸取。PC返回箱庭/下一地图链路尚未验证，当前版本会安全停止，避免误点。",
             "option": [
                 "采集卡带屏蔽",
                 "第三图采集额外等待"
