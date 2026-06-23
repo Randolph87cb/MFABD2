@@ -3,7 +3,16 @@
     "name": "sandbox_field",
     "file": "sandbox_field_2026-06-23.png",
     "expected_pc_sandplay": true,
+    "expected_skill1_ready": true,
     "expected_home": false,
-    "notes": "PC箱庭/地图场景，单章地图采集入口应识别为PC箱庭；当前骨架识别后安全停止。"
+    "notes": "PC箱庭/地图场景，单章地图采集入口应识别为PC箱庭，并识别右下1号采集技能可用。"
+  },
+  {
+    "name": "sandbox_field_ch_ocr_h",
+    "file": "sandbox_field_ch_ocr_h_2026-06-23.png",
+    "expected_pc_sandplay": true,
+    "expected_skill1_ready": true,
+    "expected_home": false,
+    "notes": "真实窗口易错样本：左上Ch章节号OCR只读成h，仍应结合右上Home图标识别为PC箱庭。"
   }
 ]

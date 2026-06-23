@@ -121,6 +121,7 @@ def main() -> int:
 
     checks = {
         "expected_pc_sandplay": "Collect_PC_Sandplay_Stable",
+        "expected_skill1_ready": "Collect_PC_Skill1_Ready",
         "expected_home": "Rec_HomePage_PC_Stable",
     }
 

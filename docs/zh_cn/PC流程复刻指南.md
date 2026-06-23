@@ -135,20 +135,24 @@ git diff --check
 
 ### 地图采集单章
 
-当前已完成 PC 安全骨架：
+当前已完成 PC MVP 小步：
 
 ```text
 Collect_StartGame_HomePage_OnlyOnce
 -> 识别 PC 箱庭
+-> 识别右下 1 号采集技能高亮可用
+-> 点击一次 1 号技能
 -> StopTask
 ```
 
-这一步的目标不是完成采集技能，而是先防止 PC 入口误跑 Android 采集坐标。
+这一步的目标不是完整完成采集循环，而是先验证 PC 入口不会误跑 Android 采集坐标，并能执行一次可控的 PC 技能点击。
 
 关键经验：
 
 - base 的 `Collect_StartGame_HomePage_OnlyOnce` 带有 `PatchBatch` action；PC 覆盖必须显式写 `action: "DoNothing"`，否则 base action 会残留。
 - 当前 PC 箱庭识别使用左上 `Ch` OCR + 右上 Home 图标模板。
+- 左上章节 OCR 在真实窗口可能从 `Ch` 抖成 `h`，需要加入易错库并保留组合识别。
+- PC 1 号技能高亮颜色在 MAA `ColorMatch` 中按 BGR 语义配置，不要按截图 RGB 直接填阈值。
 - 采集技能按钮在 PC 上与 Android 坐标不同，必须单独复刻。
 
 相关文件：
@@ -199,4 +203,3 @@ Subagent 适合做只读审计：
 - “用 harness 验证这个 PC 流程”
 - “把错误例子加入易错库”
 - “对比 base 和 pc pipeline 的差距”
-

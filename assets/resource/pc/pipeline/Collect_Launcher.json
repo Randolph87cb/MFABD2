@@ -1,8 +1,9 @@
 {
     "Collect_StartGame_HomePage_OnlyOnce": {
-        "desc": "[PC覆盖] 地图采集单章入口安全骨架；先识别PC箱庭并停止，避免误走Android采集坐标。",
+        "desc": "[PC覆盖] 地图采集单章入口MVP；先识别PC箱庭，再尝试一次1号采集技能，避免误走Android采集坐标。",
         "action": "DoNothing",
         "next": [
+            "Collect_PC_Skill1_Ready",
             "Collect_PC_Sandplay_SafeStop",
             "Collect_PC_OpenGui_Failed"
         ]
@@ -21,7 +22,8 @@
                     31
                 ],
                 "expected": [
-                    "^Ch"
+                    "^Ch",
+                    "^h$"
                 ]
             },
             {
@@ -40,6 +42,49 @@
             }
         ],
         "focus": "CM.PC地图采集-箱庭识别"
+    },
+    "Collect_PC_Skill1_Ready": {
+        "desc": "[PC覆盖] PC箱庭内1号采集技能高亮可用，点击一次后停止MVP链路。",
+        "recognition": "And",
+        "all_of": [
+            "Collect_PC_Sandplay_Stable",
+            {
+                "sub_name": "Collect_PC_Skill1_Gold_Clr",
+                "recognition": "ColorMatch",
+                "roi": [
+                    1088,
+                    650,
+                    50,
+                    50
+                ],
+                "method": 40,
+                "lower": [
+                    0,
+                    120,
+                    180
+                ],
+                "upper": [
+                    100,
+                    210,
+                    255
+                ],
+                "count": 250
+            }
+        ],
+        "action": "Click",
+        "target": [
+            1114,
+            674
+        ],
+        "post_delay": 2500,
+        "next": [
+            "Collect_PC_CollectOnce_Done"
+        ],
+        "focus": "CM.PC地图采集-点击1号采集技能"
+    },
+    "Collect_PC_CollectOnce_Done": {
+        "action": "StopTask",
+        "focus": "CM.PC地图采集MVP已尝试一次采集技能，停止任务。"
     },
     "Collect_PC_Sandplay_SafeStop": {
         "desc": "[PC覆盖] 已确认PC箱庭；采集技能尚未复刻，先停止作为安全边界。",

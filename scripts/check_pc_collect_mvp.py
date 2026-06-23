@@ -39,6 +39,8 @@ def main() -> int:
         for node in (
             "Collect_StartGame_HomePage_OnlyOnce",
             "Collect_PC_Sandplay_Stable",
+            "Collect_PC_Skill1_Ready",
+            "Collect_PC_CollectOnce_Done",
             "Collect_PC_Sandplay_SafeStop",
             "Collect_PC_OpenGui_Failed",
         ):
@@ -48,8 +50,8 @@ def main() -> int:
         start = pc_collect.get("Collect_StartGame_HomePage_OnlyOnce", {})
         if start.get("action") != "DoNothing":
             failures.append("PC collect entry must override the base PatchBatch action with DoNothing")
-        if start.get("next") != ["Collect_PC_Sandplay_SafeStop", "Collect_PC_OpenGui_Failed"]:
-            failures.append("PC collect entry must only try PC safe-stop path and fail closed")
+        if start.get("next") != ["Collect_PC_Skill1_Ready", "Collect_PC_Sandplay_SafeStop", "Collect_PC_OpenGui_Failed"]:
+            failures.append("PC collect entry must try skill1 once, then safe-stop path, then fail closed")
 
         stable = pc_collect.get("Collect_PC_Sandplay_Stable", {})
         all_of = stable.get("all_of", [])
@@ -60,6 +62,18 @@ def main() -> int:
             failures.append("Collect_PC_Sandplay_Stable must include chapter OCR")
         if "Collect_PC_Sandplay_HomeIcon_Tpl" not in sub_names:
             failures.append("Collect_PC_Sandplay_Stable must include PC home icon template")
+
+        skill1 = pc_collect.get("Collect_PC_Skill1_Ready", {})
+        if skill1.get("action") != "Click":
+            failures.append("Collect_PC_Skill1_Ready must click the PC skill button")
+        if skill1.get("target") != [1114, 674]:
+            failures.append("Collect_PC_Skill1_Ready target changed; update fixtures if intentional")
+        if skill1.get("next") != ["Collect_PC_CollectOnce_Done"]:
+            failures.append("Collect_PC_Skill1_Ready must stop through Collect_PC_CollectOnce_Done")
+
+        done = pc_collect.get("Collect_PC_CollectOnce_Done", {})
+        if done.get("action") != "StopTask":
+            failures.append("Collect_PC_CollectOnce_Done must StopTask")
 
         safe_stop = pc_collect.get("Collect_PC_Sandplay_SafeStop", {})
         if safe_stop.get("action") != "StopTask":
