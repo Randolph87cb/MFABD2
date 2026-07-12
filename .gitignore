@@ -487,3 +487,9 @@ prettier.config.mjs
 **/.maaowm
 **/__mod_extras__.json
 config.json
+
+# BrownDust II local automation debug captures
+enter_game_*_client.png
+enter_game_*_window.png
+printwindow_probe.png
+last_window_capture.png
