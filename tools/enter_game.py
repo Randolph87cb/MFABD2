@@ -1,4 +1,4 @@
-"""Recognize the title screen, click Touch To Start, and wait for home screen.
+"""Recognize the title screen, click Touch To Start, and wait for a pack field.
 
 This is the second recorded automation step. It uses only image statistics in
 the user-marked title/touch regions for now. The goal is a minimal, inspectable
@@ -26,8 +26,8 @@ TITLE_ROI = (0.57, 0.30, 0.32, 0.23)
 TOUCH_ROI = (0.59, 0.62, 0.30, 0.16)
 TOUCH_CLICK = (0.74, 0.70)
 TITLE_LEFT_HUD_ROI = (0.28, 0.18, 0.10, 0.25)
-HOME_TOP_LEFT_UI_ROI = (0.00, 0.08, 0.28, 0.25)
-HOME_MINIMAP_ROI = (0.10, 0.25, 0.22, 0.28)
+PACK_FIELD_TOP_LEFT_UI_ROI = (0.00, 0.08, 0.28, 0.25)
+PACK_FIELD_MINIMAP_ROI = (0.10, 0.25, 0.22, 0.28)
 
 
 def _client_offset(hwnd: int) -> tuple[int, int, int, int]:
@@ -123,10 +123,10 @@ def recognize_title_screen(image: Image.Image) -> tuple[bool, dict[str, dict[str
 
 
 def recognize_entry_state(image: Image.Image) -> tuple[str, dict[str, dict[str, float]]]:
-    is_home, home_scores = recognize_home_screen(image)
+    is_pack_field, pack_field_scores = recognize_pack_field_screen(image)
     is_title, title_scores = recognize_title_screen(image)
-    if is_home:
-        return "home", {**title_scores, **home_scores}
+    if is_pack_field:
+        return "pack_field", {**title_scores, **pack_field_scores}
 
     title_score = title_scores["title"]
     touch_score = title_scores["touch"]
@@ -137,16 +137,16 @@ def recognize_entry_state(image: Image.Image) -> tuple[str, dict[str, dict[str, 
     touch_ready = touch_score["bright_ratio"] > 0.08 and touch_score["edge_ratio"] > 0.015 and touch_score["contrast"] > 25
 
     if is_title or ((logo_like or left_hud_like) and touch_ready):
-        return "touch_ready", {**title_scores, **home_scores}
+        return "touch_ready", {**title_scores, **pack_field_scores}
     if logo_like or left_hud_like:
-        return "loading_title", {**title_scores, **home_scores}
-    return "unknown", {**title_scores, **home_scores}
+        return "loading_title", {**title_scores, **pack_field_scores}
+    return "unknown", {**title_scores, **pack_field_scores}
 
 
-def recognize_home_screen(image: Image.Image) -> tuple[bool, dict[str, dict[str, float]]]:
+def recognize_pack_field_screen(image: Image.Image) -> tuple[bool, dict[str, dict[str, float]]]:
     frame = np.asarray(image)
-    top_left_score = _region_score(_roi(frame, HOME_TOP_LEFT_UI_ROI))
-    minimap_score = _region_score(_roi(frame, HOME_MINIMAP_ROI))
+    top_left_score = _region_score(_roi(frame, PACK_FIELD_TOP_LEFT_UI_ROI))
+    minimap_score = _region_score(_roi(frame, PACK_FIELD_MINIMAP_ROI))
 
     top_left_ok = (
         top_left_score["dark_ratio"] < 0.40
@@ -161,12 +161,12 @@ def recognize_home_screen(image: Image.Image) -> tuple[bool, dict[str, dict[str,
     }
 
 
-def wait_until_home(hwnd: int, timeout: float) -> bool:
+def wait_until_pack_field(hwnd: int, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         image = capture_client(hwnd)
-        is_home, _home_scores = recognize_home_screen(image)
-        if is_home:
+        is_pack_field, _pack_field_scores = recognize_pack_field_screen(image)
+        if is_pack_field:
             return True
         time.sleep(1)
     return False
@@ -185,8 +185,8 @@ def enter_game(timeout: float = 90.0, save_debug: bool = True) -> bool:
 
         state, scores = recognize_entry_state(image)
         print(f"entry_state={state} scores={scores}")
-        if state == "home":
-            print("already_home=True")
+        if state == "pack_field":
+            print("already_pack_field=True")
             return True
         if state in {"touch_ready", "loading_title"} and time.monotonic() - last_click_at >= 5:
             width, height = image.size
@@ -197,15 +197,15 @@ def enter_game(timeout: float = 90.0, save_debug: bool = True) -> bool:
             last_click_at = time.monotonic()
         time.sleep(2)
 
-    reached_home = False
+    reached_pack_field = False
     after = capture_client(hwnd, Path.cwd() / "enter_game_after_window.png")
     if save_debug:
         after.save(Path.cwd() / "enter_game_after_client.png")
-    return reached_home
+    return reached_pack_field
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Click Touch To Start and wait until the title screen changes.")
+    parser = argparse.ArgumentParser(description="Click Touch To Start and wait until the client reaches a pack field.")
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--no-debug", action="store_true")
     args = parser.parse_args()

@@ -1,11 +1,13 @@
-# 进入游戏并回到主界面记录
+# 进入游戏并回到卡带内场景记录
 
 ## 成功标准
 
 - 已有 `BrownDust II` / `UnityWndClass` 游戏窗口，或能通过 `tools/open_game.py` 打开。
 - 后台截图能取得完整窗口画面，而不是 DPI 缩放后的左上角局部。
-- 能识别标题页或已在主界面。
-- 在标题页时，点击 `TOUCH TO START` 区域后能进入主界面。
+- 能识别标题页或已在卡带内场景。
+- 在标题页时，点击 `TOUCH TO START` 区域后能进入上一次保存的卡带内场景。
+
+说明：这里不是游戏主页，也不是 Pack Collection/广场入口，而是客户端恢复到上一次所在的游戏卡带内 Field/地图场景。脚本状态名使用 `pack_field`，避免和真正的主页混用。
 
 ## 当前实现
 
@@ -27,10 +29,10 @@ python tools\enter_game.py --timeout 90
 4. 识别状态：
    - 标题页：优先识别 Logo / `TOUCH TO START` 区域。
    - 兜底标题页：`PrintWindow` 可能抓不到 Logo / Touch 叠层，因此额外识别左侧版本号、电源、齿轮区域。
-   - 主界面：识别左上 UI / 小地图区域。
-5. 如果已在主界面，直接返回成功。
+   - 卡带内场景：识别左上 UI / 小地图区域。
+5. 如果已在卡带内场景，直接返回成功。
 6. 如果在标题页，点击客户区相对坐标 `(0.74, 0.70)`，即 `TOUCH TO START` 区域附近。
-7. 轮询等待主界面识别成功。
+7. 轮询等待卡带内场景识别成功。
 
 ## 本次验证结果
 
@@ -42,11 +44,11 @@ python tools\enter_game.py --timeout 90
 python tools\win32_windowpos_click.py --x 950 --y 505
 ```
 
-结果：成功从标题页进入主界面。
+结果：成功从标题页进入上一次保存的卡带内场景。
 
-### 主界面识别验证
+### 卡带内场景识别验证
 
-在主界面运行：
+在卡带内场景运行：
 
 ```powershell
 python tools\enter_game.py --timeout 10
@@ -54,9 +56,8 @@ python tools\enter_game.py --timeout 10
 
 结果：
 
-- `title_screen=False`
-- `home_screen=True`
-- `already_home=True`
+- `entry_state=pack_field`
+- `already_pack_field=True`
 - `enter_game_ok=True`
 
 ## 失败点与修正
