@@ -7,3 +7,10 @@ enter_game_*_client.png
 enter_game_*_window.png
 printwindow_probe.png
 last_window_capture.png
+desktop_*probe.png
+main_after_*.png
+postmessage_*.png
+
+# Local working copies and external dependencies
+.external/
+.target/
