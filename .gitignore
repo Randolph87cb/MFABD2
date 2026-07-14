@@ -10,6 +10,7 @@ last_window_capture.png
 desktop_*probe.png
 main_after_*.png
 postmessage_*.png
+logs/
 
 # Local working copies and external dependencies
 .external/
