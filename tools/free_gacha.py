@@ -33,7 +33,7 @@ VK_H = 0x48
 CLICK_POINTS = {
     "home_gacha": (0.086, 0.925),
     "plaza_home": (0.935, 0.055),
-    "dismiss_overlay": (0.085, 0.120),
+    "dismiss_overlay": (0.138, 0.565),
     "costume_tab": (0.086, 0.315),
     "gear_tab": (0.086, 0.420),
     "all_free": (0.178, 0.895),
@@ -220,6 +220,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:
         return "loading", details
+
+    large_activity_overlay_like = (
+        full["dark_ratio"] > 0.65
+        and center["mean"] > 120
+        and center["bright_ratio"] > 0.08
+        and modal["contrast"] > 45
+        and home_bottom_nav["dark_ratio"] > 0.95
+        and home_right_events["dark_ratio"] > 0.90
+    )
+    if large_activity_overlay_like:
+        return "home_overlay", details
 
     confirm_like = (
         full["dark_ratio"] > 0.45
