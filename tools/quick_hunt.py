@@ -186,11 +186,13 @@ def enter_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     if dry_run:
         return True, reason
 
-    if state == "loading":
-        time.sleep(6.0)
-        after = safe_capture_client(hwnd, logger=logger)
-        state, details = classify_state(after)
-        logger.event(action="classify_after_loading", state=state, details=details)
+    state, after = _wait_out_loading(
+        hwnd,
+        state,
+        after,
+        logger=logger,
+        label="after-quick-hunt-entry",
+    )
 
     after_path = logger.save_image(after, f"after-entry-{state}.png")
     if state != "quick_hunt_map":
@@ -269,13 +271,19 @@ def start_selected_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, s
     if dry_run:
         return True, reason
 
-    if state == "loading":
-        time.sleep(6.0)
-        after = safe_capture_client(hwnd, logger=logger)
-        state, details = classify_state(after)
-        logger.event(action="classify_after_loading", state=state, details=details)
+    state, after = _wait_out_loading(
+        hwnd,
+        state,
+        after,
+        logger=logger,
+        label="after-quick-hunt-start",
+    )
 
     after_path = logger.save_image(after, f"after-start-{state}.png")
+    if state != "quick_hunt_setup":
+        reason = f"quick-hunt start ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
     logger.event(
         action="stop",
         result="success",
@@ -353,13 +361,19 @@ def maximize_and_confirm_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[b
         logger.failure(confirm_reason)
         return False, confirm_reason
 
-    if state == "loading":
-        time.sleep(6.0)
-        after = safe_capture_client(hwnd, logger=logger)
-        state, details = classify_state(after)
-        logger.event(action="classify_after_loading", state=state, details=details)
+    state, after = _wait_out_loading(
+        hwnd,
+        state,
+        after,
+        logger=logger,
+        label="after-hunting-ground-confirm",
+    )
 
     after_path = logger.save_image(after, f"after-confirm-{state}.png")
+    if state != "quick_hunt_result":
+        reason = f"quick-hunt confirmation ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
     logger.event(
         action="stop",
         result="success",

@@ -11,6 +11,7 @@ desktop_*probe.png
 main_after_*.png
 postmessage_*.png
 logs/
+state/
 
 # Local working copies and external dependencies
 .external/
