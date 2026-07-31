@@ -20,7 +20,11 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from enter_game import capture_client, recognize_home_screen
-from game_text_recognition import recognize_home_labels, recognize_quick_hunt_map_labels
+from game_text_recognition import (
+    recognize_home_labels,
+    recognize_quick_hunt_map_labels,
+    recognize_quick_hunt_setup_labels,
+)
 from open_game import find_game_window
 from win32_windowpos_click import click_client
 
@@ -34,6 +38,7 @@ VK_H = 0x48
 CLICK_POINTS = {
     "home_gacha": (0.086, 0.925),
     "quick_hunt": (0.918, 0.255),
+    "quick_hunt_start": (0.855, 0.918),
     "plaza_home": (0.935, 0.055),
     # Home promotions use a bright center panel and a dimmed, non-interactive margin.
     "dismiss_overlay": (0.138, 0.565),
@@ -287,6 +292,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if dark_confirm_like:
         return "confirm_free_gacha", details
+
+    quick_hunt_setup_candidate = (
+        full["dark_ratio"] > 0.90
+        and center["mean"] > full["mean"] + 15
+        and center["edge_ratio"] > 0.012
+    )
+    if quick_hunt_setup_candidate:
+        quick_hunt_setup_match, quick_hunt_setup_text = recognize_quick_hunt_setup_labels(image)
+        details["quick_hunt_setup_text"] = quick_hunt_setup_text
+        if quick_hunt_setup_match:
+            return "quick_hunt_setup", details
 
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:

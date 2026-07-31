@@ -56,6 +56,21 @@ QUICK_HUNT_MAP_LABEL_GROUPS = {
     },
 }
 
+QUICK_HUNT_SETUP_LABEL_GROUPS = {
+    "header": {
+        "region": (0.30, 0.24, 0.38, 0.11),
+        "labels": ("快速狩猎",),
+    },
+    "body": {
+        "region": (0.34, 0.34, 0.32, 0.30),
+        "labels": ("狩猎1次", "随机奖励"),
+    },
+    "buttons": {
+        "region": (0.36, 0.68, 0.28, 0.10),
+        "labels": ("取消", "狩猎"),
+    },
+}
+
 
 @lru_cache(maxsize=1)
 def _ocr_engine() -> Any:
@@ -171,5 +186,27 @@ def recognize_quick_hunt_map_labels(image: Image.Image) -> tuple[bool, dict[str,
         "requirements": {
             "start_button": 1,
             "left_categories": 3,
+        },
+    }
+
+
+def recognize_quick_hunt_setup_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the quick-hunt setup dialog from its fixed text groups."""
+    grouped_texts, matches, error = _recognize_label_groups(image, QUICK_HUNT_SETUP_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_quick_hunt_setup = (
+        "快速狩猎" in matches["header"]
+        and len(matches["body"]) >= 1
+        and len(matches["buttons"]) == 2
+    )
+    return is_quick_hunt_setup, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {
+            "header": 1,
+            "body": 1,
+            "buttons": 2,
         },
     }

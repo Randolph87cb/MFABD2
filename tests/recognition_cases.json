@@ -89,6 +89,12 @@
   {
     "path": "fixtures/recognition/quick-hunt-map.png",
     "expected": "quick_hunt_map",
+    "expected_quick_hunt_category": "hunting_ground",
     "reason": "快速狩猎地图不能因左侧标签排布相似而误判为抽抽乐主页"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-setup.png",
+    "expected": "quick_hunt_setup",
+    "reason": "点击地图快速狩猎后出现的设置弹窗必须识别为独立状态"
   }
 ]

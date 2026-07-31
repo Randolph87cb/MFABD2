@@ -8,6 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from free_gacha import classify_state, detect_selected_gacha_target
+from quick_hunt import detect_selected_quick_hunt_category
 
 
 def main() -> None:
@@ -24,6 +25,11 @@ def main() -> None:
         with Image.open(image_path) as image:
             actual, _ = classify_state(image)
             actual_target = detect_selected_gacha_target(image) if "expected_target" in case else None
+            actual_category = (
+                detect_selected_quick_hunt_category(image)[0]
+                if "expected_quick_hunt_category" in case
+                else None
+            )
         status = "PASS" if actual == case["expected"] else "FAIL"
         print(f"{status} {image_path.name}: expected={case['expected']} actual={actual}")
         if status == "FAIL":
@@ -40,6 +46,21 @@ def main() -> None:
                 failures.append(
                     f"{image_path.name}: expected_target={case['expected_target']} "
                     f"actual_target={actual_target}; {case['reason']}"
+                )
+        if "expected_quick_hunt_category" in case:
+            category_status = (
+                "PASS" if actual_category == case["expected_quick_hunt_category"] else "FAIL"
+            )
+            print(
+                f"{category_status} {image_path.name}: "
+                f"expected_quick_hunt_category={case['expected_quick_hunt_category']} "
+                f"actual_quick_hunt_category={actual_category}"
+            )
+            if category_status == "FAIL":
+                failures.append(
+                    f"{image_path.name}: "
+                    f"expected_quick_hunt_category={case['expected_quick_hunt_category']} "
+                    f"actual_quick_hunt_category={actual_category}; {case['reason']}"
                 )
 
     if failures:
