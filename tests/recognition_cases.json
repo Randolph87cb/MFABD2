@@ -95,6 +95,18 @@
   {
     "path": "fixtures/recognition/quick-hunt-setup.png",
     "expected": "quick_hunt_setup",
+    "expected_quick_hunt_max": false,
     "reason": "点击地图快速狩猎后出现的设置弹窗必须识别为独立状态"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-setup-max.png",
+    "expected": "quick_hunt_setup",
+    "expected_quick_hunt_max": true,
+    "reason": "MAX 后带费用数字的狩猎按钮不能导致设置弹窗识别失败"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-result.png",
+    "expected": "quick_hunt_result",
+    "reason": "快速狩猎完成后的奖励画面必须识别为独立状态"
   }
 ]

@@ -8,7 +8,7 @@ from pathlib import Path
 from PIL import Image
 
 from free_gacha import classify_state, detect_selected_gacha_target
-from quick_hunt import detect_selected_quick_hunt_category
+from quick_hunt import detect_selected_quick_hunt_category, is_quick_hunt_count_at_max
 
 
 def main() -> None:
@@ -28,6 +28,11 @@ def main() -> None:
             actual_category = (
                 detect_selected_quick_hunt_category(image)[0]
                 if "expected_quick_hunt_category" in case
+                else None
+            )
+            actual_quick_hunt_max = (
+                is_quick_hunt_count_at_max(image)[0]
+                if "expected_quick_hunt_max" in case
                 else None
             )
         status = "PASS" if actual == case["expected"] else "FAIL"
@@ -61,6 +66,18 @@ def main() -> None:
                     f"{image_path.name}: "
                     f"expected_quick_hunt_category={case['expected_quick_hunt_category']} "
                     f"actual_quick_hunt_category={actual_category}; {case['reason']}"
+                )
+        if "expected_quick_hunt_max" in case:
+            max_status = "PASS" if actual_quick_hunt_max == case["expected_quick_hunt_max"] else "FAIL"
+            print(
+                f"{max_status} {image_path.name}: "
+                f"expected_quick_hunt_max={case['expected_quick_hunt_max']} "
+                f"actual_quick_hunt_max={actual_quick_hunt_max}"
+            )
+            if max_status == "FAIL":
+                failures.append(
+                    f"{image_path.name}: expected_quick_hunt_max={case['expected_quick_hunt_max']} "
+                    f"actual_quick_hunt_max={actual_quick_hunt_max}; {case['reason']}"
                 )
 
     if failures:

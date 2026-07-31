@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +13,7 @@ from PIL import Image
 
 from free_gacha import (
     RunLogger,
+    _click_ratio,
     _mean_region_difference,
     _roi,
     _stats,
@@ -42,6 +44,104 @@ def detect_selected_quick_hunt_category(image: Image.Image) -> tuple[str | None,
     if scores[selected] < 0.015 or scores[selected] - ordered[1] < 0.008:
         return None, scores
     return selected, scores
+
+
+def _quick_hunt_count(details: dict[str, object]) -> int | None:
+    setup = details.get("quick_hunt_setup_text")
+    if not isinstance(setup, dict):
+        return None
+    texts = setup.get("texts")
+    if not isinstance(texts, dict):
+        return None
+    body = texts.get("body")
+    if not isinstance(body, list):
+        return None
+    for text in body:
+        match = re.search(r"狩猎\s*(\d+)\s*次", str(text))
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def is_quick_hunt_count_at_max(image: Image.Image) -> tuple[bool, dict[str, float]]:
+    """Confirm the count slider handle and filled track are at the right end."""
+    frame = np.asarray(image.convert("RGB"))
+    gray = (
+        frame[:, :, 0].astype(np.float32) * 0.299
+        + frame[:, :, 1].astype(np.float32) * 0.587
+        + frame[:, :, 2].astype(np.float32) * 0.114
+    )
+    region = _roi(gray[:, :, None], (0.38, 0.50, 0.24, 0.07))[:, :, 0]
+    _bright_y, bright_x = np.where(region > 200)
+    if bright_x.size == 0:
+        return False, {"bright_ratio": 0.0, "bright_x95": 0.0}
+    bright_ratio = float(bright_x.size / region.size)
+    bright_x95 = float(0.38 + np.percentile(bright_x, 95) / region.shape[1] * 0.24)
+    return bright_ratio > 0.30 and bright_x95 > 0.58, {
+        "bright_ratio": bright_ratio,
+        "bright_x95": bright_x95,
+    }
+
+
+def _select_max_quick_hunt_count(
+    hwnd: int,
+    before: Image.Image,
+    initial_count: int,
+    *,
+    dry_run: bool,
+    logger: RunLogger,
+    delay: float = 6.0,
+) -> tuple[bool, str, Image.Image, int | None]:
+    current = before
+    for attempt in range(1, 3):
+        _click_ratio(hwnd, current, "quick_hunt_max", dry_run=dry_run, logger=logger)
+        if dry_run:
+            return True, "dry-run planned select maximum quick-hunt count", current, initial_count
+
+        time.sleep(delay)
+        current = safe_capture_client(hwnd, logger=logger)
+        state, details = classify_state(current)
+        count = _quick_hunt_count(details)
+        at_max, max_scores = is_quick_hunt_count_at_max(current)
+        verify_path = logger.save_image(
+            current,
+            f"verify-quick-hunt-max-attempt-{attempt}-{state}-count-{count}.png",
+        )
+        succeeded = (
+            state == "quick_hunt_setup"
+            and count is not None
+            and count > initial_count
+            and at_max
+        )
+        logger.event(
+            action="verify_click",
+            key="quick_hunt_max",
+            description="select maximum quick-hunt count",
+            attempt=attempt,
+            state=state,
+            initial_count=initial_count,
+            count=count,
+            at_max=at_max,
+            max_scores=max_scores,
+            succeeded=succeeded,
+            screenshot=str(verify_path),
+            details=details,
+        )
+        if succeeded:
+            return True, f"maximum count selected on attempt {attempt}", current, count
+        if state != "quick_hunt_setup":
+            reason = f"MAX changed to unexpected state {state}; retry cancelled"
+            return False, reason, current, count
+        if attempt < 2:
+            logger.event(
+                action="retry_click",
+                key="quick_hunt_max",
+                description="select maximum quick-hunt count",
+                previous_attempts=attempt,
+                delay=delay,
+            )
+
+    return False, "MAX did not increase the quick-hunt count after 2 clicks", current, None
 
 
 def enter_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
@@ -186,9 +286,94 @@ def start_selected_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, s
     return True, f"{reason}; resulting state={state}"
 
 
+def maximize_and_confirm_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="quick_hunt_max_and_confirm", dry_run=dry_run)
+
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    before = safe_capture_client(hwnd, logger=logger)
+    before_state, before_details = classify_state(before)
+    initial_count = _quick_hunt_count(before_details)
+    initially_at_max, initial_max_scores = is_quick_hunt_count_at_max(before)
+    before_path = logger.save_image(before, f"before-{before_state}-count-{initial_count}.png")
+    logger.event(
+        action="classify_before_max",
+        state=before_state,
+        count=initial_count,
+        at_max=initially_at_max,
+        max_scores=initial_max_scores,
+        screenshot=str(before_path),
+        details=before_details,
+    )
+    if before_state != "quick_hunt_setup" or initial_count is None:
+        reason = (
+            "quick-hunt MAX requires a recognized setup dialog and count, "
+            f"got state={before_state}, count={initial_count}"
+        )
+        logger.failure(reason)
+        return False, reason
+
+    if initially_at_max:
+        max_reason = f"maximum count already selected: {initial_count}"
+        max_image = before
+        max_count = initial_count
+        logger.event(action="max_already_selected", count=max_count, scores=initial_max_scores)
+    else:
+        max_ok, max_reason, max_image, max_count = _select_max_quick_hunt_count(
+            hwnd,
+            before,
+            initial_count,
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not max_ok:
+            logger.failure(max_reason)
+            return False, max_reason
+    if dry_run:
+        return True, max_reason
+
+    ok, state, after, confirm_reason = click_with_fixed_retry(
+        hwnd,
+        max_image,
+        "quick_hunt_confirm",
+        verify=lambda next_state, next_image: (
+            next_state != "quick_hunt_setup"
+            and _mean_region_difference(max_image, next_image, (0.0, 0.0, 1.0, 1.0)) >= 8.0
+        ),
+        description=f"confirm quick hunt count {max_count}",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(confirm_reason)
+        return False, confirm_reason
+
+    if state == "loading":
+        time.sleep(6.0)
+        after = safe_capture_client(hwnd, logger=logger)
+        state, details = classify_state(after)
+        logger.event(action="classify_after_loading", state=state, details=details)
+
+    after_path = logger.save_image(after, f"after-confirm-{state}.png")
+    logger.event(
+        action="stop",
+        result="success",
+        state=state,
+        max_count=max_count,
+        reason=confirm_reason,
+        screenshot=str(after_path),
+    )
+    return True, f"{max_reason}; {confirm_reason}; resulting state={state}"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test one recorded quick-hunt step.")
-    parser.add_argument("--step", choices=("entry", "start"), default="entry")
+    parser.add_argument("--step", choices=("entry", "start", "confirm"), default="entry")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--log-root", default=None)
     args = parser.parse_args()
@@ -197,8 +382,10 @@ def main() -> None:
     log_root = Path(args.log_root) if args.log_root else Path.cwd() / "logs" / "quick_hunt" / stamp
     if args.step == "entry":
         ok, reason = enter_quick_hunt(dry_run=args.dry_run, log_root=log_root)
-    else:
+    elif args.step == "start":
         ok, reason = start_selected_quick_hunt(dry_run=args.dry_run, log_root=log_root)
+    else:
+        ok, reason = maximize_and_confirm_quick_hunt(dry_run=args.dry_run, log_root=log_root)
     print(f"ok={ok}")
     print(f"reason={reason}")
     print(f"log_root={log_root}")

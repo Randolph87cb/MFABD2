@@ -71,6 +71,17 @@ QUICK_HUNT_SETUP_LABEL_GROUPS = {
     },
 }
 
+QUICK_HUNT_RESULT_LABEL_GROUPS = {
+    "header": {
+        "region": (0.40, 0.28, 0.20, 0.11),
+        "labels": ("REWARD",),
+    },
+    "footer": {
+        "region": (0.38, 0.88, 0.25, 0.08),
+        "labels": ("点击画面即可返回",),
+    },
+}
+
 
 @lru_cache(maxsize=1)
 def _ocr_engine() -> Any:
@@ -195,10 +206,15 @@ def recognize_quick_hunt_setup_labels(image: Image.Image) -> tuple[bool, dict[st
     grouped_texts, matches, error = _recognize_label_groups(image, QUICK_HUNT_SETUP_LABEL_GROUPS)
     if error is not None:
         return False, error
+    has_hunt_button = any(
+        _normalize_text(text).startswith("狩猎")
+        for text in grouped_texts["buttons"]
+    )
     is_quick_hunt_setup = (
         "快速狩猎" in matches["header"]
         and len(matches["body"]) >= 1
-        and len(matches["buttons"]) == 2
+        and "取消" in matches["buttons"]
+        and has_hunt_button
     )
     return is_quick_hunt_setup, {
         "available": True,
@@ -207,6 +223,27 @@ def recognize_quick_hunt_setup_labels(image: Image.Image) -> tuple[bool, dict[st
         "requirements": {
             "header": 1,
             "body": 1,
-            "buttons": 2,
+            "cancel_button": 1,
+            "hunt_button_prefix": "狩猎",
+        },
+    }
+
+
+def recognize_quick_hunt_result_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the quick-hunt reward screen from its fixed heading and footer."""
+    grouped_texts, matches, error = _recognize_label_groups(image, QUICK_HUNT_RESULT_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_quick_hunt_result = (
+        "REWARD" in matches["header"]
+        and "点击画面即可返回" in matches["footer"]
+    )
+    return is_quick_hunt_result, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {
+            "header": 1,
+            "footer": 1,
         },
     }
