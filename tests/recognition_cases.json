@@ -108,5 +108,28 @@
     "path": "fixtures/recognition/quick-hunt-result.png",
     "expected": "quick_hunt_result",
     "reason": "快速狩猎完成后的奖励画面必须识别为独立状态"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-result-crystal.png",
+    "expected": "quick_hunt_result",
+    "reason": "圣石洞穴单项奖励画面较暗时仍必须识别为快速狩猎结果"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-map-crystal-selected.png",
+    "expected": "quick_hunt_map",
+    "expected_quick_hunt_category": "crystal_cave",
+    "reason": "点击圣石洞穴后必须确认第四行高亮"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-setup-crystal.png",
+    "expected": "quick_hunt_setup",
+    "expected_quick_hunt_max": false,
+    "reason": "圣石洞穴设置弹窗必须识别当前未选择 MAX"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-setup-crystal-max.png",
+    "expected": "quick_hunt_setup",
+    "expected_quick_hunt_max": true,
+    "reason": "圣石洞穴点击 MAX 后必须识别次数和最右滑块"
   }
 ]

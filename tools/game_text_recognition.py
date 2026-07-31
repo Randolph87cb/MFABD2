@@ -87,7 +87,13 @@ QUICK_HUNT_RESULT_LABEL_GROUPS = {
 def _ocr_engine() -> Any:
     from rapidocr import RapidOCR
 
-    return RapidOCR()
+    return RapidOCR(
+        params={
+            "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+            "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+            "Global.log_level": "error",
+        }
+    )
 
 
 def _normalize_text(text: str) -> str:
@@ -114,39 +120,61 @@ def _partial_similarity(expected: str, actual: str) -> float:
     )
 
 
-def _point_in_region(
-    point: tuple[float, float],
-    region: tuple[float, float, float, float],
-) -> bool:
-    x, y = point
-    rx, ry, rw, rh = region
-    return rx <= x <= rx + rw and ry <= y <= ry + rh
-
-
 def _recognize_label_groups(
     image: Image.Image,
     groups: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, Any] | None]:
+    source = image.convert("RGB")
+    grouped_texts: dict[str, list[str]] = {name: [] for name in groups}
+    crops: list[tuple[str, Image.Image]] = []
+    for name, config in groups.items():
+        x, y, width, height = config["region"]
+        crop = source.crop(
+            (
+                round(source.width * x),
+                round(source.height * y),
+                round(source.width * (x + width)),
+                round(source.height * (y + height)),
+            )
+        )
+        if crop.width > 1200:
+            scale = 1200 / crop.width
+            crop = crop.resize(
+                (1200, round(crop.height * scale)),
+                Image.Resampling.LANCZOS,
+            )
+        crops.append((name, crop))
+
+    padding = 12
+    atlas_width = max(crop.width for _, crop in crops)
+    atlas_height = sum(crop.height for _, crop in crops) + padding * (len(crops) - 1)
+    atlas = Image.new("RGB", (atlas_width, atlas_height))
+    group_bands: list[tuple[str, int, int]] = []
+    cursor_y = 0
+    for name, crop in crops:
+        atlas.paste(crop, (0, cursor_y))
+        group_bands.append((name, cursor_y, cursor_y + crop.height))
+        cursor_y += crop.height + padding
+
     try:
-        result = _ocr_engine()(np.asarray(image.convert("RGB")))
+        engine = _ocr_engine()
+        result = engine(np.asarray(atlas))
     except (ImportError, ModuleNotFoundError) as exc:
         return {}, {}, {"available": False, "error": repr(exc)}
     except Exception as exc:  # noqa: BLE001 - recognition failure must be visible to callers.
         return {}, {}, {"available": True, "error": repr(exc)}
 
-    width, height = image.size
-    grouped_texts: dict[str, list[str]] = {name: [] for name in groups}
     boxes = result.boxes if result.boxes is not None else ()
     texts = result.txts if result.txts is not None else ()
     scores = result.scores if result.scores is not None else ()
     for box, text, score in zip(boxes, texts, scores):
         if float(score) < 0.55:
             continue
-        center_x = float(np.mean(box[:, 0])) / width
-        center_y = float(np.mean(box[:, 1])) / height
-        for name, config in groups.items():
-            if _point_in_region((center_x, center_y), config["region"]):
+        center_y = float(np.mean(box[:, 1]))
+        for name, start_y, end_y in group_bands:
+            if start_y <= center_y <= end_y:
                 grouped_texts[name].append(str(text))
+                break
 
     matches: dict[str, list[str]] = {}
     for name, config in groups.items():

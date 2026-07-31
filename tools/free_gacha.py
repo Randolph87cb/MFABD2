@@ -42,6 +42,9 @@ CLICK_POINTS = {
     "quick_hunt_start": (0.855, 0.918),
     "quick_hunt_max": (0.609, 0.471),
     "quick_hunt_confirm": (0.540, 0.725),
+    "quick_hunt_result_dismiss": (0.120, 0.800),
+    "quick_hunt_crystal_cave": (0.091, 0.440),
+    "quick_hunt_back": (0.090, 0.045),
     "plaza_home": (0.935, 0.055),
     # Home promotions use a bright center panel and a dimmed, non-interactive margin.
     "dismiss_overlay": (0.138, 0.565),
@@ -310,7 +313,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     quick_hunt_result_candidate = (
         full["dark_ratio"] > 0.85
         and center["mean"] > full["mean"] + 15
-        and center["edge_ratio"] > 0.008
     )
     if quick_hunt_result_candidate:
         quick_hunt_result_match, quick_hunt_result_text = recognize_quick_hunt_result_labels(image)

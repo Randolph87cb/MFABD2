@@ -371,9 +371,326 @@ def maximize_and_confirm_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[b
     return True, f"{max_reason}; {confirm_reason}; resulting state={state}"
 
 
+def _wait_out_loading(
+    hwnd: int,
+    state: str,
+    image: Image.Image,
+    *,
+    logger: RunLogger,
+    label: str,
+) -> tuple[str, Image.Image]:
+    for attempt in range(1, 6):
+        if state != "loading":
+            break
+        time.sleep(6.0)
+        image = safe_capture_client(hwnd, logger=logger)
+        state, details = classify_state(image)
+        path = logger.save_image(image, f"{label}-attempt-{attempt}-{state}.png")
+        logger.event(
+            action="classify_after_loading",
+            label=label,
+            attempt=attempt,
+            state=state,
+            screenshot=str(path),
+            details=details,
+        )
+    return state, image
+
+
+def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="quick_hunt_crystal_cave_cycle", dry_run=dry_run)
+
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    image = safe_capture_client(hwnd, logger=logger)
+    state, details = classify_state(image)
+    path = logger.save_image(image, f"cycle-start-{state}.png")
+    logger.event(action="classify_cycle_start", state=state, screenshot=str(path), details=details)
+    if state not in {"quick_hunt_result", "quick_hunt_map"}:
+        reason = f"crystal-cave cycle requires quick_hunt_result or quick_hunt_map, got {state}"
+        logger.failure(reason)
+        return False, reason
+
+    if state == "quick_hunt_result":
+        ok, state, image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "quick_hunt_result_dismiss",
+            verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
+            description="dismiss hunting-ground reward",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not ok or dry_run:
+            if not ok:
+                logger.failure(reason)
+            return ok, reason
+        state, image = _wait_out_loading(
+            hwnd,
+            state,
+            image,
+            logger=logger,
+            label="after-first-result-dismiss",
+        )
+        if state != "quick_hunt_map":
+            reason = f"first reward dismissal ended at unexpected state: {state}"
+            logger.failure(reason)
+            return False, reason
+    else:
+        logger.event(action="first_result_already_dismissed", state=state)
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "quick_hunt_crystal_cave",
+        verify=lambda next_state, next_image: (
+            next_state == "quick_hunt_map"
+            and detect_selected_quick_hunt_category(next_image)[0] == "crystal_cave"
+        ),
+        description="select crystal cave",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "quick_hunt_start",
+        verify=lambda next_state, _next_image: next_state in {"quick_hunt_setup", "loading"},
+        description="open crystal-cave quick-hunt setup",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    state, image = _wait_out_loading(
+        hwnd,
+        state,
+        image,
+        logger=logger,
+        label="after-crystal-setup-open",
+    )
+    if state != "quick_hunt_setup":
+        reason = f"crystal-cave setup ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    state, setup_details = classify_state(image)
+    initial_count = _quick_hunt_count(setup_details)
+    if initial_count is None:
+        reason = "could not recognize crystal-cave hunt count"
+        logger.failure(reason)
+        return False, reason
+    at_max, max_scores = is_quick_hunt_count_at_max(image)
+    logger.event(
+        action="detect_crystal_count",
+        count=initial_count,
+        at_max=at_max,
+        max_scores=max_scores,
+    )
+    if at_max:
+        max_image = image
+        max_count = initial_count
+        max_reason = f"maximum count already selected: {max_count}"
+    else:
+        max_ok, max_reason, max_image, max_count = _select_max_quick_hunt_count(
+            hwnd,
+            image,
+            initial_count,
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not max_ok:
+            logger.failure(max_reason)
+            return False, max_reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        max_image,
+        "quick_hunt_confirm",
+        verify=lambda next_state, _next_image: next_state in {"quick_hunt_result", "loading"},
+        description=f"confirm crystal-cave quick hunt count {max_count}",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    state, image = _wait_out_loading(
+        hwnd,
+        state,
+        image,
+        logger=logger,
+        label="after-crystal-confirm",
+    )
+    if state != "quick_hunt_result":
+        reason = f"crystal-cave hunt ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "quick_hunt_result_dismiss",
+        verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
+        description="dismiss crystal-cave reward",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    state, image = _wait_out_loading(
+        hwnd,
+        state,
+        image,
+        logger=logger,
+        label="after-second-result-dismiss",
+    )
+    if state != "quick_hunt_map":
+        reason = f"second reward dismissal ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "quick_hunt_back",
+        verify=lambda next_state, _next_image: next_state in {"real_home", "loading"},
+        description="return home from quick-hunt map",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    state, image = _wait_out_loading(
+        hwnd,
+        state,
+        image,
+        logger=logger,
+        label="after-quick-hunt-back",
+    )
+    final_path = logger.save_image(image, f"cycle-finished-{state}.png")
+    if state != "real_home":
+        reason = f"quick-hunt cycle did not finish at real_home: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    reason = f"crystal-cave cycle completed at count {max_count}"
+    logger.event(
+        action="stop",
+        result="success",
+        state=state,
+        reason=reason,
+        screenshot=str(final_path),
+    )
+    return True, reason
+
+
+def finish_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="finish_crystal_cave_cycle", dry_run=dry_run)
+
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    image = safe_capture_client(hwnd, logger=logger)
+    state, details = classify_state(image)
+    path = logger.save_image(image, f"finish-start-{state}.png")
+    logger.event(action="classify_finish_start", state=state, screenshot=str(path), details=details)
+    if state != "quick_hunt_result":
+        reason = f"finish cycle requires quick_hunt_result, got {state}"
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "quick_hunt_result_dismiss",
+        verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
+        description="dismiss crystal-cave reward",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok or dry_run:
+        if not ok:
+            logger.failure(reason)
+        return ok, reason
+    state, image = _wait_out_loading(
+        hwnd,
+        state,
+        image,
+        logger=logger,
+        label="finish-after-result-dismiss",
+    )
+    if state != "quick_hunt_map":
+        reason = f"crystal reward dismissal ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    category, scores = detect_selected_quick_hunt_category(image)
+    logger.event(action="detect_category_before_back", selected=category, scores=scores)
+    if category != "crystal_cave":
+        reason = f"expected crystal_cave before returning home, got {category}"
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "quick_hunt_back",
+        verify=lambda next_state, _next_image: next_state in {"real_home", "loading"},
+        description="return home from crystal-cave map",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    state, image = _wait_out_loading(
+        hwnd,
+        state,
+        image,
+        logger=logger,
+        label="finish-after-back",
+    )
+    final_path = logger.save_image(image, f"finish-complete-{state}.png")
+    if state != "real_home":
+        reason = f"crystal-cave finish did not reach real_home: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    reason = "crystal-cave reward dismissed and returned home"
+    logger.event(
+        action="stop",
+        result="success",
+        state=state,
+        reason=reason,
+        screenshot=str(final_path),
+    )
+    return True, reason
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Test one recorded quick-hunt step.")
-    parser.add_argument("--step", choices=("entry", "start", "confirm"), default="entry")
+    parser.add_argument(
+        "--step",
+        choices=("entry", "start", "confirm", "crystal-cycle", "finish-crystal"),
+        default="entry",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--log-root", default=None)
     args = parser.parse_args()
@@ -384,8 +701,12 @@ def main() -> None:
         ok, reason = enter_quick_hunt(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "start":
         ok, reason = start_selected_quick_hunt(dry_run=args.dry_run, log_root=log_root)
-    else:
+    elif args.step == "confirm":
         ok, reason = maximize_and_confirm_quick_hunt(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "crystal-cycle":
+        ok, reason = run_crystal_cave_cycle(dry_run=args.dry_run, log_root=log_root)
+    else:
+        ok, reason = finish_crystal_cave_cycle(dry_run=args.dry_run, log_root=log_root)
     print(f"ok={ok}")
     print(f"reason={reason}")
     print(f"log_root={log_root}")
