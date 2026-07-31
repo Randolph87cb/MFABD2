@@ -1,0 +1,52 @@
+[
+  {
+    "path": "../自动化截图标注/主页.png",
+    "expected": "real_home",
+    "reason": "真实主页不能误判成活动弹窗"
+  },
+  {
+    "path": "../自动化截图标注/主页过渡画面.png",
+    "expected": "home_overlay",
+    "reason": "主页活动推送应点击中间亮区外侧"
+  },
+  {
+    "path": "../自动化截图标注/广场.png",
+    "expected": "plaza",
+    "reason": "广场应进入返回主页流程"
+  },
+  {
+    "path": "../自动化截图标注/抽抽乐.png",
+    "expected": "gacha_page",
+    "reason": "抽抽乐主页不能误判成确认框"
+  },
+  {
+    "path": "../自动化截图标注/确认抽抽乐.png",
+    "expected": "confirm_free_gacha",
+    "reason": "暗色确认框不能误判成加载画面"
+  },
+  {
+    "path": "../自动化截图标注/抽卡动画.png",
+    "expected": "gacha_animation",
+    "reason": "抽卡动画应进入跳过流程"
+  },
+  {
+    "path": "../自动化截图标注/抽卡结算画面.png",
+    "expected": "gacha_result",
+    "reason": "抽卡结算应返回上一层"
+  },
+  {
+    "path": "fixtures/recognition/blocking-ad-overlay.png",
+    "expected": "blocking_ad_overlay",
+    "reason": "亮色广告弹窗不能误判成抽卡确认框"
+  },
+  {
+    "path": "fixtures/recognition/plaza-dark-background.png",
+    "expected": "plaza",
+    "reason": "深色背景广场不能识别为未知画面"
+  },
+  {
+    "path": "fixtures/recognition/home-black-video-background.png",
+    "expected": "real_home",
+    "reason": "主页动态背景暂时全黑时仍应依靠菜单识别为主页"
+  }
+]

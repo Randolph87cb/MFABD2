@@ -33,6 +33,7 @@ VK_H = 0x48
 CLICK_POINTS = {
     "home_gacha": (0.086, 0.925),
     "plaza_home": (0.935, 0.055),
+    # Home promotions use a bright center panel and a dimmed, non-interactive margin.
     "dismiss_overlay": (0.138, 0.565),
     "costume_tab": (0.086, 0.315),
     "gear_tab": (0.086, 0.420),
@@ -183,6 +184,20 @@ def _stats(region: np.ndarray) -> dict[str, float]:
     }
 
 
+def _mean_region_difference(
+    before: Image.Image,
+    after: Image.Image,
+    spec: tuple[float, float, float, float] = (0.20, 0.18, 0.60, 0.66),
+) -> float:
+    if before.size != after.size:
+        return float("inf")
+    before_frame = np.asarray(before.convert("RGB"), dtype=np.float32)
+    after_frame = np.asarray(after.convert("RGB"), dtype=np.float32)
+    before_region = _roi(before_frame, spec)
+    after_region = _roi(after_frame, spec)
+    return float(np.mean(np.abs(before_region - after_region)))
+
+
 def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     frame = np.asarray(image.convert("RGB"))
     full = _stats(frame)
@@ -217,10 +232,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         "plaza_top_right": plaza_top_right,
     }
 
-    loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
-    if loading_like:
-        return "loading", details
-
     large_activity_overlay_like = (
         full["dark_ratio"] > 0.65
         and center["mean"] > 120
@@ -231,6 +242,41 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if large_activity_overlay_like:
         return "home_overlay", details
+
+    blocking_ad_overlay_like = (
+        full["dark_ratio"] > 0.55
+        and center["mean"] > 150
+        and center["bright_ratio"] > 0.20
+        and modal["bright_ratio"] > 0.25
+        and confirm_buttons["bright_ratio"] > 0.20
+        and home_bottom_nav["dark_ratio"] > 0.95
+        and home_right_events["dark_ratio"] > 0.90
+    )
+    if blocking_ad_overlay_like:
+        return "blocking_ad_overlay", details
+
+    dark_confirm_like = (
+        full["dark_ratio"] > 0.90
+        and modal["dark_ratio"] < 0.94
+        and modal["edge_ratio"] > 0.012
+        and confirm_buttons["mean"] > modal["mean"] + 20
+        and confirm_buttons["edge_ratio"] > 0.015
+    )
+    if dark_confirm_like:
+        return "confirm_free_gacha", details
+
+    loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
+    if loading_like:
+        return "loading", details
+
+    gacha_like = (
+        full["dark_ratio"] < 0.65
+        and gacha_button["edge_ratio"] > 0.025
+        and left_tabs["edge_ratio"] > 0.030
+        and top_title["edge_ratio"] > 0.040
+    )
+    if gacha_like:
+        return "gacha_page", details
 
     confirm_like = (
         full["dark_ratio"] > 0.45
@@ -251,23 +297,23 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         full["dark_ratio"] > 0.45
         and center["mean"] > full["mean"] + 35
         and center["contrast"] > 35
+        and home_bottom_nav["dark_ratio"] > 0.85
     )
     if overlay_like:
         return "home_overlay", details
 
-    gacha_like = (
-        gacha_button["bright_ratio"] > 0.10
-        and gacha_button["contrast"] > 35
-        and left_tabs["edge_ratio"] > 0.025
-        and top_title["bright_ratio"] > 0.12
-    )
-    if gacha_like:
-        return "gacha_page", details
-
-    plaza_like = (
+    plaza_bright_joystick_like = (
         plaza_joystick["mid_ratio"] > 0.88
         and plaza_joystick["bright_ratio"] < 0.06
         and plaza_joystick["edge_ratio"] > 0.010
+    )
+    plaza_dark_joystick_like = (
+        plaza_joystick["dark_ratio"] > 0.80
+        and plaza_joystick["mid_ratio"] < 0.12
+        and plaza_joystick["edge_ratio"] > 0.018
+    )
+    plaza_like = (
+        (plaza_bright_joystick_like or plaza_dark_joystick_like)
         and plaza_actions["edge_ratio"] > 0.035
         and plaza_actions["contrast"] > 35
         and plaza_top_right["edge_ratio"] > 0.050
@@ -275,7 +321,7 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if plaza_like:
         return "plaza", details
 
-    real_home_like = (
+    real_home_regular_like = (
         home_bottom_nav["edge_ratio"] > 0.035
         and home_bottom_nav["contrast"] > 35
         and home_right_events["edge_ratio"] > 0.020
@@ -283,7 +329,16 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and home_top_right["bright_ratio"] > 0.10
         and plaza_joystick["mid_ratio"] < 0.88
     )
-    if real_home_like:
+    real_home_dark_background_like = (
+        home_bottom_nav["edge_ratio"] > 0.045
+        and home_bottom_nav["contrast"] > 55
+        and home_right_events["edge_ratio"] > 0.030
+        and home_right_events["contrast"] > 55
+        and home_top_right["edge_ratio"] > 0.025
+        and home_top_right["contrast"] > 55
+        and plaza_joystick["dark_ratio"] < 0.80
+    )
+    if real_home_regular_like or real_home_dark_background_like:
         return "real_home", details
 
     is_home, home_scores = recognize_home_screen(image)
@@ -467,6 +522,7 @@ def run_free_gacha(
     switched: set[str] = set()
     waiting_for_confirm = False
     waiting_since = 0.0
+    last_dismissed_overlay: Image.Image | None = None
     deadline = time.monotonic() + timeout
     step = 0
 
@@ -503,16 +559,30 @@ def run_free_gacha(
             return ActionResult(state, "stop", reason)
 
         if state == "loading":
+            last_dismissed_overlay = None
             logger.event(action="wait_loading", step=step)
             time.sleep(interval)
             continue
 
-        if state == "home_overlay":
+        if state in {"home_overlay", "blocking_ad_overlay"}:
+            if last_dismissed_overlay is not None:
+                difference = _mean_region_difference(last_dismissed_overlay, image)
+                logger.event(action="verify_overlay_dismissed", difference=difference, state=state)
+                if difference < 2.5:
+                    reason = (
+                        "overlay did not close after clicking the dimmed margin; "
+                        f"center difference={difference:.2f}"
+                    )
+                    logger.failure(reason)
+                    logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                    return ActionResult(state, "stop", reason)
             _click_ratio(hwnd, image, "dismiss_overlay", dry_run=dry_run, logger=logger)
+            last_dismissed_overlay = image.copy()
             waiting_for_confirm = False
             time.sleep(interval)
             continue
 
+        last_dismissed_overlay = None
         if state == "real_home":
             _click_ratio(hwnd, image, "home_gacha", dry_run=dry_run, logger=logger)
             waiting_for_confirm = False
@@ -541,6 +611,7 @@ def run_free_gacha(
                     time.sleep(interval)
                     continue
                 reason = f"confirm dialog did not appear after all-free click for {current_target}"
+                logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason)
                 return ActionResult(state, "stop", reason)
 
@@ -578,10 +649,12 @@ def run_free_gacha(
             continue
 
         reason = f"unknown or unsupported state: {state}"
+        logger.failure(reason)
         logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
         return ActionResult(state, "stop", reason)
 
     reason = f"timeout after {timeout:.0f}s"
+    logger.failure(reason)
     logger.event(action="stop", result="error", reason=reason)
     return ActionResult("timeout", "stop", reason)
 
