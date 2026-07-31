@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from free_gacha import classify_state
+from free_gacha import classify_state, detect_selected_gacha_target
 
 
 def main() -> None:
@@ -23,12 +23,24 @@ def main() -> None:
             continue
         with Image.open(image_path) as image:
             actual, _ = classify_state(image)
+            actual_target = detect_selected_gacha_target(image) if "expected_target" in case else None
         status = "PASS" if actual == case["expected"] else "FAIL"
         print(f"{status} {image_path.name}: expected={case['expected']} actual={actual}")
         if status == "FAIL":
             failures.append(
                 f"{image_path.name}: expected={case['expected']} actual={actual}; {case['reason']}"
             )
+        if "expected_target" in case:
+            target_status = "PASS" if actual_target == case["expected_target"] else "FAIL"
+            print(
+                f"{target_status} {image_path.name}: "
+                f"expected_target={case['expected_target']} actual_target={actual_target}"
+            )
+            if target_status == "FAIL":
+                failures.append(
+                    f"{image_path.name}: expected_target={case['expected_target']} "
+                    f"actual_target={actual_target}; {case['reason']}"
+                )
 
     if failures:
         raise SystemExit("\n".join(failures))

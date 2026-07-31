@@ -48,5 +48,27 @@
     "path": "fixtures/recognition/home-black-video-background.png",
     "expected": "real_home",
     "reason": "主页动态背景暂时全黑时仍应依靠菜单识别为主页"
+  },
+  {
+    "path": "fixtures/recognition/gacha-animation-dark-stage.png",
+    "expected": "gacha_animation",
+    "reason": "跳过后的暗色抽卡动画阶段不能识别为未知画面"
+  },
+  {
+    "path": "fixtures/recognition/gacha-page-unmarked.png",
+    "expected": "gacha_page",
+    "expected_target": "costume",
+    "reason": "真实无标注抽卡主页不能依赖测试红框边缘识别"
+  },
+  {
+    "path": "fixtures/recognition/gacha-page-gear-selected.png",
+    "expected": "gacha_page",
+    "expected_target": "gear",
+    "reason": "装备页签切换后必须识别到装备高亮"
+  },
+  {
+    "path": "fixtures/recognition/gear-gacha-animation-reveal.png",
+    "expected": "gacha_animation",
+    "reason": "装备抽卡揭示动画不能识别为未知画面"
   }
 ]

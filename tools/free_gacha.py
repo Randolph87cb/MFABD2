@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 from PIL import Image, ImageDraw
@@ -198,6 +198,21 @@ def _mean_region_difference(
     return float(np.mean(np.abs(before_region - after_region)))
 
 
+def detect_selected_gacha_target(image: Image.Image) -> str | None:
+    frame = np.asarray(image.convert("RGB"))
+    costume = _stats(_roi(frame, (0.055, 0.24, 0.075, 0.12)))
+    gear = _stats(_roi(frame, (0.055, 0.35, 0.075, 0.12)))
+    if costume["bright_ratio"] > gear["bright_ratio"] + 0.015:
+        return "costume"
+    if gear["bright_ratio"] > costume["bright_ratio"] + 0.015:
+        return "gear"
+    if costume["mean"] > gear["mean"] + 8:
+        return "costume"
+    if gear["mean"] > costume["mean"] + 8:
+        return "gear"
+    return None
+
+
 def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     frame = np.asarray(image.convert("RGB"))
     full = _stats(frame)
@@ -214,6 +229,9 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     plaza_joystick = _stats(_roi(frame, (0.10, 0.72, 0.12, 0.20)))
     plaza_actions = _stats(_roi(frame, (0.72, 0.68, 0.25, 0.28)))
     plaza_top_right = _stats(_roi(frame, (0.84, 0.02, 0.14, 0.10)))
+    animation_left_margin = _stats(_roi(frame, (0.00, 0.00, 0.23, 1.00)))
+    animation_top_right = _stats(_roi(frame, (0.82, 0.01, 0.15, 0.12)))
+    animation_bottom_reveal = _stats(_roi(frame, (0.40, 0.84, 0.20, 0.14)))
 
     details: dict[str, Any] = {
         "full": full,
@@ -230,6 +248,9 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         "plaza_joystick": plaza_joystick,
         "plaza_actions": plaza_actions,
         "plaza_top_right": plaza_top_right,
+        "animation_left_margin": animation_left_margin,
+        "animation_top_right": animation_top_right,
+        "animation_bottom_reveal": animation_bottom_reveal,
     }
 
     large_activity_overlay_like = (
@@ -271,9 +292,8 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
 
     gacha_like = (
         full["dark_ratio"] < 0.65
-        and gacha_button["edge_ratio"] > 0.025
-        and left_tabs["edge_ratio"] > 0.030
-        and top_title["edge_ratio"] > 0.040
+        and left_tabs["edge_ratio"] > 0.020
+        and top_title["edge_ratio"] > 0.045
     )
     if gacha_like:
         return "gacha_page", details
@@ -286,6 +306,21 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if confirm_like:
         return "confirm_free_gacha", details
+
+    dark_animation_like = (
+        animation_left_margin["dark_ratio"] > 0.98
+        and animation_left_margin["contrast"] < 10
+        and animation_top_right["edge_ratio"] > 0.010
+        and animation_bottom_reveal["mid_ratio"] > 0.20
+    )
+    reveal_animation_like = (
+        animation_top_right["edge_ratio"] > 0.012
+        and animation_top_right["bright_ratio"] < 0.10
+        and animation_bottom_reveal["mid_ratio"] > 0.20
+        and animation_bottom_reveal["edge_ratio"] < 0.020
+    )
+    if dark_animation_like or reveal_animation_like:
+        return "gacha_animation", details
 
     bright_scene = full["bright_ratio"] > 0.62 and full["dark_ratio"] < 0.10
     if bright_scene:
@@ -501,6 +536,66 @@ def _target_tab(target: str) -> str:
         raise ValueError(f"unsupported target: {target}") from exc
 
 
+def click_with_fixed_retry(
+    hwnd: int,
+    image: Image.Image,
+    key: str,
+    *,
+    verify: Callable[[str, Image.Image], bool],
+    description: str,
+    dry_run: bool,
+    logger: RunLogger,
+    delay: float = 6.0,
+    attempts: int = 2,
+) -> tuple[bool, str, Image.Image, str]:
+    current_image = image
+    source_state, _ = classify_state(image)
+    current_state = source_state
+    for attempt in range(1, attempts + 1):
+        _click_ratio(hwnd, current_image, key, dry_run=dry_run, logger=logger)
+        if dry_run:
+            return True, current_state, current_image, f"dry-run planned {description}"
+
+        time.sleep(delay)
+        current_image = safe_capture_client(hwnd, logger=logger)
+        current_state, details = classify_state(current_image)
+        stamp = datetime.now().strftime("%H%M%S-%f")
+        verify_path = logger.save_image(
+            current_image,
+            f"verify-{stamp}-{key}-attempt-{attempt}-{current_state}.png",
+        )
+        succeeded = verify(current_state, current_image)
+        logger.event(
+            action="verify_click",
+            key=key,
+            description=description,
+            attempt=attempt,
+            state=current_state,
+            succeeded=succeeded,
+            screenshot=str(verify_path),
+            details=details,
+        )
+        if succeeded:
+            return True, current_state, current_image, f"{description} succeeded on attempt {attempt}"
+        if attempt < attempts:
+            if current_state != source_state:
+                reason = (
+                    f"{description} changed from {source_state} to unexpected state "
+                    f"{current_state}; retry cancelled"
+                )
+                return False, current_state, current_image, reason
+            logger.event(
+                action="retry_click",
+                key=key,
+                description=description,
+                previous_attempts=attempt,
+                delay=delay,
+            )
+
+    reason = f"{description} did not take effect after {attempts} clicks"
+    return False, current_state, current_image, reason
+
+
 def run_free_gacha(
     *,
     targets: list[str],
@@ -520,9 +615,7 @@ def run_free_gacha(
 
     target_index = 0
     switched: set[str] = set()
-    waiting_for_confirm = False
-    waiting_since = 0.0
-    last_dismissed_overlay: Image.Image | None = None
+    result_back_target: str | None = None
     deadline = time.monotonic() + timeout
     step = 0
 
@@ -558,35 +651,55 @@ def run_free_gacha(
             logger.event(action="stop", result="success", reason=reason)
             return ActionResult(state, "stop", reason)
 
+        if result_back_target is not None and state == "gacha_page":
+            logger.event(action="target_complete", target=result_back_target)
+            target_index += 1
+            result_back_target = None
+            current_target = targets[target_index] if target_index < len(targets) else None
+            if current_target is None:
+                reason = "all requested free gacha targets completed"
+                logger.event(action="stop", result="success", reason=reason)
+                return ActionResult(state, "stop", reason)
+
         if state == "loading":
-            last_dismissed_overlay = None
             logger.event(action="wait_loading", step=step)
             time.sleep(interval)
             continue
 
         if state in {"home_overlay", "blocking_ad_overlay"}:
-            if last_dismissed_overlay is not None:
-                difference = _mean_region_difference(last_dismissed_overlay, image)
-                logger.event(action="verify_overlay_dismissed", difference=difference, state=state)
-                if difference < 2.5:
-                    reason = (
-                        "overlay did not close after clicking the dimmed margin; "
-                        f"center difference={difference:.2f}"
-                    )
-                    logger.failure(reason)
-                    logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
-                    return ActionResult(state, "stop", reason)
-            _click_ratio(hwnd, image, "dismiss_overlay", dry_run=dry_run, logger=logger)
-            last_dismissed_overlay = image.copy()
-            waiting_for_confirm = False
-            time.sleep(interval)
+            overlay_before = image.copy()
+            ok, _, _, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "dismiss_overlay",
+                verify=lambda next_state, next_image: (
+                    next_state not in {"home_overlay", "blocking_ad_overlay"}
+                    or _mean_region_difference(overlay_before, next_image) >= 2.5
+                ),
+                description="dismiss home overlay",
+                dry_run=dry_run,
+                logger=logger,
+            )
+            if not ok:
+                logger.failure(reason)
+                logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                return ActionResult(state, "stop", reason)
             continue
 
-        last_dismissed_overlay = None
         if state == "real_home":
-            _click_ratio(hwnd, image, "home_gacha", dry_run=dry_run, logger=logger)
-            waiting_for_confirm = False
-            time.sleep(interval)
+            ok, _, _, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "home_gacha",
+                verify=lambda next_state, _next_image: next_state in {"gacha_page", "loading"},
+                description="open gacha from home",
+                dry_run=dry_run,
+                logger=logger,
+            )
+            if not ok:
+                logger.failure(reason)
+                logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                return ActionResult(state, "stop", reason)
             continue
 
         if state == "plaza":
@@ -597,7 +710,6 @@ def run_free_gacha(
                 logger=logger,
                 interval=interval,
             )
-            waiting_for_confirm = False
             if not ok:
                 logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason)
@@ -606,46 +718,99 @@ def run_free_gacha(
             continue
 
         if state == "gacha_page":
-            if waiting_for_confirm:
-                if time.monotonic() - waiting_since < 6:
-                    time.sleep(interval)
-                    continue
-                reason = f"confirm dialog did not appear after all-free click for {current_target}"
-                logger.failure(reason)
-                logger.event(action="stop", result="error", reason=reason)
-                return ActionResult(state, "stop", reason)
-
             assert current_target is not None
             if current_target not in switched:
-                _click_ratio(hwnd, image, _target_tab(current_target), dry_run=dry_run, logger=logger)
-                switched.add(current_target)
-                time.sleep(interval)
+                selected_target = detect_selected_gacha_target(image)
+                logger.event(
+                    action="detect_selected_gacha_target",
+                    expected=current_target,
+                    selected=selected_target,
+                )
+                if selected_target == current_target:
+                    switched.add(current_target)
+                else:
+                    ok, _, _, reason = click_with_fixed_retry(
+                        hwnd,
+                        image,
+                        _target_tab(current_target),
+                        verify=lambda next_state, next_image: (
+                            next_state == "gacha_page"
+                            and detect_selected_gacha_target(next_image) == current_target
+                        ),
+                        description=f"select {current_target} gacha tab",
+                        dry_run=dry_run,
+                        logger=logger,
+                    )
+                    if not ok:
+                        logger.failure(reason)
+                        logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                        return ActionResult(state, "stop", reason)
+                    switched.add(current_target)
                 continue
 
-            _click_ratio(hwnd, image, "all_free", dry_run=dry_run, logger=logger)
-            waiting_for_confirm = True
-            waiting_since = time.monotonic()
-            time.sleep(interval)
+            ok, _, _, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "all_free",
+                verify=lambda next_state, _next_image: next_state == "confirm_free_gacha",
+                description=f"open all-free confirmation for {current_target}",
+                dry_run=dry_run,
+                logger=logger,
+            )
+            if not ok:
+                logger.failure(reason)
+                logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                return ActionResult(state, "stop", reason)
             continue
 
         if state == "confirm_free_gacha":
-            _click_ratio(hwnd, image, "confirm", dry_run=dry_run, logger=logger)
-            waiting_for_confirm = False
-            time.sleep(interval)
+            ok, _, _, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "confirm",
+                verify=lambda next_state, _next_image: next_state
+                in {"gacha_animation", "gacha_result", "loading"},
+                description="confirm free gacha",
+                dry_run=dry_run,
+                logger=logger,
+            )
+            if not ok:
+                logger.failure(reason)
+                logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                return ActionResult(state, "stop", reason)
             continue
 
         if state == "gacha_animation":
-            _click_ratio(hwnd, image, "skip_animation", dry_run=dry_run, logger=logger)
-            waiting_for_confirm = False
-            time.sleep(interval)
+            ok, _, _, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "skip_animation",
+                verify=lambda next_state, _next_image: next_state in {"gacha_result", "loading"},
+                description="skip gacha animation",
+                dry_run=dry_run,
+                logger=logger,
+            )
+            if not ok:
+                logger.failure(reason)
+                logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                return ActionResult(state, "stop", reason)
             continue
 
         if state == "gacha_result":
-            _click_ratio(hwnd, image, "result_back", dry_run=dry_run, logger=logger)
-            logger.event(action="target_complete", target=current_target)
-            target_index += 1
-            waiting_for_confirm = False
-            time.sleep(interval)
+            ok, _, _, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "result_back",
+                verify=lambda next_state, _next_image: next_state in {"gacha_page", "loading"},
+                description="return from gacha result",
+                dry_run=dry_run,
+                logger=logger,
+            )
+            if not ok:
+                logger.failure(reason)
+                logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                return ActionResult(state, "stop", reason)
+            result_back_target = current_target
             continue
 
         reason = f"unknown or unsupported state: {state}"
