@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 from enter_game import capture_client, recognize_home_screen
+from game_text_recognition import recognize_home_labels, recognize_quick_hunt_map_labels
 from open_game import find_game_window
 from win32_windowpos_click import click_client
 
@@ -32,6 +33,7 @@ VK_H = 0x48
 
 CLICK_POINTS = {
     "home_gacha": (0.086, 0.925),
+    "quick_hunt": (0.918, 0.255),
     "plaza_home": (0.935, 0.055),
     # Home promotions use a bright center panel and a dimmed, non-interactive margin.
     "dismiss_overlay": (0.138, 0.565),
@@ -296,6 +298,10 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and top_title["edge_ratio"] > 0.045
     )
     if gacha_like:
+        quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
+        details["quick_hunt_map_text"] = quick_hunt_map_text
+        if quick_hunt_map_match:
+            return "quick_hunt_map", details
         return "gacha_page", details
 
     confirm_like = (
@@ -321,6 +327,11 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if dark_animation_like or reveal_animation_like:
         return "gacha_animation", details
+
+    home_labels_match, home_text = recognize_home_labels(image)
+    details["home_text"] = home_text
+    if home_labels_match:
+        return "real_home", details
 
     bright_scene = full["bright_ratio"] > 0.62 and full["dark_ratio"] < 0.10
     if bright_scene:
@@ -355,26 +366,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if plaza_like:
         return "plaza", details
-
-    real_home_regular_like = (
-        home_bottom_nav["edge_ratio"] > 0.035
-        and home_bottom_nav["contrast"] > 35
-        and home_right_events["edge_ratio"] > 0.020
-        and home_right_events["contrast"] > 30
-        and home_top_right["bright_ratio"] > 0.10
-        and plaza_joystick["mid_ratio"] < 0.88
-    )
-    real_home_dark_background_like = (
-        home_bottom_nav["edge_ratio"] > 0.045
-        and home_bottom_nav["contrast"] > 55
-        and home_right_events["edge_ratio"] > 0.030
-        and home_right_events["contrast"] > 55
-        and home_top_right["edge_ratio"] > 0.025
-        and home_top_right["contrast"] > 55
-        and plaza_joystick["dark_ratio"] < 0.80
-    )
-    if real_home_regular_like or real_home_dark_background_like:
-        return "real_home", details
 
     is_home, home_scores = recognize_home_screen(image)
     details["home_scores"] = home_scores

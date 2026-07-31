@@ -1,3 +1,5 @@
 numpy
 Pillow
+rapidocr
+onnxruntime
 pycaw
