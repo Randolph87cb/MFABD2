@@ -25,10 +25,15 @@ from enter_game import TOUCH_CLICK, recognize_entry_state  # noqa: E402
 from free_gacha import (  # noqa: E402
     RunLogger,
     _click_ratio,
+    _mean_region_difference,
     classify_state,
     click_with_fixed_retry,
     run_free_gacha,
     safe_capture_client,
+)
+from game_text_recognition import (  # noqa: E402
+    recognize_entry_status,
+    recognize_return_home_control,
 )
 from open_game import open_game  # noqa: E402
 from quick_hunt import (  # noqa: E402
@@ -47,6 +52,14 @@ NETWORK_ENDPOINTS = (
     ("www.baidu.com", 443),
     ("github.com", 443),
 )
+DOWNLOAD_CONFIRM_CLICK = (0.548, 0.598)
+DAILY_READY_STATES = {
+    "real_home",
+    "home_overlay",
+    "blocking_ad_overlay",
+    "plaza",
+    "gacha_page",
+}
 
 
 class DailyRunError(RuntimeError):
@@ -238,6 +251,123 @@ def _click_touch(
     click_client(hwnd, x, y)
 
 
+def _click_logged_ratio(
+    hwnd: int,
+    image: Any,
+    ratio: tuple[float, float],
+    *,
+    key: str,
+    logger: RunLogger,
+    attempt: int,
+) -> None:
+    width, height = image.size
+    x = int(width * ratio[0])
+    y = int(height * ratio[1])
+    click_index = logger.next_click_index()
+    marked = logger.save_click_image(
+        image,
+        f"click-{click_index:03d}-{key}.png",
+        x=x,
+        y=y,
+        key=key,
+        dry_run=False,
+    )
+    logger.event(
+        action="click",
+        key=key,
+        x=x,
+        y=y,
+        attempt=attempt,
+        dry_run=False,
+        screenshot=str(marked),
+    )
+    click_client(hwnd, x, y)
+
+
+def recognize_daily_entry_state(
+    image: Any,
+    *,
+    text_result: tuple[str, dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Recognize current title art without mistaking loading text for Touch To Start."""
+    text_state, text_details = text_result or recognize_entry_status(image)
+    if text_state != "unknown":
+        return text_state, {"source": "ocr", "text": text_details}
+
+    state, details = recognize_entry_state(image)
+    if state != "unknown":
+        return state, details
+
+    title = details.get("title", {})
+    touch = details.get("touch", {})
+    title_anchor = (
+        title.get("dark_ratio", 0.0) > 0.08
+        and title.get("bright_ratio", 0.0) > 0.40
+        and title.get("edge_ratio", 0.0) > 0.030
+        and title.get("contrast", 0.0) > 55
+    )
+    touch_prompt = (
+        title_anchor
+        and touch.get("dark_ratio", 0.0) > 0.01
+        and touch.get("bright_ratio", 0.0) > 0.80
+        and touch.get("edge_ratio", 0.0) > 0.010
+        and touch.get("contrast", 0.0) > 30
+    )
+    details = {
+        **details,
+        "source": "image_stats",
+        "text": text_details,
+        "daily_fallback": {
+            "title_anchor": title_anchor,
+            "touch_prompt": touch_prompt,
+        },
+    }
+    if touch_prompt:
+        return "touch_ready", details
+    if title_anchor:
+        return "loading_title", details
+    return state, details
+
+
+def classify_daily_entry_context(
+    image: Any,
+) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
+    """Apply specific known-state recognition before the return-home fallback."""
+    text_result = recognize_entry_status(image)
+    text_state, text_details = text_result
+    if text_state != "unknown":
+        return (
+            "entry_screen",
+            {},
+            text_state,
+            {"source": "ocr", "text": text_details},
+        )
+
+    state, details = classify_state(image)
+    if state != "unknown":
+        return state, details, "unknown", {"source": "deferred", "text": text_details}
+
+    entry_state, entry_details = recognize_daily_entry_state(
+        image,
+        text_result=text_result,
+    )
+    if entry_state in {"touch_ready", "download_waiting", "download_confirmation", "loading_title"}:
+        return "entry_screen", details, entry_state, entry_details
+
+    returnable, return_details = recognize_return_home_control(image)
+    details["return_home_control"] = return_details
+    if returnable:
+        state = "returnable_scene"
+    return state, details, entry_state, entry_details
+
+
+def overlay_transition_succeeded(before: Any, next_state: str, after: Any) -> bool:
+    return (
+        next_state not in {"home_overlay", "blocking_ad_overlay"}
+        or _mean_region_difference(before, after) >= 2.5
+    )
+
+
 def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     """Open the client and record every Touch To Start click."""
     logger = RunLogger(log_root, annotate_clicks=True)
@@ -252,19 +382,11 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     deadline = time.monotonic() + timeout
     step = 0
     touch_attempt = 0
-    consecutive_unknown = 0
-    ready_states = {
-        "real_home",
-        "home_overlay",
-        "blocking_ad_overlay",
-        "plaza",
-        "gacha_page",
-    }
+    download_confirm_attempts = 0
     while time.monotonic() < deadline:
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
-        state, details = classify_state(image)
-        entry_state, entry_details = recognize_entry_state(image)
+        state, details, entry_state, entry_details = classify_daily_entry_context(image)
         path = logger.save_image(image, f"step-{step:03d}-{state}-{entry_state}.png")
         logger.event(
             action="classify",
@@ -276,36 +398,69 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             entry_details=entry_details,
         )
 
-        if state in ready_states:
+        if state in DAILY_READY_STATES:
             reason = f"game is ready at state={state}"
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
         if state == "loading":
-            consecutive_unknown = 0
             time.sleep(3.0)
             continue
-        if entry_state in {"touch_ready", "loading_title"}:
-            consecutive_unknown = 0
+        if entry_state == "download_waiting":
+            download_confirm_attempts = 0
+            logger.event(
+                action="wait_download",
+                reason="download or capacity check is still in progress",
+                screenshot=str(path),
+                entry_details=entry_details,
+            )
+            time.sleep(10.0)
+            continue
+        if entry_state == "download_confirmation":
+            download_confirm_attempts += 1
+            if download_confirm_attempts > 2:
+                reason = "download confirmation did not take effect after 2 clicks"
+                logger.failure(reason)
+                return False, reason
+            _click_logged_ratio(
+                hwnd,
+                image,
+                DOWNLOAD_CONFIRM_CLICK,
+                key="confirm_download",
+                logger=logger,
+                attempt=download_confirm_attempts,
+            )
+            time.sleep(6.0)
+            continue
+        if entry_state == "touch_ready":
+            download_confirm_attempts = 0
             touch_attempt += 1
             _click_touch(hwnd, image, logger=logger, attempt=touch_attempt)
             time.sleep(6.0)
             continue
+        if state == "returnable_scene":
+            ok, _next_state, _next_image, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "plaza_home",
+                verify=lambda next_state, _image: next_state
+                in {"real_home", "home_overlay", "blocking_ad_overlay", "loading"},
+                description="return home from fallback scene",
+                dry_run=False,
+                logger=logger,
+            )
+            if not ok:
+                logger.failure(reason)
+                return False, reason
+            continue
 
-        consecutive_unknown += 1
-        if consecutive_unknown >= 3:
-            reason = (
-                "unrecognized game entry screen after 3 checks; "
-                "login may require manual handling"
-            )
-            logger.failure(reason)
-            logger.event(
-                action="stop",
-                result="error",
-                reason=reason,
-                screenshot=str(path),
-            )
-            return False, reason
-        time.sleep(3.0)
+        logger.event(
+            action="wait_entry_screen",
+            state=state,
+            entry_state=entry_state,
+            reason="startup or login screen is not actionable yet",
+            screenshot=str(path),
+        )
+        time.sleep(5.0)
 
     reason = f"game entry timed out after {timeout:.0f} seconds"
     logger.failure(reason)
@@ -354,6 +509,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "dismiss_overlay"
             description = "dismiss home overlay"
             expected = {"real_home", "plaza", "loading"}
+            overlay_before = image.copy()
         elif state == "plaza":
             key = "plaza_home"
             description = "return home from plaza"
@@ -367,7 +523,15 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             hwnd,
             image,
             key,
-            verify=lambda next_state, _image, accepted=expected: next_state in accepted,
+            verify=(
+                (lambda next_state, next_image: overlay_transition_succeeded(
+                    overlay_before,
+                    next_state,
+                    next_image,
+                ))
+                if state in {"home_overlay", "blocking_ad_overlay"}
+                else (lambda next_state, _image, accepted=expected: next_state in accepted)
+            ),
             description=description,
             dry_run=False,
             logger=logger,

@@ -131,5 +131,15 @@
     "expected": "quick_hunt_setup",
     "expected_quick_hunt_max": true,
     "reason": "圣石洞穴点击 MAX 后必须识别次数和最右滑块"
+  },
+  {
+    "path": "fixtures/recognition/entry-home-signin-overlay-v2318.png",
+    "expected": "home_overlay",
+    "reason": "返回主页后的签到弹窗不能误别为 Touch To Start"
+  },
+  {
+    "path": "fixtures/recognition/entry-home-item-detail-v2318.png",
+    "expected": "home_overlay",
+    "reason": "签到物品说明弹窗不能误别为永久加载画面"
   }
 ]

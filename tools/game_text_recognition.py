@@ -82,6 +82,31 @@ QUICK_HUNT_RESULT_LABEL_GROUPS = {
     },
 }
 
+ENTRY_STATUS_LABEL_GROUPS = {
+    "status": {
+        "region": (0.52, 0.46, 0.42, 0.38),
+        "labels": (
+            "TOUCH TO START",
+            "正在确认下载容量",
+            "正在下载",
+            "下载中",
+            "确认下载",
+            "开始下载",
+        ),
+    },
+    "confirm_button": {
+        "region": (0.42, 0.50, 0.32, 0.24),
+        "labels": ("确认下载", "开始下载", "确定"),
+    },
+}
+
+RETURN_HOME_LABEL_GROUPS = {
+    "home_control": {
+        "region": (0.84, 0.00, 0.16, 0.16),
+        "labels": ("H",),
+    },
+}
+
 
 @lru_cache(maxsize=1)
 def _ocr_engine() -> Any:
@@ -206,6 +231,64 @@ def recognize_home_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
             "left_menu": 3,
             "bottom_nav": 4,
         },
+    }
+
+
+def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
+    """Recognize actionable and waiting states on the title/download screen."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ENTRY_STATUS_LABEL_GROUPS)
+    if error is not None:
+        return "unknown", error
+
+    normalized = [
+        _normalize_text(text)
+        for texts in grouped_texts.values()
+        for text in texts
+    ]
+    confirm_texts = [
+        _normalize_text(text)
+        for text in grouped_texts["confirm_button"]
+    ]
+    has_download_context = any("下载" in text for text in normalized)
+    if any("TOUCHTOSTART" in text for text in normalized):
+        state = "touch_ready"
+    elif any(
+        marker in text
+        for text in normalized
+        for marker in ("正在确认下载容量", "正在下载", "下载中", "检查更新")
+    ):
+        state = "download_waiting"
+    elif has_download_context and any(
+        text in {"确认下载", "开始下载", "确定"}
+        for text in confirm_texts
+    ):
+        state = "download_confirmation"
+    elif any(
+        text.startswith("下载") and any(character.isdigit() for character in text)
+        for text in normalized
+    ):
+        state = "download_waiting"
+    else:
+        state = "unknown"
+    return state, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "state": state,
+    }
+
+
+def recognize_return_home_control(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the fixed top-right H control used by returnable game scenes."""
+    grouped_texts, matches, error = _recognize_label_groups(image, RETURN_HOME_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    found = "H" in matches["home_control"]
+    return found, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "found": found,
     }
 
 

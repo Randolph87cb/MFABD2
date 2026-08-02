@@ -320,6 +320,16 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         if quick_hunt_result_match:
             return "quick_hunt_result", details
 
+    dark_item_overlay_like = (
+        full["dark_ratio"] > 0.95
+        and center["mean"] > full["mean"] + 25
+        and center["edge_ratio"] > 0.012
+        and modal["edge_ratio"] > 0.012
+        and home_bottom_nav["dark_ratio"] > 0.98
+    )
+    if dark_item_overlay_like:
+        return "home_overlay", details
+
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:
         return "loading", details
@@ -559,6 +569,10 @@ def _target_tab(target: str) -> str:
         raise ValueError(f"unsupported target: {target}") from exc
 
 
+def is_free_gacha_confirm_transition(state: str) -> bool:
+    return state in {"gacha_page", "gacha_animation", "gacha_result", "loading"}
+
+
 def click_with_fixed_retry(
     hwnd: int,
     image: Image.Image,
@@ -787,12 +801,11 @@ def run_free_gacha(
             continue
 
         if state == "confirm_free_gacha":
-            ok, _, _, reason = click_with_fixed_retry(
+            ok, next_state, next_image, reason = click_with_fixed_retry(
                 hwnd,
                 image,
                 "confirm",
-                verify=lambda next_state, _next_image: next_state
-                in {"gacha_animation", "gacha_result", "loading"},
+                verify=lambda candidate, _next_image: is_free_gacha_confirm_transition(candidate),
                 description="confirm free gacha",
                 dry_run=dry_run,
                 logger=logger,
@@ -801,6 +814,28 @@ def run_free_gacha(
                 logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
                 return ActionResult(state, "stop", reason)
+            if not dry_run and next_state == "gacha_page":
+                next_state, next_image = wait_for_state(
+                    hwnd,
+                    logger,
+                    expected={"gacha_animation", "gacha_result", "loading"},
+                    timeout=30.0,
+                    interval=interval,
+                    label="after-confirm-network-transition",
+                )
+                if next_state not in {"gacha_animation", "gacha_result", "loading"}:
+                    reason = (
+                        "free gacha confirmation stayed on gacha_page for 30 seconds; "
+                        "no second click was attempted"
+                    )
+                    logger.failure(reason)
+                    logger.event(
+                        action="stop",
+                        result="error",
+                        reason=reason,
+                        screenshot=str(image_path),
+                    )
+                    return ActionResult(next_state, "stop", reason)
             continue
 
         if state == "gacha_animation":
