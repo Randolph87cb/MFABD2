@@ -141,5 +141,43 @@
     "path": "fixtures/recognition/entry-home-item-detail-v2318.png",
     "expected": "home_overlay",
     "reason": "签到物品说明弹窗不能误别为永久加载画面"
+  },
+  {
+    "path": "fixtures/recognition/home-special-pass-overlay-3421x1927.png",
+    "expected": "home_overlay",
+    "reason": "新显示器分辨率下特别通行证弹窗不能因背后主页文字而误判为主页"
+  },
+  {
+    "path": "fixtures/recognition/gacha-page-3421x1927.png",
+    "expected": "gacha_page",
+    "expected_target": "costume",
+    "reason": "新显示器分辨率下服装抽抽乐主页不能误判为抽卡确认框"
+  },
+  {
+    "path": "fixtures/recognition/gacha-page-selected-3421x1927.png",
+    "expected": "gacha_page",
+    "expected_target": "costume",
+    "reason": "新显示器分辨率下背景变化后的服装抽抽乐不能落入确认框规则"
+  },
+  {
+    "path": "fixtures/recognition/gacha-confirm-3421x1927.png",
+    "expected": "confirm_free_gacha",
+    "reason": "新显示器分辨率下确认弹窗必须由标题和两个按钮文字共同确认"
+  },
+  {
+    "path": "fixtures/recognition/gacha-animation-start-3421x1927.png",
+    "expected": "gacha_animation",
+    "reason": "确认后的抽卡动画首帧不能继续误判为确认弹窗并发生第二次点击"
+  },
+  {
+    "path": "fixtures/recognition/gacha-item-detail-3421x1927.png",
+    "expected": "gacha_item_overlay",
+    "reason": "误触抽抽乐券后的物品说明必须识别为可关闭弹窗，不能停在未知状态"
+  },
+  {
+    "path": "fixtures/recognition/quick-hunt-setup-crystal-3421x1927.png",
+    "expected": "quick_hunt_setup",
+    "expected_quick_hunt_max": false,
+    "reason": "新显示器分辨率下圣石洞穴设置弹窗不能误判为持续加载"
   }
 ]

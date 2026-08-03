@@ -11,6 +11,7 @@ import argparse
 import ctypes
 import json
 import time
+from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -21,6 +22,9 @@ from PIL import Image, ImageDraw
 
 from enter_game import capture_client, recognize_home_screen
 from game_text_recognition import (
+    recognize_free_gacha_confirmation_labels,
+    recognize_gacha_item_detail_labels,
+    recognize_gacha_page_labels,
     recognize_home_labels,
     recognize_quick_hunt_map_labels,
     recognize_quick_hunt_result_labels,
@@ -35,6 +39,7 @@ user32 = ctypes.windll.user32
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 VK_H = 0x48
+SW_SHOWNOACTIVATE = 4
 
 CLICK_POINTS = {
     "home_gacha": (0.086, 0.925),
@@ -52,7 +57,7 @@ CLICK_POINTS = {
     "gear_tab": (0.086, 0.420),
     "all_free": (0.178, 0.895),
     "confirm": (0.548, 0.598),
-    "skip_animation": (0.930, 0.055),
+    "skip_animation": (0.138, 0.565),
     "result_back": (0.090, 0.045),
 }
 
@@ -135,25 +140,60 @@ def safe_capture_client(
     hwnd: int,
     *,
     logger: RunLogger | None = None,
-    attempts: int = 3,
-    delay: float = 0.8,
+    attempts: int = 8,
+    delay: float = 1.0,
     min_size: tuple[int, int] = (1000, 600),
 ) -> Image.Image:
     last_error: Exception | None = None
     min_width, min_height = min_size
+    recovered = False
     for attempt in range(1, attempts + 1):
         try:
             image = capture_client(hwnd).convert("RGB").copy()
             image.load()
             if image.width < min_width or image.height < min_height:
                 raise ValueError(f"invalid client capture size: {image.width}x{image.height}")
+            if recovered and logger:
+                logger.event(
+                    action="capture_recovered",
+                    attempt=attempt,
+                    width=image.width,
+                    height=image.height,
+                )
             return image
         except Exception as exc:  # noqa: BLE001 - logged and retried by design.
             last_error = exc
+            window_state = _capture_window_state(hwnd)
             if logger:
-                logger.event(action="capture_retry", attempt=attempt, error=repr(exc))
+                logger.event(
+                    action="capture_retry",
+                    attempt=attempt,
+                    error=repr(exc),
+                    window=window_state,
+                )
+            if window_state["minimized"]:
+                user32.ShowWindowAsync(hwnd, SW_SHOWNOACTIVATE)
+                recovered = True
+                if logger:
+                    logger.event(
+                        action="restore_minimized_window",
+                        attempt=attempt,
+                        command="SW_SHOWNOACTIVATE",
+                    )
             time.sleep(delay)
     raise RuntimeError(f"failed to capture valid client image after {attempts} attempts: {last_error!r}")
+
+
+def _capture_window_state(hwnd: int) -> dict[str, Any]:
+    rect = wintypes.RECT()
+    has_client_rect = bool(user32.GetClientRect(hwnd, ctypes.byref(rect)))
+    return {
+        "valid": bool(user32.IsWindow(hwnd)),
+        "visible": bool(user32.IsWindowVisible(hwnd)),
+        "minimized": bool(user32.IsIconic(hwnd)),
+        "client_width": max(0, rect.right - rect.left) if has_client_rect else 0,
+        "client_height": max(0, rect.bottom - rect.top) if has_client_rect else 0,
+    }
 
 
 def _gray(frame: np.ndarray) -> np.ndarray:
@@ -297,12 +337,15 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and confirm_buttons["edge_ratio"] > 0.015
     )
     if dark_confirm_like:
-        return "confirm_free_gacha", details
+        confirm_match, confirm_text = recognize_free_gacha_confirmation_labels(image)
+        details["free_gacha_confirm_text"] = confirm_text
+        if confirm_match:
+            return "confirm_free_gacha", details
 
     quick_hunt_setup_candidate = (
         full["dark_ratio"] > 0.90
         and center["mean"] > full["mean"] + 15
-        and center["edge_ratio"] > 0.012
+        and center["edge_ratio"] > 0.008
     )
     if quick_hunt_setup_candidate:
         quick_hunt_setup_match, quick_hunt_setup_text = recognize_quick_hunt_setup_labels(image)
@@ -330,21 +373,36 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if dark_item_overlay_like:
         return "home_overlay", details
 
+    gacha_item_detail_candidate = (
+        full["dark_ratio"] > 0.95
+        and 40 < full["mean"] < 80
+        and abs(center["mean"] - full["mean"]) < 15
+        and modal["edge_ratio"] > 0.004
+    )
+    if gacha_item_detail_candidate:
+        item_detail_match, item_detail_text = recognize_gacha_item_detail_labels(image)
+        details["gacha_item_detail_text"] = item_detail_text
+        if item_detail_match:
+            return "gacha_item_overlay", details
+
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:
         return "loading", details
 
     gacha_like = (
         full["dark_ratio"] < 0.65
-        and left_tabs["edge_ratio"] > 0.020
-        and top_title["edge_ratio"] > 0.045
+        and left_tabs["edge_ratio"] > 0.015
+        and top_title["edge_ratio"] > 0.030
     )
     if gacha_like:
         quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
         details["quick_hunt_map_text"] = quick_hunt_map_text
         if quick_hunt_map_match:
             return "quick_hunt_map", details
-        return "gacha_page", details
+        gacha_page_match, gacha_page_text = recognize_gacha_page_labels(image)
+        details["gacha_page_text"] = gacha_page_text
+        if gacha_page_match:
+            return "gacha_page", details
 
     confirm_like = (
         full["dark_ratio"] > 0.45
@@ -353,7 +411,10 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and confirm_buttons["bright_ratio"] > 0.15
     )
     if confirm_like:
-        return "confirm_free_gacha", details
+        confirm_match, confirm_text = recognize_free_gacha_confirmation_labels(image)
+        details["free_gacha_confirm_text"] = confirm_text
+        if confirm_match:
+            return "confirm_free_gacha", details
 
     dark_animation_like = (
         animation_left_margin["dark_ratio"] > 0.98
@@ -370,6 +431,15 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if dark_animation_like or reveal_animation_like:
         return "gacha_animation", details
 
+    overlay_like = (
+        full["dark_ratio"] > 0.45
+        and center["mean"] > full["mean"] + 35
+        and center["contrast"] > 35
+        and home_bottom_nav["dark_ratio"] > 0.85
+    )
+    if overlay_like:
+        return "home_overlay", details
+
     home_labels_match, home_text = recognize_home_labels(image)
     details["home_text"] = home_text
     if home_labels_match:
@@ -380,15 +450,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         if top_left_back["mean"] < 220 and top_left_back["mid_ratio"] > 0.25:
             return "gacha_result", details
         return "gacha_animation", details
-
-    overlay_like = (
-        full["dark_ratio"] > 0.45
-        and center["mean"] > full["mean"] + 35
-        and center["contrast"] > 35
-        and home_bottom_nav["dark_ratio"] > 0.85
-    )
-    if overlay_like:
-        return "home_overlay", details
 
     plaza_bright_joystick_like = (
         plaza_joystick["mid_ratio"] > 0.88
@@ -703,14 +764,14 @@ def run_free_gacha(
             time.sleep(interval)
             continue
 
-        if state in {"home_overlay", "blocking_ad_overlay"}:
+        if state in {"home_overlay", "blocking_ad_overlay", "gacha_item_overlay"}:
             overlay_before = image.copy()
             ok, _, _, reason = click_with_fixed_retry(
                 hwnd,
                 image,
                 "dismiss_overlay",
                 verify=lambda next_state, next_image: (
-                    next_state not in {"home_overlay", "blocking_ad_overlay"}
+                    next_state not in {"home_overlay", "blocking_ad_overlay", "gacha_item_overlay"}
                     or _mean_region_difference(overlay_before, next_image) >= 2.5
                 ),
                 description="dismiss home overlay",

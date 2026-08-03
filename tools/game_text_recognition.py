@@ -45,6 +45,35 @@ HOME_LABEL_GROUPS = {
     },
 }
 
+GACHA_PAGE_LABEL_GROUPS = {
+    "title": {
+        "region": (0.00, 0.00, 0.36, 0.13),
+        "labels": ("服装抽抽乐", "装备抽抽乐", "抽抽乐记录"),
+    },
+    "tabs": {
+        "region": (0.04, 0.16, 0.22, 0.34),
+        "labels": ("服装", "装备"),
+    },
+}
+
+FREE_GACHA_CONFIRM_LABEL_GROUPS = {
+    "header": {
+        "region": (0.30, 0.32, 0.40, 0.20),
+        "labels": ("确认抽抽乐",),
+    },
+    "buttons": {
+        "region": (0.38, 0.53, 0.24, 0.15),
+        "labels": ("取消", "确认"),
+    },
+}
+
+GACHA_ITEM_DETAIL_LABEL_GROUPS = {
+    "detail": {
+        "region": (0.23, 0.24, 0.55, 0.52),
+        "labels": ("抽抽乐券", "查看获取途径"),
+    },
+}
+
 QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
@@ -102,7 +131,8 @@ ENTRY_STATUS_LABEL_GROUPS = {
 
 RETURN_HOME_LABEL_GROUPS = {
     "home_control": {
-        "region": (0.84, 0.00, 0.16, 0.16),
+        "region": (0.925, 0.07, 0.035, 0.04),
+        "ocr_width": 540,
         "labels": ("H",),
     },
 }
@@ -162,6 +192,13 @@ def _recognize_label_groups(
                 round(source.height * (y + height)),
             )
         )
+        ocr_width = config.get("ocr_width")
+        if ocr_width and crop.width < ocr_width:
+            scale = ocr_width / crop.width
+            crop = crop.resize(
+                (ocr_width, round(crop.height * scale)),
+                Image.Resampling.LANCZOS,
+            )
         if crop.width > 1200:
             scale = 1200 / crop.width
             crop = crop.resize(
@@ -231,6 +268,58 @@ def recognize_home_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
             "left_menu": 3,
             "bottom_nav": 4,
         },
+    }
+
+
+def recognize_gacha_page_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the gacha page from its fixed title and left category labels."""
+    grouped_texts, matches, error = _recognize_label_groups(image, GACHA_PAGE_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_gacha_page = bool(matches["title"]) and bool(matches["tabs"])
+    return is_gacha_page, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"title": 1, "tabs": 1},
+    }
+
+
+def recognize_free_gacha_confirmation_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the all-free gacha confirmation from fixed dialog labels."""
+    grouped_texts, matches, error = _recognize_label_groups(
+        image,
+        FREE_GACHA_CONFIRM_LABEL_GROUPS,
+    )
+    if error is not None:
+        return False, error
+    is_confirmation = (
+        "确认抽抽乐" in matches["header"]
+        and "取消" in matches["buttons"]
+        and "确认" in matches["buttons"]
+    )
+    return is_confirmation, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"header": 1, "buttons": 2},
+    }
+
+
+def recognize_gacha_item_detail_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the item detail opened from a gacha animation or result."""
+    grouped_texts, matches, error = _recognize_label_groups(
+        image,
+        GACHA_ITEM_DETAIL_LABEL_GROUPS,
+    )
+    if error is not None:
+        return False, error
+    is_item_detail = len(matches["detail"]) == 2
+    return is_item_detail, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"detail": 2},
     }
 
 

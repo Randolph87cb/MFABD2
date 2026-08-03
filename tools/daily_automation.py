@@ -59,6 +59,10 @@ DAILY_READY_STATES = {
     "blocking_ad_overlay",
     "plaza",
     "gacha_page",
+    "confirm_free_gacha",
+    "gacha_animation",
+    "gacha_result",
+    "gacha_item_overlay",
 }
 
 
@@ -344,7 +348,7 @@ def classify_daily_entry_context(
         )
 
     state, details = classify_state(image)
-    if state != "unknown":
+    if state not in {"unknown", "gacha_animation"}:
         return state, details, "unknown", {"source": "deferred", "text": text_details}
 
     entry_state, entry_details = recognize_daily_entry_state(
@@ -366,6 +370,16 @@ def overlay_transition_succeeded(before: Any, next_state: str, after: Any) -> bo
         next_state not in {"home_overlay", "blocking_ad_overlay"}
         or _mean_region_difference(before, after) >= 2.5
     )
+
+
+def return_home_transition_succeeded(next_state: str) -> bool:
+    return next_state in {
+        "real_home",
+        "home_overlay",
+        "blocking_ad_overlay",
+        "loading",
+        "unknown",
+    }
 
 
 def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
@@ -442,8 +456,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                 hwnd,
                 image,
                 "plaza_home",
-                verify=lambda next_state, _image: next_state
-                in {"real_home", "home_overlay", "blocking_ad_overlay", "loading"},
+                verify=lambda next_state, _image: return_home_transition_succeeded(next_state),
                 description="return home from fallback scene",
                 dry_run=False,
                 logger=logger,

@@ -5,6 +5,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
@@ -14,14 +15,16 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from daily_automation import (
+    DAILY_READY_STATES,
     claim_daily_run,
     classify_daily_entry_context,
     overlay_transition_succeeded,
     recognize_daily_entry_state,
+    return_home_transition_succeeded,
     update_daily_state,
 )
 from game_text_recognition import recognize_return_home_control
-from free_gacha import is_free_gacha_confirm_transition
+from free_gacha import CLICK_POINTS, is_free_gacha_confirm_transition, safe_capture_client
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
@@ -95,6 +98,21 @@ class DailyAutomationStateTests(unittest.TestCase):
 
 
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):
+    def test_animation_skip_uses_the_safe_left_margin(self) -> None:
+        self.assertEqual(CLICK_POINTS["skip_animation"], CLICK_POINTS["dismiss_overlay"])
+
+    def test_daily_run_can_resume_every_supported_gacha_state(self) -> None:
+        self.assertTrue(
+            {
+                "gacha_page",
+                "confirm_free_gacha",
+                "gacha_animation",
+                "gacha_result",
+                "gacha_item_overlay",
+            }
+            <= DAILY_READY_STATES
+        )
+
     def test_v2318_touch_screen_is_actionable(self) -> None:
         with Image.open(FIXTURES / "entry-touch-ready-v2318.png") as image:
             state, details = recognize_daily_entry_state(image)
@@ -118,6 +136,28 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(returnable)
         self.assertIn("H", details["matches"]["home_control"])
 
+    def test_today_plaza_home_button_survives_ocr_variation(self) -> None:
+        with Image.open(FIXTURES / "entry-plaza-home-button-v2318-20260803.png") as image:
+            state, _details, entry_state, _entry_details = classify_daily_entry_context(image)
+
+        self.assertEqual(state, "returnable_scene")
+        self.assertEqual(entry_state, "unknown")
+
+    def test_resized_plaza_home_button_overrides_animation_heuristic(self) -> None:
+        with Image.open(FIXTURES / "entry-plaza-home-button-3421x1927.png") as image:
+            state, _details, entry_state, _entry_details = classify_daily_entry_context(image)
+
+        self.assertEqual(state, "returnable_scene")
+        self.assertEqual(entry_state, "unknown")
+
+    def test_return_home_transition_frame_is_waited_without_a_second_click(self) -> None:
+        with Image.open(FIXTURES / "entry-return-home-transition-3421x1927.png") as image:
+            state, _details, entry_state, _entry_details = classify_daily_entry_context(image)
+
+        self.assertEqual(state, "unknown")
+        self.assertEqual(entry_state, "unknown")
+        self.assertTrue(return_home_transition_succeeded(state))
+
     def test_known_home_overlay_wins_over_title_image_fallback(self) -> None:
         with Image.open(FIXTURES / "entry-home-signin-overlay-v2318.png") as image:
             state, _details, entry_state, entry_details = classify_daily_entry_context(image)
@@ -137,6 +177,31 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(is_free_gacha_confirm_transition("gacha_page"))
         self.assertTrue(is_free_gacha_confirm_transition("gacha_animation"))
         self.assertFalse(is_free_gacha_confirm_transition("confirm_free_gacha"))
+
+
+class CaptureRecoveryTests(unittest.TestCase):
+    @patch("free_gacha.time.sleep")
+    @patch("free_gacha.user32")
+    @patch("free_gacha.capture_client")
+    def test_minimized_window_is_restored_before_capture_retry(
+        self,
+        capture_client: MagicMock,
+        user32: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        capture_client.side_effect = [
+            Image.new("RGB", (0, 0)),
+            Image.new("RGB", (1000, 600)),
+        ]
+        user32.GetClientRect.return_value = 1
+        user32.IsWindow.return_value = 1
+        user32.IsWindowVisible.return_value = 1
+        user32.IsIconic.return_value = 1
+
+        image = safe_capture_client(123, attempts=2)
+
+        self.assertEqual(image.size, (1000, 600))
+        user32.ShowWindowAsync.assert_called_once_with(123, 4)
 
 
 if __name__ == "__main__":
