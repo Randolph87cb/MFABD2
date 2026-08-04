@@ -225,5 +225,20 @@
     "path": "fixtures/recognition/arena-repeat-battle-result-2567x1446.png",
     "expected": "arena_repeat_battle_result",
     "reason": "只有识别到反复战斗结果和战绩文字后，才能点击右上角叉号完成每日竞技场"
+  },
+  {
+    "path": "fixtures/recognition/arena-victory-result-2567x1446.png",
+    "expected": "arena_victory_result",
+    "reason": "只有识别到胜利摘要、REWARD和离开按钮后，才能点击离开"
+  },
+  {
+    "path": "fixtures/recognition/arena-rank-change-2567x1446.png",
+    "expected": "arena_rank_change",
+    "reason": "竞技场离开后可能出现晋级或降级页，必须识别胜利分和确认按钮后才点击"
+  },
+  {
+    "path": "fixtures/recognition/arena-lobby-empty-2567x1446.png",
+    "expected": "arena_lobby",
+    "reason": "竞技场自动战斗后容量可能为0/40，仍必须识别为竞技场大厅"
   }
 ]

@@ -124,6 +124,28 @@ ARENA_REPEAT_RESULT_LABEL_GROUPS = {
     },
 }
 
+ARENA_VICTORY_RESULT_LABEL_GROUPS = {
+    "summary": {
+        "region": (0.68, 0.02, 0.30, 0.72),
+        "labels": ("VICTORY", "胜利分", "获胜"),
+    },
+    "controls": {
+        "region": (0.66, 0.78, 0.32, 0.21),
+        "labels": ("REWARD", "战斗", "离开"),
+    },
+}
+
+ARENA_RANK_CHANGE_LABEL_GROUPS = {
+    "rank": {
+        "region": (0.33, 0.22, 0.34, 0.56),
+        "labels": ("胜利分", "恭喜晋级", "晋级", "降级"),
+    },
+    "button": {
+        "region": (0.42, 0.86, 0.16, 0.12),
+        "labels": ("确认",),
+    },
+}
+
 QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
@@ -412,12 +434,13 @@ def recognize_arena_lobby_labels(image: Image.Image) -> tuple[bool, dict[str, An
     if error is not None:
         return False, error
     top_left = "".join(_normalize_text(text) for text in grouped_texts["top_left"])
-    resources = "".join(_normalize_text(text) for text in grouped_texts["resources"])
-    is_lobby = "赛季" in top_left and "胜利分" in top_left and "4040" in resources
+    resource_texts = [_normalize_text(text) for text in grouped_texts["resources"]]
+    has_capacity = any(re.search(r"\d{1,2}40", text) for text in resource_texts)
+    is_lobby = "赛季" in top_left and "胜利分" in top_left and has_capacity
     return is_lobby, {
         "available": True,
         "texts": grouped_texts,
-        "requirements": {"top_left": ["赛季", "胜利分"], "resources": "40/40"},
+        "requirements": {"top_left": ["赛季", "胜利分"], "resources": "0-40/40"},
     }
 
 
@@ -463,6 +486,41 @@ def recognize_arena_repeat_result_labels(image: Image.Image) -> tuple[bool, dict
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"dialog": "three result labels"},
+    }
+
+
+def recognize_arena_victory_result_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the arena victory page shown after closing repeated-battle results."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_VICTORY_RESULT_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_result = (
+        bool(matches["summary"])
+        and "REWARD" in matches["controls"]
+        and "离开" in matches["controls"]
+    )
+    return is_result, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {
+            "summary": 1,
+            "controls": ["REWARD", "离开"],
+        },
+    }
+
+
+def recognize_arena_rank_change_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize an optional arena promotion or demotion confirmation page."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_RANK_CHANGE_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_rank_change = bool(matches["rank"]) and "确认" in matches["button"]
+    return is_rank_change, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"rank": 1, "button": ["确认"]},
     }
 
 

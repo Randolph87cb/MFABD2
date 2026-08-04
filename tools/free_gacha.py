@@ -28,6 +28,8 @@ from game_text_recognition import (
     recognize_arena_cartridge_labels,
     recognize_arena_lobby_labels,
     recognize_arena_repeat_result_labels,
+    recognize_arena_rank_change_labels,
+    recognize_arena_victory_result_labels,
     recognize_free_gacha_confirmation_labels,
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
@@ -58,6 +60,8 @@ CLICK_POINTS = {
     "arena_auto_max": (0.642, 0.588),
     "arena_auto_start": (0.547, 0.749),
     "arena_repeat_result_close": (0.617, 0.284),
+    "arena_victory_leave": (0.895, 0.937),
+    "arena_rank_confirm": (0.500, 0.933),
     "arena_dialogue_advance": (0.138, 0.565),
     "quick_hunt": (0.918, 0.255),
     "quick_hunt_start": (0.855, 0.918),
@@ -351,6 +355,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         if arena_repeat_result_match:
             return "arena_repeat_battle_result", details
 
+    arena_victory_candidate = (
+        full["dark_ratio"] > 0.70
+        and home_bottom_nav["dark_ratio"] > 0.95
+        and home_right_events["dark_ratio"] > 0.90
+    )
+    if arena_victory_candidate:
+        arena_victory_match, arena_victory_text = recognize_arena_victory_result_labels(image)
+        details["arena_victory_text"] = arena_victory_text
+        if arena_victory_match:
+            return "arena_victory_result", details
+
     arena_auto_candidate = (
         full["dark_ratio"] > 0.75
         and center["mean"] > full["mean"] + 15
@@ -443,6 +458,10 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
 
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:
+        arena_rank_match, arena_rank_text = recognize_arena_rank_change_labels(image)
+        details["arena_rank_change_text"] = arena_rank_text
+        if arena_rank_match:
+            return "arena_rank_change", details
         return "loading", details
 
     gacha_like = (

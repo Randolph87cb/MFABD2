@@ -369,6 +369,119 @@ def wait_and_close_repeat_result(
     return False, reason
 
 
+def leave_arena_victory(
+    *,
+    dry_run: bool,
+    log_root: Path,
+    timeout: float = 90.0,
+) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="daily_arena_leave_victory", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    deadline = time.monotonic() + timeout
+    sample = 0
+    while time.monotonic() < deadline:
+        sample += 1
+        image = safe_capture_client(hwnd, logger=logger)
+        state, details = classify_state(image)
+        stamp = datetime.now().strftime("%H%M%S-%f")
+        image_path = logger.save_image(image, f"wait-{sample:03d}-{stamp}-{state}.png")
+        logger.event(
+            action="wait_victory_result",
+            sample=sample,
+            state=state,
+            details=details,
+            screenshot=str(image_path),
+        )
+        if state != "arena_victory_result":
+            time.sleep(5.0)
+            continue
+
+        ok, next_state, _next_image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "arena_victory_leave",
+            verify=lambda candidate, _image: candidate != "arena_victory_result",
+            description="leave arena victory result",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        result = "success" if ok else "error"
+        logger.event(action="stop", result=result, state=next_state, reason=reason)
+        if not ok:
+            logger.failure(reason)
+        return ok, reason
+
+    reason = f"arena victory result timed out after {timeout:.0f} seconds"
+    logger.failure(reason)
+    logger.event(action="stop", result="error", reason=reason)
+    return False, reason
+
+
+def confirm_optional_rank_change(
+    *,
+    dry_run: bool,
+    log_root: Path,
+    timeout: float = 120.0,
+) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="daily_arena_confirm_rank_change", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    stable_states = {"arena_lobby", "plaza", "real_home", "arena_cartridge_collection"}
+    deadline = time.monotonic() + timeout
+    sample = 0
+    while time.monotonic() < deadline:
+        sample += 1
+        image = safe_capture_client(hwnd, logger=logger)
+        state, details = classify_state(image)
+        stamp = datetime.now().strftime("%H%M%S-%f")
+        image_path = logger.save_image(image, f"wait-{sample:03d}-{stamp}-{state}.png")
+        logger.event(
+            action="wait_rank_change",
+            sample=sample,
+            state=state,
+            details=details,
+            screenshot=str(image_path),
+        )
+        if state in stable_states:
+            reason = f"no arena rank-change confirmation; reached {state}"
+            logger.event(action="stop", result="success", state=state, reason=reason)
+            return True, reason
+        if state != "arena_rank_change":
+            time.sleep(5.0)
+            continue
+
+        ok, next_state, _next_image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "arena_rank_confirm",
+            verify=lambda candidate, _image: candidate != "arena_rank_change",
+            description="confirm arena promotion or demotion",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        result = "success" if ok else "error"
+        logger.event(action="stop", result=result, state=next_state, reason=reason)
+        if not ok:
+            logger.failure(reason)
+        return ok, reason
+
+    reason = f"arena post-victory state timed out after {timeout:.0f} seconds"
+    logger.failure(reason)
+    logger.event(action="stop", result="error", reason=reason)
+    return False, reason
+
+
 def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     ok, reason = enter_battlefield(dry_run=dry_run, log_root=log_root / "01-battlefield")
     if not ok or dry_run:
@@ -400,9 +513,21 @@ def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     )
     if not ok:
         return False, reason
-    return wait_and_close_repeat_result(
+    ok, reason = wait_and_close_repeat_result(
         dry_run=False,
         log_root=log_root / "06-repeat-result",
+    )
+    if not ok:
+        return False, reason
+    ok, reason = leave_arena_victory(
+        dry_run=False,
+        log_root=log_root / "07-leave",
+    )
+    if not ok:
+        return False, reason
+    return confirm_optional_rank_change(
+        dry_run=False,
+        log_root=log_root / "08-rank-change",
     )
 
 
@@ -417,6 +542,8 @@ def main() -> None:
             "auto-dialog",
             "auto-start",
             "close-result",
+            "leave",
+            "confirm-rank",
             "full",
         ),
         default="battlefield",
@@ -439,6 +566,16 @@ def main() -> None:
         ok, reason = maximize_and_start_auto_battle(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "close-result":
         ok, reason = wait_and_close_repeat_result(
+            dry_run=args.dry_run,
+            log_root=log_root,
+        )
+    elif args.step == "leave":
+        ok, reason = leave_arena_victory(
+            dry_run=args.dry_run,
+            log_root=log_root,
+        )
+    elif args.step == "confirm-rank":
+        ok, reason = confirm_optional_rank_change(
             dry_run=args.dry_run,
             log_root=log_root,
         )
