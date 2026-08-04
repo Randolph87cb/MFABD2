@@ -27,6 +27,7 @@ from game_text_recognition import (
     recognize_arena_cartridge_bar_labels,
     recognize_arena_cartridge_labels,
     recognize_arena_lobby_labels,
+    recognize_arena_repeat_result_labels,
     recognize_free_gacha_confirmation_labels,
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
@@ -56,6 +57,7 @@ CLICK_POINTS = {
     "arena_auto_battle": (0.791, 0.910),
     "arena_auto_max": (0.642, 0.588),
     "arena_auto_start": (0.547, 0.749),
+    "arena_repeat_result_close": (0.617, 0.284),
     "arena_dialogue_advance": (0.138, 0.565),
     "quick_hunt": (0.918, 0.255),
     "quick_hunt_start": (0.855, 0.918),
@@ -335,6 +337,19 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     details["low_information_frame"] = low_information_frame
     if low_information_frame:
         return "loading", details
+
+    arena_repeat_result_candidate = (
+        full["dark_ratio"] > 0.85
+        and modal["mean"] > full["mean"] + 10
+        and modal["edge_ratio"] > 0.012
+    )
+    if arena_repeat_result_candidate:
+        arena_repeat_result_match, arena_repeat_result_text = recognize_arena_repeat_result_labels(
+            image
+        )
+        details["arena_repeat_result_text"] = arena_repeat_result_text
+        if arena_repeat_result_match:
+            return "arena_repeat_battle_result", details
 
     arena_auto_candidate = (
         full["dark_ratio"] > 0.75

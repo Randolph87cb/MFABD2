@@ -117,6 +117,13 @@ ARENA_AUTO_BATTLE_LABEL_GROUPS = {
     },
 }
 
+ARENA_REPEAT_RESULT_LABEL_GROUPS = {
+    "dialog": {
+        "region": (0.35, 0.25, 0.30, 0.52),
+        "labels": ("反复战斗结果", "攻击战绩", "积分变化", "斗魂奖牌总获得量"),
+    },
+}
+
 QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
@@ -440,6 +447,22 @@ def recognize_arena_auto_battle_labels(image: Image.Image) -> tuple[bool, dict[s
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"dialog": sorted(required)},
+    }
+
+
+def recognize_arena_repeat_result_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the completed repeated-battle result dialog."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_REPEAT_RESULT_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    # The stylized title is occasionally read poorly; three independent result
+    # labels in this fixed dialog region are a stronger signal than the title alone.
+    is_result = len(matches["dialog"]) >= 3
+    return is_result, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"dialog": "three result labels"},
     }
 
 

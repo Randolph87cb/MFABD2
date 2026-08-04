@@ -220,5 +220,10 @@
     "path": "fixtures/recognition/arena-route-plaza-cartridge-annotated-2048x1200.png",
     "expected": "plaza",
     "reason": "返回战场落在普通广场时，必须识别为广场后才允许点击底部卡带图标"
+  },
+  {
+    "path": "fixtures/recognition/arena-repeat-battle-result-2567x1446.png",
+    "expected": "arena_repeat_battle_result",
+    "reason": "只有识别到反复战斗结果和战绩文字后，才能点击右上角叉号完成每日竞技场"
   }
 ]

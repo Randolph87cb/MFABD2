@@ -315,6 +315,60 @@ def maximize_and_start_auto_battle(*, dry_run: bool, log_root: Path) -> tuple[bo
     return ok, final_reason
 
 
+def wait_and_close_repeat_result(
+    *,
+    dry_run: bool,
+    log_root: Path,
+    timeout: float = 1800.0,
+) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="daily_arena_wait_and_close_result", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    deadline = time.monotonic() + timeout
+    sample = 0
+    while time.monotonic() < deadline:
+        sample += 1
+        image = safe_capture_client(hwnd, logger=logger)
+        state, details = classify_state(image)
+        stamp = datetime.now().strftime("%H%M%S-%f")
+        image_path = logger.save_image(image, f"wait-{sample:03d}-{stamp}-{state}.png")
+        logger.event(
+            action="wait_repeat_result",
+            sample=sample,
+            state=state,
+            details=details,
+            screenshot=str(image_path),
+        )
+        if state != "arena_repeat_battle_result":
+            time.sleep(15.0)
+            continue
+
+        ok, next_state, _next_image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "arena_repeat_result_close",
+            verify=lambda candidate, _image: candidate != "arena_repeat_battle_result",
+            description="close repeated arena battle result",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        result = "success" if ok else "error"
+        logger.event(action="stop", result=result, state=next_state, reason=reason)
+        if not ok:
+            logger.failure(reason)
+        return ok, reason
+
+    reason = f"arena repeated-battle result timed out after {timeout:.0f} seconds"
+    logger.failure(reason)
+    logger.event(action="stop", result="error", reason=reason)
+    return False, reason
+
+
 def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     ok, reason = enter_battlefield(dry_run=dry_run, log_root=log_root / "01-battlefield")
     if not ok or dry_run:
@@ -340,9 +394,15 @@ def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     ok, reason = open_auto_battle(dry_run=False, log_root=log_root / "04-auto-dialog")
     if not ok:
         return False, reason
-    return maximize_and_start_auto_battle(
+    ok, reason = maximize_and_start_auto_battle(
         dry_run=False,
         log_root=log_root / "05-auto-start",
+    )
+    if not ok:
+        return False, reason
+    return wait_and_close_repeat_result(
+        dry_run=False,
+        log_root=log_root / "06-repeat-result",
     )
 
 
@@ -350,7 +410,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run one recorded daily arena step.")
     parser.add_argument(
         "--step",
-        choices=("battlefield", "cartridge-route", "pool", "auto-dialog", "auto-start", "full"),
+        choices=(
+            "battlefield",
+            "cartridge-route",
+            "pool",
+            "auto-dialog",
+            "auto-start",
+            "close-result",
+            "full",
+        ),
         default="battlefield",
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -369,6 +437,11 @@ def main() -> None:
         ok, reason = open_auto_battle(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "auto-start":
         ok, reason = maximize_and_start_auto_battle(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "close-result":
+        ok, reason = wait_and_close_repeat_result(
+            dry_run=args.dry_run,
+            log_root=log_root,
+        )
     else:
         ok, reason = run_daily_arena(dry_run=args.dry_run, log_root=log_root)
     print(f"ok={ok}")

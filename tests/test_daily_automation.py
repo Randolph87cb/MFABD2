@@ -124,6 +124,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             "arena_auto_battle": ((0.75, 0.83), (0.86, 0.95)),
             "arena_auto_max": ((0.60, 0.69), (0.54, 0.64)),
             "arena_auto_start": ((0.48, 0.62), (0.70, 0.80)),
+            "arena_repeat_result_close": ((0.58, 0.66), (0.24, 0.33)),
         }
         for key, (x_range, y_range) in expected.items():
             x, y = CLICK_POINTS[key]
