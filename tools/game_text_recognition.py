@@ -74,6 +74,17 @@ GACHA_ITEM_DETAIL_LABEL_GROUPS = {
     },
 }
 
+ARENA_CARTRIDGE_LABEL_GROUPS = {
+    "title": {
+        "region": (0.05, 0.00, 0.32, 0.10),
+        "labels": ("游戏卡珍藏集",),
+    },
+    "gameplay_cards": {
+        "region": (0.04, 0.34, 0.84, 0.36),
+        "labels": ("玩法游戏卡", "黄金竞技场", "奇幻广场"),
+    },
+}
+
 QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
@@ -325,6 +336,20 @@ def recognize_gacha_item_detail_labels(image: Image.Image) -> tuple[bool, dict[s
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"detail": 2},
+    }
+
+
+def recognize_arena_cartridge_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the cartridge collection page from its title and gameplay row."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_CARTRIDGE_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_collection = bool(matches["title"]) and bool(matches["gameplay_cards"])
+    return is_collection, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"title": 1, "gameplay_cards": 1},
     }
 
 

@@ -190,5 +190,10 @@
     "expected": "gacha_page",
     "expected_target": "costume",
     "reason": "装备分类文字点击失效后仍应准确识别服装页，分类点击必须改用图标热区"
+  },
+  {
+    "path": "fixtures/recognition/arena-cartridge-collection-2567x1446.png",
+    "expected": "arena_cartridge_collection",
+    "reason": "从主页点击右下角卡带后，必须通过固定标题和玩法卡文字识别卡带收藏页"
   }
 ]

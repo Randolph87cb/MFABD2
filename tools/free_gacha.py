@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw
 
 from enter_game import capture_client, recognize_home_screen
 from game_text_recognition import (
+    recognize_arena_cartridge_labels,
     recognize_free_gacha_confirmation_labels,
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
@@ -43,6 +44,7 @@ SW_SHOWNOACTIVATE = 4
 
 CLICK_POINTS = {
     "home_gacha": (0.086, 0.925),
+    "home_cartridge": (0.883, 0.920),
     "quick_hunt": (0.918, 0.255),
     "quick_hunt_start": (0.855, 0.918),
     "quick_hunt_max": (0.609, 0.471),
@@ -485,6 +487,11 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if plaza_like:
         return "plaza", details
+
+    arena_cartridge_match, arena_cartridge_text = recognize_arena_cartridge_labels(image)
+    details["arena_cartridge_text"] = arena_cartridge_text
+    if arena_cartridge_match:
+        return "arena_cartridge_collection", details
 
     is_home, home_scores = recognize_home_screen(image)
     details["home_scores"] = home_scores

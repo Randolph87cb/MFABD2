@@ -109,6 +109,11 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     def test_animation_skip_uses_the_safe_left_margin(self) -> None:
         self.assertEqual(CLICK_POINTS["skip_animation"], CLICK_POINTS["dismiss_overlay"])
 
+    def test_home_cartridge_click_stays_in_the_bottom_right_cartridge(self) -> None:
+        x, y = CLICK_POINTS["home_cartridge"]
+        self.assertTrue(0.84 <= x <= 0.93)
+        self.assertTrue(0.87 <= y <= 0.97)
+
     def test_gacha_category_clicks_stay_on_icons_and_retry_at_an_alternate_point(self) -> None:
         icon_bands = {
             "costume_tab": (0.270, 0.305),
