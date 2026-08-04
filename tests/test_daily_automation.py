@@ -16,6 +16,7 @@ if str(TOOLS_DIR) not in sys.path:
 
 from daily_automation import (
     DAILY_READY_STATES,
+    can_finish_entry_phase,
     claim_daily_run,
     classify_daily_entry_context,
     overlay_transition_succeeded,
@@ -24,7 +25,12 @@ from daily_automation import (
     update_daily_state,
 )
 from game_text_recognition import recognize_return_home_control
-from free_gacha import CLICK_POINTS, is_free_gacha_confirm_transition, safe_capture_client
+from free_gacha import (
+    CLICK_POINTS,
+    classify_state,
+    is_free_gacha_confirm_transition,
+    safe_capture_client,
+)
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
@@ -126,6 +132,44 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertEqual(state, "download_waiting")
         self.assertEqual(details["source"], "ocr")
+
+    def test_blank_cold_start_capture_is_waited(self) -> None:
+        with Image.open(FIXTURES / "entry-blank-white-3421x1927.png") as image:
+            state, details = classify_state(image)
+
+        self.assertEqual(state, "loading")
+        self.assertTrue(details["low_information_frame"])
+
+    def test_game_starting_screen_is_waited(self) -> None:
+        with Image.open(FIXTURES / "entry-game-starting-v2318-3421x1927.png") as image:
+            state, _details, entry_state, entry_details = classify_daily_entry_context(image)
+
+        self.assertEqual(state, "entry_screen")
+        self.assertEqual(entry_state, "startup_waiting")
+        self.assertEqual(entry_details["source"], "ocr")
+
+    def test_cold_launch_requires_an_entry_screen_before_business_states(self) -> None:
+        self.assertFalse(
+            can_finish_entry_phase(
+                "gacha_animation",
+                requires_entry_screen=True,
+                touch_screen_seen=False,
+            )
+        )
+        self.assertTrue(
+            can_finish_entry_phase(
+                "gacha_animation",
+                requires_entry_screen=True,
+                touch_screen_seen=True,
+            )
+        )
+        self.assertTrue(
+            can_finish_entry_phase(
+                "gacha_animation",
+                requires_entry_screen=False,
+                touch_screen_seen=False,
+            )
+        )
 
     def test_story_scene_home_button_is_only_a_return_fallback(self) -> None:
         with Image.open(FIXTURES / "entry-story-scene-home-button-v2318.png") as image:

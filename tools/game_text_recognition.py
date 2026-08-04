@@ -121,6 +121,11 @@ ENTRY_STATUS_LABEL_GROUPS = {
             "下载中",
             "确认下载",
             "开始下载",
+            "游戏启动中",
+            "正在启动",
+            "正在登录",
+            "连接服务器",
+            "加载中",
         ),
     },
     "confirm_button": {
@@ -341,6 +346,12 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
     has_download_context = any("下载" in text for text in normalized)
     if any("TOUCHTOSTART" in text for text in normalized):
         state = "touch_ready"
+    elif any(
+        marker in text
+        for text in normalized
+        for marker in ("游戏启动中", "正在启动", "正在登录", "连接服务器", "加载中")
+    ):
+        state = "startup_waiting"
     elif any(
         marker in text
         for text in normalized

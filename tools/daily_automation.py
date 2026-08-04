@@ -35,7 +35,7 @@ from game_text_recognition import (  # noqa: E402
     recognize_entry_status,
     recognize_return_home_control,
 )
-from open_game import open_game  # noqa: E402
+from open_game import find_game_window, open_game  # noqa: E402
 from quick_hunt import (  # noqa: E402
     enter_quick_hunt,
     maximize_and_confirm_quick_hunt,
@@ -63,6 +63,11 @@ DAILY_READY_STATES = {
     "gacha_animation",
     "gacha_result",
     "gacha_item_overlay",
+}
+ENTRY_WAITING_STATES = {
+    "download_waiting",
+    "loading_title",
+    "startup_waiting",
 }
 
 
@@ -382,10 +387,30 @@ def return_home_transition_succeeded(next_state: str) -> bool:
     }
 
 
+def can_finish_entry_phase(
+    state: str,
+    *,
+    requires_entry_screen: bool,
+    touch_screen_seen: bool,
+) -> bool:
+    """Allow warm resumes, but gate cold launches until Touch To Start was observed."""
+    return state in DAILY_READY_STATES and (
+        not requires_entry_screen or touch_screen_seen
+    )
+
+
 def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     """Open the client and record every Touch To Start click."""
     logger = RunLogger(log_root, annotate_clicks=True)
     logger.event(action="start", flow="enter_game", timeout=timeout)
+    existing_hwnd = find_game_window()
+    requires_entry_screen = not bool(existing_hwnd)
+    touch_screen_seen = not requires_entry_screen
+    logger.event(
+        action="startup_gate",
+        requires_entry_screen=requires_entry_screen,
+        existing_window=bool(existing_hwnd),
+    )
     try:
         hwnd = open_game(timeout=min(timeout, 120.0))
     except Exception as exc:  # noqa: BLE001
@@ -412,18 +437,35 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             entry_details=entry_details,
         )
 
-        if state in DAILY_READY_STATES:
+        if entry_state == "touch_ready":
+            touch_screen_seen = True
+
+        if can_finish_entry_phase(
+            state,
+            requires_entry_screen=requires_entry_screen,
+            touch_screen_seen=touch_screen_seen,
+        ):
             reason = f"game is ready at state={state}"
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
+        if state in DAILY_READY_STATES:
+            logger.event(
+                action="wait_startup_gate",
+                state=state,
+                entry_state=entry_state,
+                reason="cold launch has not shown Touch To Start yet",
+                screenshot=str(path),
+            )
+            time.sleep(5.0)
+            continue
         if state == "loading":
             time.sleep(3.0)
             continue
-        if entry_state == "download_waiting":
+        if entry_state in ENTRY_WAITING_STATES:
             download_confirm_attempts = 0
             logger.event(
-                action="wait_download",
-                reason="download or capacity check is still in progress",
+                action="wait_entry_state",
+                reason="startup, loading, or download work is still in progress",
                 screenshot=str(path),
                 entry_details=entry_details,
             )

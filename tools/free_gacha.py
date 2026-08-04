@@ -306,6 +306,15 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         "animation_bottom_reveal": animation_bottom_reveal,
     }
 
+    low_information_frame = (
+        full["contrast"] < 2
+        and full["edge_ratio"] < 0.0005
+        and (full["bright_ratio"] > 0.995 or full["dark_ratio"] > 0.995)
+    )
+    details["low_information_frame"] = low_information_frame
+    if low_information_frame:
+        return "loading", details
+
     large_activity_overlay_like = (
         full["dark_ratio"] > 0.65
         and center["mean"] > 120

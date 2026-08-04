@@ -179,5 +179,10 @@
     "expected": "quick_hunt_setup",
     "expected_quick_hunt_max": false,
     "reason": "新显示器分辨率下圣石洞穴设置弹窗不能误判为持续加载"
+  },
+  {
+    "path": "fixtures/recognition/entry-blank-white-3421x1927.png",
+    "expected": "loading",
+    "reason": "冷启动时尺寸正常的纯白后台截图必须等待，不能误判为抽卡动画"
   }
 ]
