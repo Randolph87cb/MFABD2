@@ -43,6 +43,7 @@ from quick_hunt import (  # noqa: E402
     start_selected_quick_hunt,
 )
 from win32_windowpos_click import click_client  # noqa: E402
+from daily_arena import run_daily_arena  # noqa: E402
 
 
 TASK_NAME = "BrownDust2DailyAutomation"
@@ -556,9 +557,9 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             time.sleep(3.0)
             continue
 
-        if state == "gacha_page":
+        if state in {"gacha_page", "arena_cartridge_collection"}:
             key = "result_back"
-            description = "return home from gacha page"
+            description = f"return home from {state}"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
         elif state in {"home_overlay", "blocking_ad_overlay"}:
             key = "dismiss_overlay"
@@ -698,6 +699,12 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             "crystal_cave_cycle",
             lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
             log_root=run_root / "07-crystal-cave-cycle",
+        )
+        _require_phase(
+            master,
+            "daily_arena",
+            lambda *, log_root: run_daily_arena(dry_run=False, log_root=log_root),
+            log_root=run_root / "08-daily-arena",
         )
 
         update_daily_state(state_path, status="completed")

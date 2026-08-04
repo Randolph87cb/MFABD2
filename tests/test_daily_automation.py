@@ -25,6 +25,7 @@ from daily_automation import (
     update_daily_state,
 )
 from game_text_recognition import recognize_return_home_control
+from daily_arena import is_gameplay_tab_selected
 from free_gacha import (
     CLICK_POINTS,
     RETRY_CLICK_POINTS,
@@ -109,10 +110,29 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     def test_animation_skip_uses_the_safe_left_margin(self) -> None:
         self.assertEqual(CLICK_POINTS["skip_animation"], CLICK_POINTS["dismiss_overlay"])
 
-    def test_home_cartridge_click_stays_in_the_bottom_right_cartridge(self) -> None:
-        x, y = CLICK_POINTS["home_cartridge"]
-        self.assertTrue(0.84 <= x <= 0.93)
+    def test_return_battlefield_click_stays_in_the_bottom_right_tile(self) -> None:
+        x, y = CLICK_POINTS["home_return_battlefield"]
+        self.assertTrue(0.73 <= x <= 0.84)
         self.assertTrue(0.87 <= y <= 0.97)
+
+    def test_arena_clicks_stay_in_recorded_controls(self) -> None:
+        expected = {
+            "plaza_cartridge": ((0.38, 0.45), (0.89, 0.97)),
+            "cartridge_gameplay_tab": ((0.46, 0.58), (0.77, 0.86)),
+            "cartridge_first_gameplay": ((0.03, 0.13), (0.85, 0.95)),
+            "arena_pool": ((0.30, 0.53), (0.48, 0.70)),
+            "arena_auto_battle": ((0.75, 0.83), (0.86, 0.95)),
+            "arena_auto_max": ((0.60, 0.69), (0.54, 0.64)),
+            "arena_auto_start": ((0.48, 0.62), (0.70, 0.80)),
+        }
+        for key, (x_range, y_range) in expected.items():
+            x, y = CLICK_POINTS[key]
+            self.assertTrue(x_range[0] <= x <= x_range[1], key)
+            self.assertTrue(y_range[0] <= y <= y_range[1], key)
+
+    def test_gameplay_cartridge_tab_highlight_is_detected(self) -> None:
+        with Image.open(FIXTURES / "arena-cartridge-bar-gameplay-selected-annotated-2048x1200.png") as image:
+            self.assertTrue(is_gameplay_tab_selected(image))
 
     def test_gacha_category_clicks_stay_on_icons_and_retry_at_an_alternate_point(self) -> None:
         icon_bands = {

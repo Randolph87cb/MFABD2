@@ -195,5 +195,30 @@
     "path": "fixtures/recognition/arena-cartridge-collection-2567x1446.png",
     "expected": "arena_cartridge_collection",
     "reason": "从主页点击右下角卡带后，必须通过固定标题和玩法卡文字识别卡带收藏页"
+  },
+  {
+    "path": "fixtures/recognition/arena-lobby-2567x1446.png",
+    "expected": "arena_lobby",
+    "reason": "返回战场可能直接进入竞技场大厅，必须识别赛季、胜利分和鸡尾酒容量后跳过卡带选择"
+  },
+  {
+    "path": "fixtures/recognition/arena-battle-prep-2567x1446.png",
+    "expected": "arena_battle_prep",
+    "reason": "竞技场准备页必须通过自动战斗和BATTLE固定控件识别"
+  },
+  {
+    "path": "fixtures/recognition/arena-auto-battle-dialog-2567x1446.png",
+    "expected": "arena_auto_battle_dialog",
+    "reason": "自动战斗弹窗必须同时识别标题、MAX和10倍战斗开始"
+  },
+  {
+    "path": "fixtures/recognition/arena-cartridge-bar-gameplay-selected-annotated-2048x1200.png",
+    "expected": "arena_cartridge_bar",
+    "reason": "普通广场路线打开底部卡带栏后，必须识别玩法游戏卡分类和其高亮"
+  },
+  {
+    "path": "fixtures/recognition/arena-route-plaza-cartridge-annotated-2048x1200.png",
+    "expected": "plaza",
+    "reason": "返回战场落在普通广场时，必须识别为广场后才允许点击底部卡带图标"
   }
 ]

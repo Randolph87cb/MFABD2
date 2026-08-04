@@ -22,7 +22,11 @@ from PIL import Image, ImageDraw
 
 from enter_game import capture_client, recognize_home_screen
 from game_text_recognition import (
+    recognize_arena_auto_battle_labels,
+    recognize_arena_battle_prep_labels,
+    recognize_arena_cartridge_bar_labels,
     recognize_arena_cartridge_labels,
+    recognize_arena_lobby_labels,
     recognize_free_gacha_confirmation_labels,
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
@@ -44,7 +48,15 @@ SW_SHOWNOACTIVATE = 4
 
 CLICK_POINTS = {
     "home_gacha": (0.086, 0.925),
-    "home_cartridge": (0.883, 0.920),
+    "home_return_battlefield": (0.787, 0.913),
+    "plaza_cartridge": (0.413, 0.933),
+    "cartridge_gameplay_tab": (0.521, 0.814),
+    "cartridge_first_gameplay": (0.078, 0.901),
+    "arena_pool": (0.414, 0.592),
+    "arena_auto_battle": (0.791, 0.910),
+    "arena_auto_max": (0.642, 0.588),
+    "arena_auto_start": (0.547, 0.749),
+    "arena_dialogue_advance": (0.138, 0.565),
     "quick_hunt": (0.918, 0.255),
     "quick_hunt_start": (0.855, 0.918),
     "quick_hunt_max": (0.609, 0.471),
@@ -324,6 +336,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if low_information_frame:
         return "loading", details
 
+    arena_auto_candidate = (
+        full["dark_ratio"] > 0.75
+        and center["mean"] > full["mean"] + 15
+        and modal["edge_ratio"] > 0.008
+    )
+    if arena_auto_candidate:
+        arena_auto_battle_match, arena_auto_battle_text = recognize_arena_auto_battle_labels(image)
+        details["arena_auto_battle_text"] = arena_auto_battle_text
+        if arena_auto_battle_match:
+            return "arena_auto_battle_dialog", details
+
     large_activity_overlay_like = (
         full["dark_ratio"] > 0.65
         and center["mean"] > 120
@@ -487,6 +510,21 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if plaza_like:
         return "plaza", details
+
+    arena_battle_prep_match, arena_battle_prep_text = recognize_arena_battle_prep_labels(image)
+    details["arena_battle_prep_text"] = arena_battle_prep_text
+    if arena_battle_prep_match:
+        return "arena_battle_prep", details
+
+    arena_lobby_match, arena_lobby_text = recognize_arena_lobby_labels(image)
+    details["arena_lobby_text"] = arena_lobby_text
+    if arena_lobby_match:
+        return "arena_lobby", details
+
+    arena_cartridge_bar_match, arena_cartridge_bar_text = recognize_arena_cartridge_bar_labels(image)
+    details["arena_cartridge_bar_text"] = arena_cartridge_bar_text
+    if arena_cartridge_bar_match:
+        return "arena_cartridge_bar", details
 
     arena_cartridge_match, arena_cartridge_text = recognize_arena_cartridge_labels(image)
     details["arena_cartridge_text"] = arena_cartridge_text

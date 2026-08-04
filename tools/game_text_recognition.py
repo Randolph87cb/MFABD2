@@ -85,6 +85,38 @@ ARENA_CARTRIDGE_LABEL_GROUPS = {
     },
 }
 
+ARENA_CARTRIDGE_BAR_LABEL_GROUPS = {
+    "bottom_bar": {
+        "region": (0.02, 0.76, 0.96, 0.23),
+        "labels": ("店长游戏卡", "剧情游戏卡", "角色游戏卡", "玩法游戏卡", "活动游戏卡"),
+    },
+}
+
+ARENA_LOBBY_LABEL_GROUPS = {
+    "top_left": {
+        "region": (0.14, 0.03, 0.28, 0.20),
+        "labels": (),
+    },
+    "resources": {
+        "region": (0.38, 0.00, 0.32, 0.12),
+        "labels": (),
+    },
+}
+
+ARENA_BATTLE_PREP_LABEL_GROUPS = {
+    "bottom_controls": {
+        "region": (0.02, 0.82, 0.96, 0.16),
+        "labels": ("阵形设置", "切换画面", "自动战斗", "BATTLE"),
+    },
+}
+
+ARENA_AUTO_BATTLE_LABEL_GROUPS = {
+    "dialog": {
+        "region": (0.27, 0.22, 0.46, 0.58),
+        "labels": ("自动战斗", "MAX", "取消", "10倍战斗开始"),
+    },
+}
+
 QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
@@ -350,6 +382,64 @@ def recognize_arena_cartridge_labels(image: Image.Image) -> tuple[bool, dict[str
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"title": 1, "gameplay_cards": 1},
+    }
+
+
+def recognize_arena_cartridge_bar_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the in-field cartridge bar from its fixed category labels."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_CARTRIDGE_BAR_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_bar = len(matches["bottom_bar"]) >= 3 and "玩法游戏卡" in matches["bottom_bar"]
+    return is_bar, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"bottom_bar": 3, "gameplay_card_label": 1},
+    }
+
+
+def recognize_arena_lobby_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the arena lobby from season text and cocktail capacity."""
+    grouped_texts, _matches, error = _recognize_label_groups(image, ARENA_LOBBY_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    top_left = "".join(_normalize_text(text) for text in grouped_texts["top_left"])
+    resources = "".join(_normalize_text(text) for text in grouped_texts["resources"])
+    is_lobby = "赛季" in top_left and "胜利分" in top_left and "4040" in resources
+    return is_lobby, {
+        "available": True,
+        "texts": grouped_texts,
+        "requirements": {"top_left": ["赛季", "胜利分"], "resources": "40/40"},
+    }
+
+
+def recognize_arena_battle_prep_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the arena battle preparation page from bottom controls."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_BATTLE_PREP_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    is_prep = "自动战斗" in matches["bottom_controls"] and "BATTLE" in matches["bottom_controls"]
+    return is_prep, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"bottom_controls": ["自动战斗", "BATTLE"]},
+    }
+
+
+def recognize_arena_auto_battle_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the arena auto-battle dialog from its fixed controls."""
+    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_AUTO_BATTLE_LABEL_GROUPS)
+    if error is not None:
+        return False, error
+    required = {"自动战斗", "MAX", "取消", "10倍战斗开始"}
+    is_dialog = required <= set(matches["dialog"])
+    return is_dialog, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"dialog": sorted(required)},
     }
 
 
