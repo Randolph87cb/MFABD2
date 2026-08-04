@@ -184,5 +184,11 @@
     "path": "fixtures/recognition/entry-blank-white-3421x1927.png",
     "expected": "loading",
     "reason": "冷启动时尺寸正常的纯白后台截图必须等待，不能误判为抽卡动画"
+  },
+  {
+    "path": "fixtures/recognition/gacha-page-gear-tab-text-hitbox-regression-2567x1446.png",
+    "expected": "gacha_page",
+    "expected_target": "costume",
+    "reason": "装备分类文字点击失效后仍应准确识别服装页，分类点击必须改用图标热区"
   }
 ]

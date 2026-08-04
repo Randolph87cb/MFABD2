@@ -27,6 +27,8 @@ from daily_automation import (
 from game_text_recognition import recognize_return_home_control
 from free_gacha import (
     CLICK_POINTS,
+    RETRY_CLICK_POINTS,
+    _click_ratio,
     classify_state,
     is_free_gacha_confirm_transition,
     safe_capture_client,
@@ -106,6 +108,28 @@ class DailyAutomationStateTests(unittest.TestCase):
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     def test_animation_skip_uses_the_safe_left_margin(self) -> None:
         self.assertEqual(CLICK_POINTS["skip_animation"], CLICK_POINTS["dismiss_overlay"])
+
+    def test_gacha_category_clicks_stay_on_icons_and_retry_at_an_alternate_point(self) -> None:
+        icon_bands = {
+            "costume_tab": (0.270, 0.305),
+            "gear_tab": (0.370, 0.405),
+        }
+        for key, (top, bottom) in icon_bands.items():
+            primary = CLICK_POINTS[key]
+            retry = RETRY_CLICK_POINTS[key]
+            self.assertTrue(top <= primary[1] <= bottom)
+            self.assertTrue(top <= retry[1] <= bottom)
+            self.assertNotEqual(primary, retry)
+
+    @patch("free_gacha.click_client")
+    def test_gacha_category_retry_uses_the_alternate_icon_point(self, click_client: MagicMock) -> None:
+        logger = MagicMock()
+        logger.annotate_clicks = False
+        image = Image.new("RGB", (2000, 1000))
+
+        _click_ratio(123, image, "gear_tab", dry_run=False, logger=logger, attempt=2)
+
+        click_client.assert_called_once_with(123, 172, 395)
 
     def test_daily_run_can_resume_every_supported_gacha_state(self) -> None:
         self.assertTrue(

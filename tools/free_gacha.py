@@ -53,12 +53,19 @@ CLICK_POINTS = {
     "plaza_home": (0.935, 0.055),
     # Home promotions use a bright center panel and a dimmed, non-interactive margin.
     "dismiss_overlay": (0.138, 0.565),
-    "costume_tab": (0.086, 0.315),
-    "gear_tab": (0.086, 0.420),
+    # Category labels are not a reliable hit target. Click the icon above each label.
+    "costume_tab": (0.086, 0.285),
+    "gear_tab": (0.086, 0.385),
     "all_free": (0.178, 0.895),
     "confirm": (0.548, 0.598),
     "skip_animation": (0.138, 0.565),
     "result_back": (0.090, 0.045),
+}
+
+RETRY_CLICK_POINTS = {
+    # Keep retries inside the icon while avoiding an identical second click.
+    "costume_tab": (0.086, 0.295),
+    "gear_tab": (0.086, 0.395),
 }
 
 
@@ -487,8 +494,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     return "unknown", details
 
 
-def _click_ratio(hwnd: int, image: Image.Image, key: str, *, dry_run: bool, logger: RunLogger) -> None:
-    rx, ry = CLICK_POINTS[key]
+def _click_ratio(
+    hwnd: int,
+    image: Image.Image,
+    key: str,
+    *,
+    dry_run: bool,
+    logger: RunLogger,
+    attempt: int = 1,
+) -> None:
+    point_variant = "retry" if attempt > 1 and key in RETRY_CLICK_POINTS else "primary"
+    rx, ry = RETRY_CLICK_POINTS[key] if point_variant == "retry" else CLICK_POINTS[key]
     width, height = image.size
     x = int(width * rx)
     y = int(height * ry)
@@ -508,6 +524,7 @@ def _click_ratio(hwnd: int, image: Image.Image, key: str, *, dry_run: bool, logg
         key=key,
         x=x,
         y=y,
+        point_variant=point_variant,
         dry_run=dry_run,
         screenshot=str(marked_path) if marked_path else None,
     )
@@ -659,7 +676,7 @@ def click_with_fixed_retry(
     source_state, _ = classify_state(image)
     current_state = source_state
     for attempt in range(1, attempts + 1):
-        _click_ratio(hwnd, current_image, key, dry_run=dry_run, logger=logger)
+        _click_ratio(hwnd, current_image, key, dry_run=dry_run, logger=logger, attempt=attempt)
         if dry_run:
             return True, current_state, current_image, f"dry-run planned {description}"
 
