@@ -44,6 +44,7 @@ from quick_hunt import (  # noqa: E402
 )
 from win32_windowpos_click import click_client  # noqa: E402
 from daily_arena import run_daily_arena  # noqa: E402
+from mute_browndust import set_mute  # noqa: E402
 
 
 TASK_NAME = "BrownDust2DailyAutomation"
@@ -70,6 +71,7 @@ ENTRY_WAITING_STATES = {
     "loading_title",
     "startup_waiting",
 }
+MAX_UNKNOWN_ENTRY_FRAMES = 3
 
 
 class DailyRunError(RuntimeError):
@@ -294,6 +296,37 @@ def _click_logged_ratio(
     click_client(hwnd, x, y)
 
 
+def mute_game_audio(logger: RunLogger, *, attempt: int) -> bool:
+    """Mute every active BrownDust II audio session and record the result."""
+    try:
+        muted_sessions = set_mute(True)
+    except Exception as exc:  # noqa: BLE001 - audio control must not hide failures.
+        logger.event(
+            action="mute_game_audio",
+            result="error",
+            attempt=attempt,
+            error=repr(exc),
+        )
+        return False
+
+    if muted_sessions:
+        logger.event(
+            action="mute_game_audio",
+            result="success",
+            attempt=attempt,
+            muted_sessions=muted_sessions,
+        )
+        return True
+
+    logger.event(
+        action="mute_game_audio",
+        result="waiting",
+        attempt=attempt,
+        reason="BrownDust II audio session is not available yet",
+    )
+    return False
+
+
 def recognize_daily_entry_state(
     image: Any,
     *,
@@ -423,7 +456,16 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     step = 0
     touch_attempt = 0
     download_confirm_attempts = 0
+    audio_muted = False
+    mute_attempt = 0
+    next_mute_attempt = 0.0
+    unknown_entry_frames = 0
     while time.monotonic() < deadline:
+        if not audio_muted and time.monotonic() >= next_mute_attempt:
+            mute_attempt += 1
+            audio_muted = mute_game_audio(logger, attempt=mute_attempt)
+            next_mute_attempt = time.monotonic() + 5.0
+
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details, entry_state, entry_details = classify_daily_entry_context(image)
@@ -441,11 +483,24 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         if entry_state == "touch_ready":
             touch_screen_seen = True
 
+        if state == "unknown" and entry_state == "unknown":
+            unknown_entry_frames += 1
+        else:
+            unknown_entry_frames = 0
+
         if can_finish_entry_phase(
             state,
             requires_entry_screen=requires_entry_screen,
             touch_screen_seen=touch_screen_seen,
         ):
+            if not audio_muted:
+                logger.event(
+                    action="wait_audio_mute",
+                    state=state,
+                    reason="game is ready but its audio session is not muted yet",
+                )
+                time.sleep(5.0)
+                continue
             reason = f"game is ready at state={state}"
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
@@ -508,6 +563,14 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                 logger.failure(reason)
                 return False, reason
             continue
+
+        if unknown_entry_frames >= MAX_UNKNOWN_ENTRY_FRAMES:
+            reason = (
+                "unrecognized startup page persisted for "
+                f"{unknown_entry_frames} checks; stopped safely for review"
+            )
+            logger.failure(reason)
+            return False, reason
 
         logger.event(
             action="wait_entry_screen",

@@ -16,9 +16,11 @@ if str(TOOLS_DIR) not in sys.path:
 
 from daily_automation import (
     DAILY_READY_STATES,
+    MAX_UNKNOWN_ENTRY_FRAMES,
     can_finish_entry_phase,
     claim_daily_run,
     classify_daily_entry_context,
+    mute_game_audio,
     overlay_transition_succeeded,
     recognize_daily_entry_state,
     return_home_transition_succeeded,
@@ -107,6 +109,37 @@ class DailyAutomationStateTests(unittest.TestCase):
 
 
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):
+    def test_unknown_startup_pages_stop_after_three_confirming_frames(self) -> None:
+        self.assertEqual(MAX_UNKNOWN_ENTRY_FRAMES, 3)
+
+    @patch("daily_automation.set_mute", return_value=2)
+    def test_game_audio_mute_records_active_sessions(self, set_mute: MagicMock) -> None:
+        logger = MagicMock()
+
+        self.assertTrue(mute_game_audio(logger, attempt=1))
+
+        set_mute.assert_called_once_with(True)
+        logger.event.assert_called_once_with(
+            action="mute_game_audio",
+            result="success",
+            attempt=1,
+            muted_sessions=2,
+        )
+
+    @patch("daily_automation.set_mute", return_value=0)
+    def test_game_audio_mute_waits_for_a_late_audio_session(self, set_mute: MagicMock) -> None:
+        logger = MagicMock()
+
+        self.assertFalse(mute_game_audio(logger, attempt=2))
+
+        set_mute.assert_called_once_with(True)
+        logger.event.assert_called_once_with(
+            action="mute_game_audio",
+            result="waiting",
+            attempt=2,
+            reason="BrownDust II audio session is not available yet",
+        )
+
     def test_animation_skip_uses_the_safe_left_margin(self) -> None:
         self.assertEqual(CLICK_POINTS["skip_animation"], CLICK_POINTS["dismiss_overlay"])
 
