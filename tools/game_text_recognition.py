@@ -201,8 +201,12 @@ ENTRY_STATUS_LABEL_GROUPS = {
         ),
     },
     "confirm_button": {
-        "region": (0.42, 0.50, 0.32, 0.24),
-        "labels": ("确认下载", "开始下载", "确定"),
+        "region": (0.42, 0.50, 0.32, 0.28),
+        "labels": ("确认下载", "开始下载", "下载", "确定"),
+    },
+    "download_progress": {
+        "region": (0.02, 0.84, 0.96, 0.12),
+        "labels": ("正在下载", "下载中"),
     },
 }
 
@@ -548,17 +552,17 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         for marker in ("游戏启动中", "正在启动", "正在登录", "连接服务器", "加载中")
     ):
         state = "startup_waiting"
+    elif has_download_context and any(
+        text in {"确认下载", "开始下载", "下载", "确定"}
+        for text in confirm_texts
+    ):
+        state = "download_confirmation"
     elif any(
         marker in text
         for text in normalized
         for marker in ("正在确认下载容量", "正在下载", "下载中", "检查更新")
     ):
         state = "download_waiting"
-    elif has_download_context and any(
-        text in {"确认下载", "开始下载", "确定"}
-        for text in confirm_texts
-    ):
-        state = "download_confirmation"
     elif any(
         text.startswith("下载") and any(character.isdigit() for character in text)
         for text in normalized

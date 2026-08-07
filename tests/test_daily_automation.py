@@ -16,7 +16,9 @@ if str(TOOLS_DIR) not in sys.path:
 
 from daily_automation import (
     DAILY_READY_STATES,
+    DOWNLOAD_CONFIRM_CLICK,
     MAX_UNKNOWN_ENTRY_FRAMES,
+    MasterLogger,
     can_finish_entry_phase,
     claim_daily_run,
     classify_daily_entry_context,
@@ -42,6 +44,26 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class DailyAutomationStateTests(unittest.TestCase):
+    def test_scheduled_launcher_uses_a_visible_python_console(self) -> None:
+        script = (TOOLS_DIR / "install_daily_task.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("Get-Command python.exe", script)
+        self.assertNotIn("pythonw.exe", script)
+
+    @patch("builtins.print")
+    def test_master_logger_prints_each_event_to_the_visible_console(
+        self,
+        print_mock: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            logger = MasterLogger(Path(temporary))
+
+            logger.event("startup", "waiting", "waiting for the game window")
+
+        printed = print_mock.call_args.args[0]
+        self.assertIn("[WAITING] [startup] waiting for the game window", printed)
+        self.assertTrue(print_mock.call_args.kwargs["flush"])
+
     def test_second_start_on_same_day_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -213,6 +235,25 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
     def test_capacity_check_screen_is_loading_not_actionable(self) -> None:
         with Image.open(FIXTURES / "entry-loading-capacity-v2318.png") as image:
+            state, details = recognize_daily_entry_state(image)
+
+        self.assertEqual(state, "download_waiting")
+        self.assertEqual(details["source"], "ocr")
+
+    def test_download_dialog_button_overrides_capacity_progress_text(self) -> None:
+        with Image.open(FIXTURES / "entry-download-confirm-v2318-2048x1200.png") as image:
+            state, details = recognize_daily_entry_state(image)
+
+        self.assertEqual(state, "download_confirmation")
+        self.assertEqual(details["source"], "ocr")
+
+    def test_download_click_stays_on_the_lower_confirmation_button(self) -> None:
+        x, y = DOWNLOAD_CONFIRM_CLICK
+        self.assertTrue(0.50 <= x <= 0.60)
+        self.assertTrue(0.69 <= y <= 0.76)
+
+    def test_bottom_download_progress_is_a_waiting_state(self) -> None:
+        with Image.open(FIXTURES / "entry-downloading-v2318-2048x1128.png") as image:
             state, details = recognize_daily_entry_state(image)
 
         self.assertEqual(state, "download_waiting")

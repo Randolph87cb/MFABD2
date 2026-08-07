@@ -10,10 +10,7 @@ if (-not (Test-Path -LiteralPath $AutomationScript)) {
     throw "Automation script not found: $AutomationScript"
 }
 
-$PythonCommand = Get-Command pythonw.exe -ErrorAction SilentlyContinue
-if ($null -eq $PythonCommand) {
-    $PythonCommand = Get-Command python.exe -ErrorAction Stop
-}
+$PythonCommand = Get-Command python.exe -ErrorAction Stop
 $PythonPath = $PythonCommand.Source
 
 $Identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name

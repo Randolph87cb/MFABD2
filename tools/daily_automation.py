@@ -54,7 +54,7 @@ NETWORK_ENDPOINTS = (
     ("www.baidu.com", 443),
     ("github.com", 443),
 )
-DOWNLOAD_CONFIRM_CLICK = (0.548, 0.598)
+DOWNLOAD_CONFIRM_CLICK = (0.548, 0.725)
 DAILY_READY_STATES = {
     "real_home",
     "home_overlay",
@@ -123,6 +123,7 @@ class MasterLogger:
 
     def event(self, stage: str, status: str, message: str, **details: Any) -> None:
         now = datetime.now().isoformat(timespec="seconds")
+        line = f"[{now}] [{status.upper()}] [{stage}] {message}"
         payload = {
             "time": now,
             "stage": stage,
@@ -133,7 +134,8 @@ class MasterLogger:
         with self.events_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=False) + "\n")
         with self.text_path.open("a", encoding="utf-8") as file:
-            file.write(f"[{now}] [{status.upper()}] [{stage}] {message}\n")
+            file.write(line + "\n")
+        print(line, flush=True)
 
     def summary(self, **payload: Any) -> None:
         self.summary_path.write_text(
