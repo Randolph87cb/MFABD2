@@ -71,6 +71,7 @@ CLICK_POINTS = {
     "quick_hunt_crystal_cave": (0.091, 0.440),
     "quick_hunt_back": (0.090, 0.045),
     "plaza_home": (0.935, 0.055),
+    "arena_home": (0.935, 0.055),
     # Home promotions use a bright center panel and a dimmed, non-interactive margin.
     "dismiss_overlay": (0.138, 0.565),
     # Category labels are not a reliable hit target. Click the icon above each label.
@@ -94,6 +95,139 @@ TARGET_LABELS = {
     "gear": "gear_tab",
 }
 
+FLOW_NAMES = {
+    "enter_game": "进入游戏",
+    "ensure_home": "返回主页",
+    "free_gacha": "免费抽卡",
+    "quick_hunt_entry": "进入快速狩猎",
+    "quick_hunt_start": "打开狩猎设置",
+    "quick_hunt_max_and_confirm": "执行普通狩猎场",
+    "quick_hunt_crystal_cave_cycle": "执行圣石洞穴",
+    "finish_crystal_cave_cycle": "结束圣石洞穴",
+    "daily_arena_enter_battlefield": "进入竞技场",
+    "daily_arena_cartridge_route": "选择竞技场卡带",
+    "daily_arena_enter_battle_prep": "进入竞技场战斗准备",
+    "daily_arena_open_auto_battle": "打开竞技场自动战斗",
+    "daily_arena_maximize_and_start": "启动竞技场自动战斗",
+    "daily_arena_wait_and_close_result": "等待竞技场战斗完成",
+    "daily_arena_leave_victory": "离开竞技场结算",
+    "daily_arena_confirm_rank_change": "确认竞技场段位变化",
+}
+
+STATE_NAMES = {
+    "unknown": "无法识别",
+    "loading": "加载中",
+    "entry_screen": "游戏开始界面",
+    "touch_ready": "点击开始界面",
+    "download_waiting": "正在下载",
+    "download_confirmation": "等待确认下载",
+    "real_home": "主页",
+    "home_overlay": "弹窗页面",
+    "blocking_ad_overlay": "广告弹窗",
+    "plaza": "广场",
+    "gacha_page": "抽卡页面",
+    "confirm_free_gacha": "免费抽卡确认",
+    "gacha_animation": "抽卡动画",
+    "gacha_result": "抽卡结果",
+    "gacha_item_overlay": "抽卡物品详情",
+    "arena_lobby": "竞技场大厅",
+    "arena_battle_prep": "竞技场战斗准备",
+    "arena_auto_battle_dialog": "竞技场自动战斗设置",
+    "arena_repeat_result": "竞技场连续战斗结果",
+    "arena_victory_result": "竞技场结算",
+    "arena_rank_change": "竞技场段位变化",
+    "arena_cartridge_bar": "卡带选择栏",
+    "arena_cartridge_collection": "卡带收藏页面",
+    "quick_hunt_map": "快速狩猎地图",
+    "quick_hunt_setup": "快速狩猎设置",
+    "quick_hunt_result": "快速狩猎结算",
+}
+
+CLICK_NAMES = {
+    "touch_to_start": "开始游戏",
+    "confirm_download": "下载",
+    "dismiss_overlay": "关闭弹窗",
+    "plaza_home": "主页",
+    "arena_home": "竞技场右上角主页",
+    "home_gacha": "抽抽乐",
+    "costume_tab": "人物抽卡",
+    "gear_tab": "装备抽卡",
+    "all_free": "免费抽卡",
+    "confirm": "确认抽卡",
+    "skip_animation": "跳过抽卡动画",
+    "result_back": "返回",
+    "quick_hunt": "快速狩猎",
+    "quick_hunt_start": "狩猎",
+    "quick_hunt_max": "最大次数",
+    "quick_hunt_confirm": "确认狩猎",
+    "quick_hunt_result_dismiss": "关闭狩猎结算",
+    "quick_hunt_crystal_cave": "圣石洞穴",
+    "quick_hunt_back": "返回主页",
+    "home_return_battlefield": "返回战场",
+    "plaza_cartridge": "卡带菜单",
+    "cartridge_gameplay_tab": "玩法卡带",
+    "cartridge_first_gameplay": "竞技场卡带",
+    "arena_pool": "竞技场入口",
+    "arena_dialogue_advance": "继续对话",
+    "arena_auto_battle": "自动战斗",
+    "arena_auto_max": "最大次数",
+    "arena_auto_start": "开始十倍自动战斗",
+    "arena_repeat_result_close": "关闭连续战斗结果",
+    "arena_victory_leave": "离开竞技场",
+    "arena_rank_confirm": "确认段位变化",
+}
+
+
+def _state_name(state: Any) -> str:
+    value = str(state or "unknown")
+    return STATE_NAMES.get(value, value)
+
+
+def _console_event_message(payload: dict[str, Any]) -> str | None:
+    action = str(payload.get("action", ""))
+    if action == "start":
+        return "开始执行"
+    if action == "startup_gate":
+        mode = "继续处理已打开的游戏" if payload.get("existing_window") else "启动游戏"
+        return mode
+    if action == "mute_game_audio":
+        result = payload.get("result")
+        if result == "success":
+            return "游戏已静音"
+        if result == "waiting":
+            return "等待游戏声音加载后静音"
+        return "游戏静音失败，稍后重试"
+    if action == "classify":
+        state = _state_name(payload.get("state"))
+        entry_state = payload.get("entry_state")
+        if entry_state and entry_state != "unknown":
+            state = f"{state} / {_state_name(entry_state)}"
+        return f"识别到：{state}"
+    if action == "click":
+        key = str(payload.get("key", ""))
+        target = CLICK_NAMES.get(key, key)
+        attempt = payload.get("attempt")
+        suffix = f"（第 {attempt} 次）" if attempt else ""
+        return f"点击：{target}{suffix}"
+    if action == "verify_click":
+        result = "已生效" if payload.get("succeeded") else "未生效，准备重试"
+        return f"检查点击结果：{result}，当前为{_state_name(payload.get('state'))}"
+    if action.startswith("wait_") or action in {"capture_retry", "restore_minimized_window"}:
+        return "等待游戏响应"
+    if action == "capture_recovered":
+        return "游戏窗口已恢复，可以继续识别"
+    if action == "failure_written":
+        return f"失败详情已保存到：{payload.get('path')}"
+    if action == "stop":
+        result = payload.get("result")
+        if result == "success":
+            return "步骤完成"
+        return f"步骤停止，当前为{_state_name(payload.get('state'))}"
+    if action == "target_complete":
+        target = str(payload.get("target", ""))
+        return f"已完成：{'人物抽卡' if target == 'costume' else '装备抽卡'}"
+    return None
+
 
 @dataclass
 class ActionResult:
@@ -109,11 +243,19 @@ class RunLogger:
         self.events_path = self.root / "events.jsonl"
         self._click_count = 0
         self.annotate_clicks = annotate_clicks
+        self.console_label = self.root.name
 
     def event(self, **payload: Any) -> None:
         payload.setdefault("time", datetime.now().isoformat(timespec="seconds"))
         with self.events_path.open("a", encoding="utf-8") as file:
             file.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        if payload.get("action") == "start":
+            flow = str(payload.get("flow", ""))
+            self.console_label = FLOW_NAMES.get(flow, self.console_label)
+        message = _console_event_message(payload)
+        if message:
+            clock = str(payload["time"])[11:19]
+            print(f"[{clock}] [{self.console_label}] {message}", flush=True)
 
     def next_click_index(self) -> int:
         self._click_count += 1
@@ -810,7 +952,14 @@ def run_free_gacha(
 ) -> ActionResult:
     hwnd = find_game_window()
     logger = RunLogger(log_root, annotate_clicks=test_mode)
-    logger.event(action="start", targets=targets, timeout=timeout, dry_run=dry_run, test_mode=test_mode)
+    logger.event(
+        action="start",
+        flow="free_gacha",
+        targets=targets,
+        timeout=timeout,
+        dry_run=dry_run,
+        test_mode=test_mode,
+    )
     if not hwnd:
         reason = "game window not found"
         logger.event(action="stop", result="error", reason=reason)

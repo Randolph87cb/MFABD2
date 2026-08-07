@@ -65,6 +65,7 @@ DAILY_READY_STATES = {
     "gacha_animation",
     "gacha_result",
     "gacha_item_overlay",
+    "arena_lobby",
 }
 ENTRY_WAITING_STATES = {
     "download_waiting",
@@ -72,6 +73,29 @@ ENTRY_WAITING_STATES = {
     "startup_waiting",
 }
 MAX_UNKNOWN_ENTRY_FRAMES = 3
+
+MASTER_STAGE_NAMES = {
+    "daily": "每日任务",
+    "network": "网络检查",
+    "enter_game": "进入游戏",
+    "prepare_home": "返回主页",
+    "free_gacha": "免费抽卡",
+    "return_home": "抽卡后返回主页",
+    "quick_hunt_entry": "进入快速狩猎",
+    "hunting_ground_setup": "设置狩猎场",
+    "hunting_ground_confirm": "执行狩猎场",
+    "crystal_cave_cycle": "执行圣石洞穴",
+    "daily_arena": "每日竞技场",
+    "check": "环境检查",
+}
+
+MASTER_STATUS_NAMES = {
+    "start": "开始",
+    "waiting": "等待",
+    "success": "完成",
+    "error": "失败",
+    "skipped": "跳过",
+}
 
 
 class DailyRunError(RuntimeError):
@@ -123,7 +147,9 @@ class MasterLogger:
 
     def event(self, stage: str, status: str, message: str, **details: Any) -> None:
         now = datetime.now().isoformat(timespec="seconds")
-        line = f"[{now}] [{status.upper()}] [{stage}] {message}"
+        stage_name = MASTER_STAGE_NAMES.get(stage, stage)
+        status_name = MASTER_STATUS_NAMES.get(status, status)
+        line = f"[{now[11:19]}] [{status_name}] [{stage_name}] {message}"
         payload = {
             "time": now,
             "stage": stage,
@@ -216,8 +242,9 @@ def wait_for_network(
                     logger.event(
                         "network",
                         "success",
-                        f"network is ready via {host}:{port}",
+                        "网络连接正常",
                         attempt=attempt,
+                        endpoint=f"{host}:{port}",
                     )
                     return True
             except OSError as exc:
@@ -225,12 +252,12 @@ def wait_for_network(
         logger.event(
             "network",
             "waiting",
-            "network is not ready; waiting before the next check",
+            "网络暂不可用，稍后重新检查",
             attempt=attempt,
             errors=errors,
         )
         time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
-    logger.event("network", "error", f"network was not ready within {timeout:.0f} seconds")
+    logger.event("network", "error", f"等待网络超过 {timeout:.0f} 秒")
     return False
 
 
@@ -635,6 +662,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "plaza_home"
             description = "return home from plaza"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
+        elif state == "arena_lobby":
+            key = "arena_home"
+            description = "return home from arena lobby"
+            expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
         else:
             reason = f"cannot safely return home from state={state}"
             logger.failure(reason)
@@ -673,12 +704,12 @@ def _require_phase(
     *,
     log_root: Path,
 ) -> None:
-    master.event(stage, "start", "phase started", log_root=str(log_root))
+    master.event(stage, "start", "开始执行", log_root=str(log_root))
     ok, reason = operation(log_root=log_root)
     if not ok:
-        master.event(stage, "error", reason, log_root=str(log_root))
+        master.event(stage, "error", f"执行失败，详细原因：{reason}", log_root=str(log_root))
         raise DailyRunError(f"{stage}: {reason}")
-    master.event(stage, "success", reason, log_root=str(log_root))
+    master.event(stage, "success", "执行完成", technical_reason=reason, log_root=str(log_root))
 
 
 def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int:
@@ -688,7 +719,7 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
     run_root = project_root / "logs" / "daily" / run_date / started.strftime("%H%M%S")
     state_path = project_root / "state" / "daily_automation.json"
     master = MasterLogger(run_root)
-    master.event("daily", "start", "daily automation process started", force=force)
+    master.event("daily", "start", "每日自动任务已启动", force=force)
 
     claimed, previous = claim_daily_run(
         state_path,
@@ -702,7 +733,7 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             f"today has already started once; previous status={previous.get('status')}, "
             f"run_root={previous.get('run_root')}"
         )
-        master.event("daily", "skipped", message)
+        master.event("daily", "skipped", "今天已经运行过；需要重试时请使用桌面快捷方式", technical_message=message)
         master.summary(result="skipped", reason=message, previous=previous)
         return 0
 
@@ -717,8 +748,15 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             log_root=run_root / "01-enter-game",
         )
 
-        gacha_root = run_root / "02-free-gacha"
-        master.event("free_gacha", "start", "phase started", log_root=str(gacha_root))
+        _require_phase(
+            master,
+            "prepare_home",
+            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+            log_root=run_root / "02-prepare-home",
+        )
+
+        gacha_root = run_root / "03-free-gacha"
+        master.event("free_gacha", "start", "开始执行", log_root=str(gacha_root))
         gacha = run_free_gacha(
             targets=["costume", "gear"],
             timeout=360.0,
@@ -728,27 +766,32 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             log_root=gacha_root,
         )
         if gacha.reason != "all requested free gacha targets completed":
-            master.event("free_gacha", "error", gacha.reason, state=gacha.state)
+            master.event(
+                "free_gacha",
+                "error",
+                f"执行失败，当前画面：{gacha.state}；详细原因：{gacha.reason}",
+                state=gacha.state,
+            )
             raise DailyRunError(f"free_gacha: {gacha.reason}")
-        master.event("free_gacha", "success", gacha.reason, state=gacha.state)
+        master.event("free_gacha", "success", "人物和装备免费抽卡均已完成", state=gacha.state)
 
         _require_phase(
             master,
             "return_home",
             lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
-            log_root=run_root / "03-return-home",
+            log_root=run_root / "04-return-home",
         )
         _require_phase(
             master,
             "quick_hunt_entry",
             lambda *, log_root: enter_quick_hunt(dry_run=False, log_root=log_root),
-            log_root=run_root / "04-quick-hunt-entry",
+            log_root=run_root / "05-quick-hunt-entry",
         )
         _require_phase(
             master,
             "hunting_ground_setup",
             lambda *, log_root: start_selected_quick_hunt(dry_run=False, log_root=log_root),
-            log_root=run_root / "05-hunting-ground-setup",
+            log_root=run_root / "06-hunting-ground-setup",
         )
         _require_phase(
             master,
@@ -757,23 +800,23 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
                 dry_run=False,
                 log_root=log_root,
             ),
-            log_root=run_root / "06-hunting-ground-confirm",
+            log_root=run_root / "07-hunting-ground-confirm",
         )
         _require_phase(
             master,
             "crystal_cave_cycle",
             lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
-            log_root=run_root / "07-crystal-cave-cycle",
+            log_root=run_root / "08-crystal-cave-cycle",
         )
         _require_phase(
             master,
             "daily_arena",
             lambda *, log_root: run_daily_arena(dry_run=False, log_root=log_root),
-            log_root=run_root / "08-daily-arena",
+            log_root=run_root / "09-daily-arena",
         )
 
         update_daily_state(state_path, status="completed")
-        master.event("daily", "success", "all daily automation phases completed")
+        master.event("daily", "success", "今天的全部任务已经完成")
         master.summary(
             result="completed",
             started_at=started.isoformat(timespec="seconds"),
@@ -784,7 +827,7 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
     except Exception as exc:  # noqa: BLE001 - fatal errors must be persisted.
         reason = str(exc)
         update_daily_state(state_path, status="failed", error=reason)
-        master.event("daily", "error", reason, traceback=traceback.format_exc())
+        master.event("daily", "error", f"任务停止，详细原因：{reason}", traceback=traceback.format_exc())
         master.summary(
             result="failed",
             reason=reason,
@@ -798,14 +841,14 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
 def check_environment(*, project_root: Path, network_timeout: float) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     logger = MasterLogger(project_root / "logs" / "daily-check" / stamp)
-    logger.event("check", "start", "environment check started")
+    logger.event("check", "start", "开始检查运行环境")
     network_ok = wait_for_network(logger, timeout=network_timeout, interval=2.0)
     starter = Path(r"C:\ProgramData\Neowiz\Browndust2Starter\Browndust2Starter.exe")
     starter_ok = starter.exists()
     logger.event(
         "check",
         "success" if starter_ok else "error",
-        f"game starter exists={starter_ok}",
+        "已找到游戏启动器" if starter_ok else "没有找到游戏启动器",
         path=str(starter),
     )
     result = network_ok and starter_ok

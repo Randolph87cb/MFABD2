@@ -22,17 +22,21 @@ from daily_automation import (
     can_finish_entry_phase,
     claim_daily_run,
     classify_daily_entry_context,
+    ensure_home,
     mute_game_audio,
     overlay_transition_succeeded,
     recognize_daily_entry_state,
     return_home_transition_succeeded,
+    run_daily,
     update_daily_state,
 )
 from game_text_recognition import recognize_return_home_control
 from daily_arena import is_gameplay_tab_selected
 from free_gacha import (
+    ActionResult,
     CLICK_POINTS,
     RETRY_CLICK_POINTS,
+    RunLogger,
     _click_ratio,
     classify_state,
     is_free_gacha_confirm_transition,
@@ -58,11 +62,60 @@ class DailyAutomationStateTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             logger = MasterLogger(Path(temporary))
 
-            logger.event("startup", "waiting", "waiting for the game window")
+            logger.event("enter_game", "waiting", "等待游戏响应")
 
         printed = print_mock.call_args.args[0]
-        self.assertIn("[WAITING] [startup] waiting for the game window", printed)
+        self.assertIn("[等待] [进入游戏] 等待游戏响应", printed)
         self.assertTrue(print_mock.call_args.kwargs["flush"])
+
+    @patch("builtins.print")
+    def test_step_logger_explains_recognition_and_clicks_in_chinese(
+        self,
+        print_mock: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            logger = RunLogger(Path(temporary))
+            logger.event(action="start", flow="ensure_home")
+            logger.event(action="classify", state="arena_lobby")
+            logger.event(action="click", key="arena_home", attempt=1)
+
+        output = "\n".join(str(call.args[0]) for call in print_mock.call_args_list)
+        self.assertIn("[返回主页] 开始执行", output)
+        self.assertIn("识别到：竞技场大厅", output)
+        self.assertIn("点击：竞技场右上角主页（第 1 次）", output)
+
+    @patch("daily_automation.os.chdir")
+    @patch("daily_automation.claim_daily_run", return_value=(True, {}))
+    @patch("daily_automation.wait_for_network", return_value=True)
+    @patch("daily_automation._require_phase")
+    @patch("daily_automation.run_free_gacha")
+    @patch("daily_automation.update_daily_state")
+    @patch("builtins.print")
+    def test_daily_run_returns_home_before_starting_gacha(
+        self,
+        _print: MagicMock,
+        _update_daily_state: MagicMock,
+        run_free_gacha: MagicMock,
+        require_phase: MagicMock,
+        _wait_for_network: MagicMock,
+        _claim_daily_run: MagicMock,
+        _chdir: MagicMock,
+    ) -> None:
+        run_free_gacha.return_value = ActionResult(
+            "gacha_page",
+            "stop",
+            "all requested free gacha targets completed",
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            result = run_daily(
+                project_root=Path(temporary),
+                force=True,
+                network_timeout=1.0,
+            )
+
+        stages = [call.args[1] for call in require_phase.call_args_list]
+        self.assertEqual(result, 0)
+        self.assertEqual(stages[:2], ["enter_game", "prepare_home"])
 
     def test_second_start_on_same_day_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -172,6 +225,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
     def test_arena_clicks_stay_in_recorded_controls(self) -> None:
         expected = {
+            "arena_home": ((0.91, 0.96), (0.03, 0.08)),
             "plaza_cartridge": ((0.38, 0.45), (0.89, 0.97)),
             "cartridge_gameplay_tab": ((0.46, 0.58), (0.77, 0.86)),
             "cartridge_first_gameplay": ((0.03, 0.13), (0.85, 0.95)),
@@ -225,6 +279,43 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             }
             <= DAILY_READY_STATES
         )
+
+    def test_daily_run_can_resume_from_arena_lobby_before_returning_home(self) -> None:
+        self.assertIn("arena_lobby", DAILY_READY_STATES)
+
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_uses_the_arena_home_button_from_arena_lobby(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image]
+        classify_state.side_effect = [("arena_lobby", {}), ("real_home", {})]
+        click_with_fixed_retry.return_value = (True, "real_home", image, "returned home")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_home")
+
+    def test_season_reward_overlay_sequence_is_recorded_as_a_regression(self) -> None:
+        with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:
+            overlay_state, _details = classify_state(overlay)
+        with Image.open(FIXTURES / "arena-lobby-2567x1446.png") as lobby:
+            lobby_state, _details = classify_state(lobby)
+
+        self.assertEqual(overlay_state, "home_overlay")
+        self.assertEqual(lobby_state, "arena_lobby")
 
     def test_v2318_touch_screen_is_actionable(self) -> None:
         with Image.open(FIXTURES / "entry-touch-ready-v2318.png") as image:
