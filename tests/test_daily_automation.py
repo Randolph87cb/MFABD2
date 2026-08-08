@@ -345,7 +345,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
     def test_daily_run_can_resume_from_business_management_before_returning_home(self) -> None:
         self.assertTrue(
-            {"business_management_dialog", "business_management_reward"}
+            {"business_management_dialog", "business_management_reward", "restaurant_home"}
             <= DAILY_READY_STATES
         )
 

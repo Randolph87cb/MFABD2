@@ -180,6 +180,64 @@ def dismiss_business_management_reward(*, dry_run: bool, log_root: Path) -> tupl
     return True, "business-management reward dismissed"
 
 
+def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="restaurant_entry", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    image = safe_capture_client(hwnd, logger=logger)
+    state, details = classify_state(image)
+    path = logger.save_image(image, f"restaurant-start-{state}.png")
+    logger.event(action="classify", state=state, details=details, screenshot=str(path))
+    if state != "business_management_dialog":
+        reason = f"entering restaurant requires business-management dialog, got {state}"
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "business_management_restaurant",
+        verify=lambda next_state, _image: next_state in {"restaurant_loading", "restaurant_home"},
+        description="enter restaurant from business management",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    if dry_run:
+        return True, reason
+
+    if state == "restaurant_loading":
+        state, image = wait_for_state(
+            hwnd,
+            logger,
+            expected={"restaurant_home"},
+            timeout=90.0,
+            interval=3.0,
+            label="restaurant-loading",
+        )
+    if state != "restaurant_home":
+        reason = f"restaurant entry ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    final_path = logger.save_image(image, f"restaurant-arrival-{state}.png")
+    logger.event(
+        action="stop",
+        result="success",
+        state=state,
+        reason="restaurant home reached",
+        screenshot=str(final_path),
+    )
+    return True, "restaurant home reached"
+
+
 def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     ok, reason = open_business_management(
         dry_run=dry_run,
@@ -193,9 +251,15 @@ def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str
     )
     if not ok:
         return False, reason
-    return dismiss_business_management_reward(
+    ok, reason = dismiss_business_management_reward(
         dry_run=False,
         log_root=log_root / "03-dismiss-reward",
+    )
+    if not ok:
+        return False, reason
+    return enter_restaurant(
+        dry_run=False,
+        log_root=log_root / "04-enter-restaurant",
     )
 
 
@@ -203,7 +267,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the business-management reward flow.")
     parser.add_argument(
         "--step",
-        choices=("all", "entry", "claim", "dismiss"),
+        choices=("all", "entry", "claim", "dismiss", "restaurant"),
         default="all",
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -218,6 +282,8 @@ def main() -> None:
         ok, reason = claim_business_management_rewards(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "dismiss":
         ok, reason = dismiss_business_management_reward(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "restaurant":
+        ok, reason = enter_restaurant(dry_run=args.dry_run, log_root=log_root)
     else:
         ok, reason = run_business_management(dry_run=args.dry_run, log_root=log_root)
     print(f"ok={ok}")

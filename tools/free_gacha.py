@@ -38,6 +38,7 @@ from game_text_recognition import (
     recognize_quick_hunt_map_labels,
     recognize_quick_hunt_result_labels,
     recognize_quick_hunt_setup_labels,
+    recognize_restaurant_state,
 )
 from open_game import find_game_window
 from win32_windowpos_click import click_client
@@ -55,6 +56,8 @@ CLICK_POINTS = {
     "business_management_claim_all": (0.567, 0.752),
     "business_management_reward_dismiss": (0.500, 0.800),
     "business_management_cancel": (0.432, 0.752),
+    "business_management_restaurant": (0.603, 0.278),
+    "restaurant_home": (0.935, 0.055),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
     "plaza_cartridge": (0.413, 0.933),
@@ -113,7 +116,9 @@ FLOW_NAMES = {
     "business_management_claim": "领取经营管理收益",
     "business_management_reward_dismiss": "关闭经营管理奖励",
     "business_management_cancel": "关闭经营管理",
+    "business_management_restaurant": "前往餐厅",
     "business_management": "经营管理收益",
+    "restaurant_entry": "进入餐厅",
     "daily_arena_enter_battlefield": "进入竞技场",
     "daily_arena_cartridge_route": "选择竞技场卡带",
     "daily_arena_enter_battle_prep": "进入竞技场战斗准备",
@@ -153,6 +158,8 @@ STATE_NAMES = {
     "quick_hunt_result": "快速狩猎结算",
     "business_management_dialog": "经营管理",
     "business_management_reward": "经营管理奖励",
+    "restaurant_loading": "餐厅加载中",
+    "restaurant_home": "餐厅",
 }
 
 CLICK_NAMES = {
@@ -190,6 +197,8 @@ CLICK_NAMES = {
     "home_business_management": "经营管理",
     "business_management_claim_all": "一键获得",
     "business_management_reward_dismiss": "关闭经营管理奖励",
+    "business_management_restaurant": "餐馆立即前往",
+    "restaurant_home": "餐厅右上角主页",
 }
 
 
@@ -499,6 +508,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if low_information_frame:
         return "loading", details
 
+    restaurant_loading_candidate = (
+        full["dark_ratio"] < 0.60
+        and full["edge_ratio"] < 0.012
+        and full["contrast"] > 25
+    )
+    if restaurant_loading_candidate:
+        restaurant_state, restaurant_text = recognize_restaurant_state(image)
+        details["restaurant_text"] = restaurant_text
+        if restaurant_state != "unknown":
+            return restaurant_state, details
+
     business_management_candidate = (
         full["dark_ratio"] > 0.85
         and center["mean"] > full["mean"] + 10
@@ -638,6 +658,10 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and top_title["edge_ratio"] > 0.030
     )
     if gacha_like:
+        restaurant_state, restaurant_text = recognize_restaurant_state(image)
+        details["restaurant_text"] = restaurant_text
+        if restaurant_state == "restaurant_home":
+            return restaurant_state, details
         quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
         details["quick_hunt_map_text"] = quick_hunt_map_text
         if quick_hunt_map_match:

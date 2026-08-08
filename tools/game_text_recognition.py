@@ -202,6 +202,33 @@ BUSINESS_MANAGEMENT_LABEL_GROUPS = {
     },
 }
 
+RESTAURANT_LABEL_GROUPS = {
+    "title": {
+        "region": (0.04, 0.01, 0.26, 0.12),
+        "labels": ("格鲁菲餐厅",),
+    },
+    "left_controls": {
+        "region": (0.04, 0.10, 0.24, 0.28),
+        "labels": ("常客笔记", "格鲁TALK", "立即前往游戏卡", "常客", "亲密度"),
+    },
+    "bottom_controls": {
+        "region": (0.04, 0.84, 0.28, 0.16),
+        "labels": ("员工", "客人", "成长"),
+    },
+    "settlement": {
+        "region": (0.78, 0.82, 0.20, 0.17),
+        "labels": ("结算",),
+    },
+    "loading_title": {
+        "region": (0.02, 0.52, 0.38, 0.42),
+        "labels": ("GLUPY DINER", "格鲁菲餐厅"),
+    },
+    "loading_progress": {
+        "region": (0.88, 0.82, 0.11, 0.17),
+        "labels": (),
+    },
+}
+
 ENTRY_STATUS_LABEL_GROUPS = {
     "status": {
         "region": (0.52, 0.46, 0.42, 0.38),
@@ -472,6 +499,43 @@ def recognize_business_management_state(image: Image.Image) -> tuple[str, dict[s
         "requirements": {
             "dialog": ["取消", "一键获得", "one management label"],
             "reward": ["REWARD", "获得N种", "点击画面即可返回"],
+        },
+    }
+
+
+def recognize_restaurant_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
+    """Recognize the restaurant loading screen and interactive restaurant home."""
+    grouped_texts, matches, error = _recognize_label_groups(image, RESTAURANT_LABEL_GROUPS)
+    if error is not None:
+        return "unknown", error
+
+    is_home = (
+        "格鲁菲餐厅" in matches["title"]
+        and len(matches["bottom_controls"]) >= 2
+        and "结算" in matches["settlement"]
+    )
+    normalized_progress = [
+        _normalize_text(text)
+        for text in grouped_texts["loading_progress"]
+    ]
+    has_loading_progress = any(re.fullmatch(r"\d{1,3}", text) for text in normalized_progress)
+    is_loading = bool(matches["loading_title"]) and has_loading_progress
+
+    if is_home:
+        state = "restaurant_home"
+    elif is_loading:
+        state = "restaurant_loading"
+    else:
+        state = "unknown"
+    return state, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "has_loading_progress": has_loading_progress,
+        "state": state,
+        "requirements": {
+            "home": ["格鲁菲餐厅", "two bottom controls", "结算"],
+            "loading": ["格鲁菲餐厅", "N%"],
         },
     }
 

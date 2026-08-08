@@ -250,5 +250,15 @@
     "path": "fixtures/recognition/business-management-reward-2567x1446.png",
     "expected": "business_management_reward",
     "reason": "经营管理奖励必须与快速狩猎奖励区分"
+  },
+  {
+    "path": "fixtures/recognition/restaurant-loading-2567x1446.png",
+    "expected": "restaurant_loading",
+    "reason": "前往餐厅时必须等待专用加载画面结束"
+  },
+  {
+    "path": "fixtures/recognition/restaurant-home-2567x1446.png",
+    "expected": "restaurant_home",
+    "reason": "格鲁菲餐厅主页不能误判为抽卡动画"
   }
 ]
