@@ -127,6 +127,7 @@ FLOW_NAMES = {
     "restaurant_regular_customer_notes": "打开常客笔记奖励",
     "restaurant_regular_customer_claim_all": "领取全部常客奖励",
     "restaurant_regular_customer_notes_back": "离开常客笔记",
+    "restaurant_return_home": "从餐厅返回主页",
     "daily_arena_enter_battlefield": "进入竞技场",
     "daily_arena_cartridge_route": "选择竞技场卡带",
     "daily_arena_enter_battle_prep": "进入竞技场战斗准备",
