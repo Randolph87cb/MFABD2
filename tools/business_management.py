@@ -205,6 +205,54 @@ def dismiss_regular_customer_reward(*, dry_run: bool, log_root: Path) -> tuple[b
     )
 
 
+def leave_regular_customer_notes(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="restaurant_regular_customer_notes_back", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    image = safe_capture_client(hwnd, logger=logger)
+    state, details = classify_state(image)
+    path = logger.save_image(image, f"notes-back-start-{state}.png")
+    logger.event(action="classify", state=state, details=details, screenshot=str(path))
+    if state != "restaurant_regular_customer_notes":
+        reason = f"leaving regular-customer notes requires notes page, got {state}"
+        logger.failure(reason)
+        return False, reason
+
+    expected = {"restaurant_home", "restaurant_regular_customer_mode"}
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "restaurant_notes_back",
+        verify=lambda next_state, _image: next_state in expected | {"loading"},
+        description="return from regular-customer notes",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok or dry_run:
+        if not ok:
+            logger.failure(reason)
+        return ok, reason
+    state, image = _wait_out_loading(
+        hwnd,
+        state,
+        image,
+        expected=expected,
+        logger=logger,
+        label="after-regular-customer-notes-back",
+    )
+    if state not in expected:
+        reason = f"regular-customer notes back ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+    logger.event(action="stop", result="success", state=state)
+    return True, "returned from regular-customer notes"
+
+
 def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     logger = RunLogger(log_root, annotate_clicks=True)
     logger.event(action="start", flow="restaurant_entry", dry_run=dry_run)
@@ -490,9 +538,15 @@ def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str
     )
     if not ok:
         return False, reason
-    return dismiss_regular_customer_reward(
+    ok, reason = dismiss_regular_customer_reward(
         dry_run=False,
         log_root=log_root / "08-dismiss-regular-customer-reward",
+    )
+    if not ok:
+        return False, reason
+    return leave_regular_customer_notes(
+        dry_run=False,
+        log_root=log_root / "09-leave-regular-customer-notes",
     )
 
 
@@ -510,6 +564,7 @@ def main() -> None:
             "regular-customer-notes",
             "claim-regular-customer-rewards",
             "dismiss-regular-customer-reward",
+            "leave-regular-customer-notes",
         ),
         default="all",
     )
@@ -535,6 +590,8 @@ def main() -> None:
         ok, reason = claim_all_regular_customer_rewards(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "dismiss-regular-customer-reward":
         ok, reason = dismiss_regular_customer_reward(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "leave-regular-customer-notes":
+        ok, reason = leave_regular_customer_notes(dry_run=args.dry_run, log_root=log_root)
     else:
         ok, reason = run_business_management(dry_run=args.dry_run, log_root=log_root)
     print(f"ok={ok}")
