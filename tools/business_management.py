@@ -109,7 +109,7 @@ def claim_business_management_rewards(*, dry_run: bool, log_root: Path) -> tuple
         hwnd,
         image,
         "business_management_claim_all",
-        verify=lambda next_state, _image: next_state in {"business_management_reward", "loading"},
+        verify=lambda next_state, _image: next_state in {"reward_overlay", "loading"},
         description="claim all business-management rewards",
         dry_run=dry_run,
         logger=logger,
@@ -122,11 +122,11 @@ def claim_business_management_rewards(*, dry_run: bool, log_root: Path) -> tuple
         hwnd,
         state,
         image,
-        expected={"business_management_reward"},
+        expected={"reward_overlay"},
         logger=logger,
         label="after-business-management-claim",
     )
-    if state != "business_management_reward":
+    if state != "reward_overlay":
         reason = f"claiming business-management rewards ended at unexpected state: {state}"
         logger.failure(reason)
         return False, reason
@@ -134,9 +134,15 @@ def claim_business_management_rewards(*, dry_run: bool, log_root: Path) -> tuple
     return True, "business-management rewards claimed"
 
 
-def dismiss_business_management_reward(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+def dismiss_reward_overlay(
+    *,
+    expected: set[str],
+    description: str,
+    dry_run: bool,
+    log_root: Path,
+) -> tuple[bool, str]:
     logger = RunLogger(log_root, annotate_clicks=True)
-    logger.event(action="start", flow="business_management_reward_dismiss", dry_run=dry_run)
+    logger.event(action="start", flow="reward_overlay_dismiss", dry_run=dry_run)
     hwnd = find_game_window()
     if not hwnd:
         reason = "game window not found"
@@ -147,17 +153,17 @@ def dismiss_business_management_reward(*, dry_run: bool, log_root: Path) -> tupl
     state, details = classify_state(image)
     path = logger.save_image(image, f"dismiss-start-{state}.png")
     logger.event(action="classify", state=state, details=details, screenshot=str(path))
-    if state != "business_management_reward":
-        reason = f"dismissing business-management reward requires reward screen, got {state}"
+    if state != "reward_overlay":
+        reason = f"dismissing reward requires reward_overlay, got {state}"
         logger.failure(reason)
         return False, reason
 
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
         image,
-        "business_management_reward_dismiss",
-        verify=lambda next_state, _image: next_state in {"business_management_dialog", "loading"},
-        description="dismiss business-management reward",
+        "reward_overlay_dismiss",
+        verify=lambda next_state, _image: next_state in expected | {"loading"},
+        description=description,
         dry_run=dry_run,
         logger=logger,
     )
@@ -169,16 +175,34 @@ def dismiss_business_management_reward(*, dry_run: bool, log_root: Path) -> tupl
         hwnd,
         state,
         image,
-        expected={"business_management_dialog"},
+        expected=expected,
         logger=logger,
-        label="after-business-management-reward-dismiss",
+        label="after-reward-overlay-dismiss",
     )
-    if state != "business_management_dialog":
+    if state not in expected:
         reason = f"reward dismissal ended at unexpected state: {state}"
         logger.failure(reason)
         return False, reason
     logger.event(action="stop", result="success", state=state)
-    return True, "business-management reward dismissed"
+    return True, "reward overlay dismissed"
+
+
+def dismiss_business_management_reward(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    return dismiss_reward_overlay(
+        expected={"business_management_dialog"},
+        description="dismiss business-management reward",
+        dry_run=dry_run,
+        log_root=log_root,
+    )
+
+
+def dismiss_regular_customer_reward(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    return dismiss_reward_overlay(
+        expected={"restaurant_regular_customer_notes"},
+        description="dismiss regular-customer reward",
+        dry_run=dry_run,
+        log_root=log_root,
+    )
 
 
 def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
@@ -375,6 +399,54 @@ def open_regular_customer_note_rewards(*, dry_run: bool, log_root: Path) -> tupl
     return True, "regular-customer note rewards are ready"
 
 
+def claim_all_regular_customer_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="restaurant_regular_customer_claim_all", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    image = safe_capture_client(hwnd, logger=logger)
+    state, details = classify_state(image)
+    path = logger.save_image(image, f"regular-customer-claim-start-{state}.png")
+    logger.event(action="classify", state=state, details=details, screenshot=str(path))
+    if state != "restaurant_regular_customer_notes":
+        reason = f"claiming regular-customer rewards requires notes page, got {state}"
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "restaurant_regular_customer_claim_all",
+        verify=lambda next_state, _image: next_state == "reward_overlay",
+        description="claim all regular-customer rewards",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    if dry_run:
+        return True, reason
+    if state != "reward_overlay":
+        reason = f"regular-customer reward claim ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    final_path = logger.save_image(image, f"regular-customer-claim-finished-{state}.png")
+    logger.event(
+        action="stop",
+        result="success",
+        state=state,
+        reason="regular-customer rewards claimed",
+        screenshot=str(final_path),
+    )
+    return True, "regular-customer rewards claimed"
+
+
 def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     ok, reason = open_business_management(
         dry_run=dry_run,
@@ -406,9 +478,21 @@ def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str
     )
     if not ok:
         return False, reason
-    return open_regular_customer_note_rewards(
+    ok, reason = open_regular_customer_note_rewards(
         dry_run=False,
         log_root=log_root / "06-regular-customer-notes",
+    )
+    if not ok:
+        return False, reason
+    ok, reason = claim_all_regular_customer_rewards(
+        dry_run=False,
+        log_root=log_root / "07-claim-regular-customer-rewards",
+    )
+    if not ok:
+        return False, reason
+    return dismiss_regular_customer_reward(
+        dry_run=False,
+        log_root=log_root / "08-dismiss-regular-customer-reward",
     )
 
 
@@ -424,6 +508,8 @@ def main() -> None:
             "restaurant",
             "regular-customer",
             "regular-customer-notes",
+            "claim-regular-customer-rewards",
+            "dismiss-regular-customer-reward",
         ),
         default="all",
     )
@@ -445,6 +531,10 @@ def main() -> None:
         ok, reason = open_regular_customer_rewards(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "regular-customer-notes":
         ok, reason = open_regular_customer_note_rewards(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "claim-regular-customer-rewards":
+        ok, reason = claim_all_regular_customer_rewards(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "dismiss-regular-customer-reward":
+        ok, reason = dismiss_regular_customer_reward(dry_run=args.dry_run, log_root=log_root)
     else:
         ok, reason = run_business_management(dry_run=args.dry_run, log_root=log_root)
     print(f"ok={ok}")

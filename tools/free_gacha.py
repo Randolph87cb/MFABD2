@@ -36,7 +36,7 @@ from game_text_recognition import (
     recognize_gacha_page_labels,
     recognize_home_labels,
     recognize_quick_hunt_map_labels,
-    recognize_quick_hunt_result_labels,
+    recognize_reward_overlay_labels,
     recognize_quick_hunt_setup_labels,
     recognize_regular_customer_notes_labels,
     recognize_restaurant_state,
@@ -55,13 +55,14 @@ SW_SHOWNOACTIVATE = 4
 CLICK_POINTS = {
     "home_business_management": (0.085, 0.235),
     "business_management_claim_all": (0.567, 0.752),
-    "business_management_reward_dismiss": (0.500, 0.800),
+    "reward_overlay_dismiss": (0.500, 0.800),
     "business_management_cancel": (0.432, 0.752),
     "business_management_restaurant": (0.603, 0.278),
     "restaurant_home": (0.935, 0.055),
     "restaurant_regular_customer": (0.145, 0.262),
     "restaurant_regular_customer_notes": (0.088, 0.141),
     "restaurant_notes_back": (0.090, 0.045),
+    "restaurant_regular_customer_claim_all": (0.877, 0.930),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
     "plaza_cartridge": (0.413, 0.933),
@@ -79,7 +80,6 @@ CLICK_POINTS = {
     "quick_hunt_start": (0.855, 0.918),
     "quick_hunt_max": (0.609, 0.471),
     "quick_hunt_confirm": (0.540, 0.725),
-    "quick_hunt_result_dismiss": (0.120, 0.800),
     "quick_hunt_crystal_cave": (0.091, 0.440),
     "quick_hunt_back": (0.090, 0.045),
     "plaza_home": (0.935, 0.055),
@@ -118,13 +118,14 @@ FLOW_NAMES = {
     "finish_crystal_cave_cycle": "结束圣石洞穴",
     "business_management_entry": "进入经营管理",
     "business_management_claim": "领取经营管理收益",
-    "business_management_reward_dismiss": "关闭经营管理奖励",
+    "reward_overlay_dismiss": "关闭奖励结算",
     "business_management_cancel": "关闭经营管理",
     "business_management_restaurant": "前往餐厅",
     "business_management": "经营管理收益",
     "restaurant_entry": "进入餐厅",
     "restaurant_regular_customer": "领取餐厅常客奖励",
     "restaurant_regular_customer_notes": "打开常客笔记奖励",
+    "restaurant_regular_customer_claim_all": "领取全部常客奖励",
     "daily_arena_enter_battlefield": "进入竞技场",
     "daily_arena_cartridge_route": "选择竞技场卡带",
     "daily_arena_enter_battle_prep": "进入竞技场战斗准备",
@@ -161,9 +162,8 @@ STATE_NAMES = {
     "arena_cartridge_collection": "卡带收藏页面",
     "quick_hunt_map": "快速狩猎地图",
     "quick_hunt_setup": "快速狩猎设置",
-    "quick_hunt_result": "快速狩猎结算",
+    "reward_overlay": "奖励结算",
     "business_management_dialog": "经营管理",
-    "business_management_reward": "经营管理奖励",
     "restaurant_loading": "餐厅加载中",
     "restaurant_home": "餐厅",
     "restaurant_regular_customer_mode": "餐厅查看常客",
@@ -174,6 +174,7 @@ CLICK_NAMES = {
     "touch_to_start": "开始游戏",
     "confirm_download": "下载",
     "dismiss_overlay": "关闭弹窗",
+    "reward_overlay_dismiss": "关闭奖励结算",
     "plaza_home": "主页",
     "arena_home": "竞技场右上角主页",
     "home_gacha": "抽抽乐",
@@ -187,7 +188,6 @@ CLICK_NAMES = {
     "quick_hunt_start": "狩猎",
     "quick_hunt_max": "最大次数",
     "quick_hunt_confirm": "确认狩猎",
-    "quick_hunt_result_dismiss": "关闭狩猎结算",
     "quick_hunt_crystal_cave": "圣石洞穴",
     "quick_hunt_back": "返回主页",
     "home_return_battlefield": "返回战场",
@@ -204,12 +204,12 @@ CLICK_NAMES = {
     "arena_rank_confirm": "确认段位变化",
     "home_business_management": "经营管理",
     "business_management_claim_all": "一键获得",
-    "business_management_reward_dismiss": "关闭经营管理奖励",
     "business_management_restaurant": "餐馆立即前往",
     "restaurant_home": "餐厅右上角主页",
     "restaurant_regular_customer": "常客",
     "restaurant_regular_customer_notes": "常客笔记",
     "restaurant_notes_back": "返回餐厅",
+    "restaurant_regular_customer_claim_all": "全部获得",
 }
 
 
@@ -519,6 +519,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if low_information_frame:
         return "loading", details
 
+    reward_overlay_candidate = (
+        full["dark_ratio"] > 0.85
+        and center["mean"] > full["mean"] + 10
+        and modal["edge_ratio"] > 0.003
+    )
+    if reward_overlay_candidate:
+        reward_overlay_match, reward_overlay_text = recognize_reward_overlay_labels(image)
+        details["reward_overlay_text"] = reward_overlay_text
+        if reward_overlay_match:
+            return "reward_overlay", details
+
     regular_customer_notes_candidate = (
         full["dark_ratio"] > 0.75
         and top_title["edge_ratio"] > 0.015
@@ -633,16 +644,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         details["quick_hunt_setup_text"] = quick_hunt_setup_text
         if quick_hunt_setup_match:
             return "quick_hunt_setup", details
-
-    quick_hunt_result_candidate = (
-        full["dark_ratio"] > 0.85
-        and center["mean"] > full["mean"] + 15
-    )
-    if quick_hunt_result_candidate:
-        quick_hunt_result_match, quick_hunt_result_text = recognize_quick_hunt_result_labels(image)
-        details["quick_hunt_result_text"] = quick_hunt_result_text
-        if quick_hunt_result_match:
-            return "quick_hunt_result", details
 
     dark_item_overlay_like = (
         full["dark_ratio"] > 0.95

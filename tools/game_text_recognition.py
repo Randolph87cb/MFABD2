@@ -172,7 +172,7 @@ QUICK_HUNT_SETUP_LABEL_GROUPS = {
     },
 }
 
-QUICK_HUNT_RESULT_LABEL_GROUPS = {
+REWARD_OVERLAY_LABEL_GROUPS = {
     "header": {
         "region": (0.40, 0.28, 0.20, 0.11),
         "labels": ("REWARD",),
@@ -195,10 +195,6 @@ BUSINESS_MANAGEMENT_LABEL_GROUPS = {
             "取消",
             "一键获得",
         ),
-    },
-    "reward": {
-        "region": (0.35, 0.20, 0.30, 0.75),
-        "labels": ("REWARD", "点击画面即可返回"),
     },
 }
 
@@ -470,7 +466,7 @@ def recognize_gacha_item_detail_labels(image: Image.Image) -> tuple[bool, dict[s
 
 
 def recognize_business_management_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
-    """Recognize the management dialog and its reward overlay."""
+    """Recognize the management dialog."""
     grouped_texts, matches, error = _recognize_label_groups(
         image,
         BUSINESS_MANAGEMENT_LABEL_GROUPS,
@@ -478,46 +474,21 @@ def recognize_business_management_state(image: Image.Image) -> tuple[str, dict[s
     if error is not None:
         return "unknown", error
 
-    normalized_reward_texts = [
-        _normalize_text(text)
-        for text in grouped_texts["reward"]
-    ]
-    normalized_dialog_texts = [
-        _normalize_text(text)
-        for text in grouped_texts["dialog"]
-    ]
-    has_reward_count = any(re.fullmatch(r"获得\d+种", text) for text in normalized_reward_texts)
-    has_management_context = any(
-        marker in text
-        for text in normalized_dialog_texts
-        for marker in ("餐馆营业额现状", "渔笼收获情况", "助手工作情况")
+    supporting_labels = {"助手工作情况", "结算", "回收"} & set(matches["dialog"])
+    is_dialog = (
+        "取消" in matches["dialog"]
+        and "一键获得" in matches["dialog"]
+        and bool(supporting_labels)
     )
-    if (
-        "REWARD" in matches["reward"]
-        and "点击画面即可返回" in matches["reward"]
-        and has_reward_count
-        and has_management_context
-    ):
-        state = "business_management_reward"
-    else:
-        supporting_labels = {"助手工作情况", "结算", "回收"} & set(matches["dialog"])
-        is_dialog = (
-            "取消" in matches["dialog"]
-            and "一键获得" in matches["dialog"]
-            and bool(supporting_labels)
-        )
-        state = "business_management_dialog" if is_dialog else "unknown"
+    state = "business_management_dialog" if is_dialog else "unknown"
 
     return state, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,
-        "has_reward_count": has_reward_count,
-        "has_management_context": has_management_context,
         "state": state,
         "requirements": {
             "dialog": ["取消", "一键获得", "one management label"],
-            "reward": ["REWARD", "获得N种", "点击画面即可返回"],
         },
     }
 
@@ -824,16 +795,16 @@ def recognize_quick_hunt_setup_labels(image: Image.Image) -> tuple[bool, dict[st
     }
 
 
-def recognize_quick_hunt_result_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
-    """Recognize the quick-hunt reward screen from its fixed heading and footer."""
-    grouped_texts, matches, error = _recognize_label_groups(image, QUICK_HUNT_RESULT_LABEL_GROUPS)
+def recognize_reward_overlay_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize any reward overlay from its shared heading and return hint."""
+    grouped_texts, matches, error = _recognize_label_groups(image, REWARD_OVERLAY_LABEL_GROUPS)
     if error is not None:
         return False, error
-    is_quick_hunt_result = (
+    is_reward_overlay = (
         "REWARD" in matches["header"]
         and "点击画面即可返回" in matches["footer"]
     )
-    return is_quick_hunt_result, {
+    return is_reward_overlay, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,

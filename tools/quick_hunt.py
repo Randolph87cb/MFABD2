@@ -370,7 +370,7 @@ def maximize_and_confirm_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[b
     )
 
     after_path = logger.save_image(after, f"after-confirm-{state}.png")
-    if state != "quick_hunt_result":
+    if state != "reward_overlay":
         reason = f"quick-hunt confirmation ended at unexpected state: {state}"
         logger.failure(reason)
         return False, reason
@@ -425,16 +425,16 @@ def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     state, details = classify_state(image)
     path = logger.save_image(image, f"cycle-start-{state}.png")
     logger.event(action="classify_cycle_start", state=state, screenshot=str(path), details=details)
-    if state not in {"quick_hunt_result", "quick_hunt_map"}:
-        reason = f"crystal-cave cycle requires quick_hunt_result or quick_hunt_map, got {state}"
+    if state not in {"reward_overlay", "quick_hunt_map"}:
+        reason = f"crystal-cave cycle requires reward_overlay or quick_hunt_map, got {state}"
         logger.failure(reason)
         return False, reason
 
-    if state == "quick_hunt_result":
+    if state == "reward_overlay":
         ok, state, image, reason = click_with_fixed_retry(
             hwnd,
             image,
-            "quick_hunt_result_dismiss",
+            "reward_overlay_dismiss",
             verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
             description="dismiss hunting-ground reward",
             dry_run=dry_run,
@@ -531,7 +531,7 @@ def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
         hwnd,
         max_image,
         "quick_hunt_confirm",
-        verify=lambda next_state, _next_image: next_state in {"quick_hunt_result", "loading"},
+        verify=lambda next_state, _next_image: next_state in {"reward_overlay", "loading"},
         description=f"confirm crystal-cave quick hunt count {max_count}",
         dry_run=dry_run,
         logger=logger,
@@ -546,7 +546,7 @@ def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
         logger=logger,
         label="after-crystal-confirm",
     )
-    if state != "quick_hunt_result":
+    if state != "reward_overlay":
         reason = f"crystal-cave hunt ended at unexpected state: {state}"
         logger.failure(reason)
         return False, reason
@@ -554,7 +554,7 @@ def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
         image,
-        "quick_hunt_result_dismiss",
+        "reward_overlay_dismiss",
         verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
         description="dismiss crystal-cave reward",
         dry_run=dry_run,
@@ -625,15 +625,15 @@ def finish_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, s
     state, details = classify_state(image)
     path = logger.save_image(image, f"finish-start-{state}.png")
     logger.event(action="classify_finish_start", state=state, screenshot=str(path), details=details)
-    if state != "quick_hunt_result":
-        reason = f"finish cycle requires quick_hunt_result, got {state}"
+    if state != "reward_overlay":
+        reason = f"finish cycle requires reward_overlay, got {state}"
         logger.failure(reason)
         return False, reason
 
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
         image,
-        "quick_hunt_result_dismiss",
+        "reward_overlay_dismiss",
         verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
         description="dismiss crystal-cave reward",
         dry_run=dry_run,

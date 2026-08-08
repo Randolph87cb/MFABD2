@@ -67,8 +67,9 @@ DAILY_READY_STATES = {
     "gacha_result",
     "gacha_item_overlay",
     "arena_lobby",
+    "quick_hunt_map",
     "business_management_dialog",
-    "business_management_reward",
+    "reward_overlay",
     "restaurant_home",
     "restaurant_regular_customer_mode",
     "restaurant_regular_customer_notes",
@@ -716,10 +717,15 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             time.sleep(3.0)
             continue
 
-        if state == "business_management_reward":
-            key = "business_management_reward_dismiss"
-            description = "dismiss business-management reward before returning home"
-            expected = {"business_management_dialog", "loading"}
+        if state == "reward_overlay":
+            key = "reward_overlay_dismiss"
+            description = "dismiss reward overlay before returning home"
+            expected = {
+                "business_management_dialog",
+                "restaurant_regular_customer_notes",
+                "quick_hunt_map",
+                "loading",
+            }
         elif state == "business_management_dialog":
             key = "business_management_cancel"
             description = "close business-management dialog"
@@ -732,6 +738,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "restaurant_notes_back"
             description = "return from regular-customer notes"
             expected = {"restaurant_home", "restaurant_regular_customer_mode", "loading"}
+        elif state == "quick_hunt_map":
+            key = "quick_hunt_back"
+            description = "return home from quick-hunt map"
+            expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
         elif state in {"gacha_page", "arena_cartridge_collection"}:
             key = "result_back"
             description = f"return home from {state}"

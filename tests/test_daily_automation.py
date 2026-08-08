@@ -348,7 +348,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(
             {
                 "business_management_dialog",
-                "business_management_reward",
+                "reward_overlay",
                 "restaurant_home",
                 "restaurant_regular_customer_mode",
                 "restaurant_regular_customer_notes",
