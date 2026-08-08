@@ -238,6 +238,55 @@ def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     return True, "restaurant home reached"
 
 
+def open_regular_customer_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="restaurant_regular_customer", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+
+    image = safe_capture_client(hwnd, logger=logger)
+    state, details = classify_state(image)
+    path = logger.save_image(image, f"regular-customer-start-{state}.png")
+    logger.event(action="classify", state=state, details=details, screenshot=str(path))
+    if state != "restaurant_home":
+        reason = f"opening regular-customer rewards requires restaurant_home, got {state}"
+        logger.failure(reason)
+        return False, reason
+
+    ok, state, image, reason = click_with_fixed_retry(
+        hwnd,
+        image,
+        "restaurant_regular_customer",
+        verify=lambda next_state, _image: next_state == "restaurant_regular_customer_mode",
+        description="open regular-customer rewards",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok:
+        logger.failure(reason)
+        return False, reason
+    if dry_run:
+        return True, reason
+
+    if state != "restaurant_regular_customer_mode":
+        reason = f"regular-customer entry ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason
+
+    final_path = logger.save_image(image, f"regular-customer-opened-{state}.png")
+    logger.event(
+        action="stop",
+        result="success",
+        state=state,
+        reason="regular-customer screen opened",
+        screenshot=str(final_path),
+    )
+    return True, "regular-customer mode opened"
+
+
 def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     ok, reason = open_business_management(
         dry_run=dry_run,
@@ -257,9 +306,15 @@ def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str
     )
     if not ok:
         return False, reason
-    return enter_restaurant(
+    ok, reason = enter_restaurant(
         dry_run=False,
         log_root=log_root / "04-enter-restaurant",
+    )
+    if not ok:
+        return False, reason
+    return open_regular_customer_rewards(
+        dry_run=False,
+        log_root=log_root / "05-regular-customer-rewards",
     )
 
 
@@ -267,7 +322,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the business-management reward flow.")
     parser.add_argument(
         "--step",
-        choices=("all", "entry", "claim", "dismiss", "restaurant"),
+        choices=("all", "entry", "claim", "dismiss", "restaurant", "regular-customer"),
         default="all",
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -284,6 +339,8 @@ def main() -> None:
         ok, reason = dismiss_business_management_reward(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "restaurant":
         ok, reason = enter_restaurant(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "regular-customer":
+        ok, reason = open_regular_customer_rewards(dry_run=args.dry_run, log_root=log_root)
     else:
         ok, reason = run_business_management(dry_run=args.dry_run, log_root=log_root)
     print(f"ok={ok}")

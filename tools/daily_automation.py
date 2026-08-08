@@ -70,6 +70,7 @@ DAILY_READY_STATES = {
     "business_management_dialog",
     "business_management_reward",
     "restaurant_home",
+    "restaurant_regular_customer_mode",
 }
 ENTRY_WAITING_STATES = {
     "download_waiting",
@@ -722,7 +723,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "business_management_cancel"
             description = "close business-management dialog"
             expected = {"real_home", "loading"}
-        elif state == "restaurant_home":
+        elif state in {"restaurant_home", "restaurant_regular_customer_mode"}:
             key = "restaurant_home"
             description = "return home from restaurant"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}

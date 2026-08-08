@@ -58,6 +58,7 @@ CLICK_POINTS = {
     "business_management_cancel": (0.432, 0.752),
     "business_management_restaurant": (0.603, 0.278),
     "restaurant_home": (0.935, 0.055),
+    "restaurant_regular_customer": (0.145, 0.262),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
     "plaza_cartridge": (0.413, 0.933),
@@ -119,6 +120,7 @@ FLOW_NAMES = {
     "business_management_restaurant": "前往餐厅",
     "business_management": "经营管理收益",
     "restaurant_entry": "进入餐厅",
+    "restaurant_regular_customer": "领取餐厅常客奖励",
     "daily_arena_enter_battlefield": "进入竞技场",
     "daily_arena_cartridge_route": "选择竞技场卡带",
     "daily_arena_enter_battle_prep": "进入竞技场战斗准备",
@@ -160,6 +162,7 @@ STATE_NAMES = {
     "business_management_reward": "经营管理奖励",
     "restaurant_loading": "餐厅加载中",
     "restaurant_home": "餐厅",
+    "restaurant_regular_customer_mode": "餐厅查看常客",
 }
 
 CLICK_NAMES = {
@@ -199,6 +202,7 @@ CLICK_NAMES = {
     "business_management_reward_dismiss": "关闭经营管理奖励",
     "business_management_restaurant": "餐馆立即前往",
     "restaurant_home": "餐厅右上角主页",
+    "restaurant_regular_customer": "常客",
 }
 
 
@@ -652,16 +656,23 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
             return "arena_rank_change", details
         return "loading", details
 
+    restaurant_home_candidate = (
+        full["dark_ratio"] < 0.65
+        and left_tabs["edge_ratio"] > 0.015
+        and top_title["edge_ratio"] > 0.025
+    )
+    if restaurant_home_candidate:
+        restaurant_state, restaurant_text = recognize_restaurant_state(image)
+        details["restaurant_text"] = restaurant_text
+        if restaurant_state in {"restaurant_home", "restaurant_regular_customer_mode"}:
+            return restaurant_state, details
+
     gacha_like = (
         full["dark_ratio"] < 0.65
         and left_tabs["edge_ratio"] > 0.015
         and top_title["edge_ratio"] > 0.030
     )
     if gacha_like:
-        restaurant_state, restaurant_text = recognize_restaurant_state(image)
-        details["restaurant_text"] = restaurant_text
-        if restaurant_state == "restaurant_home":
-            return restaurant_state, details
         quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
         details["quick_hunt_map_text"] = quick_hunt_map_text
         if quick_hunt_map_match:

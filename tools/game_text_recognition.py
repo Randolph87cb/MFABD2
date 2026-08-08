@@ -219,6 +219,10 @@ RESTAURANT_LABEL_GROUPS = {
         "region": (0.78, 0.82, 0.20, 0.17),
         "labels": ("结算",),
     },
+    "regular_customer_mode": {
+        "region": (0.42, 0.50, 0.18, 0.20),
+        "labels": ("查看常客",),
+    },
     "loading_title": {
         "region": (0.02, 0.52, 0.38, 0.42),
         "labels": ("GLUPY DINER", "格鲁菲餐厅"),
@@ -514,6 +518,7 @@ def recognize_restaurant_state(image: Image.Image) -> tuple[str, dict[str, Any]]
         and len(matches["bottom_controls"]) >= 2
         and "结算" in matches["settlement"]
     )
+    is_regular_customer_mode = is_home and "查看常客" in matches["regular_customer_mode"]
     normalized_progress = [
         _normalize_text(text)
         for text in grouped_texts["loading_progress"]
@@ -521,7 +526,9 @@ def recognize_restaurant_state(image: Image.Image) -> tuple[str, dict[str, Any]]
     has_loading_progress = any(re.fullmatch(r"\d{1,3}", text) for text in normalized_progress)
     is_loading = bool(matches["loading_title"]) and has_loading_progress
 
-    if is_home:
+    if is_regular_customer_mode:
+        state = "restaurant_regular_customer_mode"
+    elif is_home:
         state = "restaurant_home"
     elif is_loading:
         state = "restaurant_loading"
@@ -536,6 +543,7 @@ def recognize_restaurant_state(image: Image.Image) -> tuple[str, dict[str, Any]]
         "requirements": {
             "home": ["格鲁菲餐厅", "two bottom controls", "结算"],
             "loading": ["格鲁菲餐厅", "N%"],
+            "regular_customer_mode": ["restaurant home", "查看常客"],
         },
     }
 
