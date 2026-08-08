@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -23,6 +24,7 @@ from daily_automation import (
     claim_daily_run,
     classify_daily_entry_context,
     ensure_home,
+    game_day_key,
     mute_game_audio,
     overlay_transition_succeeded,
     recognize_daily_entry_state,
@@ -48,6 +50,61 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class DailyAutomationStateTests(unittest.TestCase):
+    def test_game_day_rolls_over_at_eight_in_the_morning(self) -> None:
+        self.assertEqual(game_day_key(datetime(2026, 8, 8, 7, 59, 59)), "2026-08-07")
+        self.assertEqual(game_day_key(datetime(2026, 8, 8, 8, 0, 0)), "2026-08-08")
+
+    def test_run_is_allowed_again_after_the_eight_oclock_reset(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_path = root / "state.json"
+            first_day = game_day_key(datetime(2026, 8, 8, 7, 59, 59))
+            next_day = game_day_key(datetime(2026, 8, 8, 8, 0, 0))
+
+            first, _state = claim_daily_run(
+                state_path,
+                run_date=first_day,
+                run_root=root / "logs" / "before-reset",
+                force=False,
+                started_at="2026-08-08T07:59:59",
+            )
+            second, current = claim_daily_run(
+                state_path,
+                run_date=next_day,
+                run_root=root / "logs" / "after-reset",
+                force=False,
+                started_at="2026-08-08T08:00:00",
+            )
+
+        self.assertTrue(first)
+        self.assertTrue(second)
+        self.assertEqual(current["last_started_game_day"], "2026-08-08")
+
+    def test_old_midnight_based_state_is_migrated_from_its_start_time(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_path = root / "state.json"
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "last_started_date": "2026-08-08",
+                        "started_at": "2026-08-08T02:49:34",
+                        "status": "completed",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            claimed, _previous = claim_daily_run(
+                state_path,
+                run_date="2026-08-07",
+                run_root=root / "logs" / "retry-before-reset",
+                force=False,
+                started_at="2026-08-08T07:30:00",
+            )
+
+        self.assertFalse(claimed)
+
     def test_scheduled_launcher_uses_a_visible_python_console(self) -> None:
         script = (TOOLS_DIR / "install_daily_task.ps1").read_text(encoding="utf-8")
 

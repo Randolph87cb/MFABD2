@@ -11,7 +11,7 @@ import sys
 import time
 import traceback
 from ctypes import wintypes
-from datetime import date, datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +73,7 @@ ENTRY_WAITING_STATES = {
     "startup_waiting",
 }
 MAX_UNKNOWN_ENTRY_FRAMES = 3
+DAILY_RESET_HOUR = 8
 
 MASTER_STAGE_NAMES = {
     "daily": "每日任务",
@@ -200,13 +201,24 @@ def claim_daily_run(
     force: bool,
     started_at: str,
 ) -> tuple[bool, dict[str, Any]]:
-    """Atomically record that today's one allowed run has started."""
+    """Atomically record that the game day's one allowed run has started."""
     previous = _read_json(state_path)
-    if not force and previous.get("last_started_date") == run_date:
+    previous_game_day = previous.get("last_started_game_day")
+    if not previous_game_day and previous.get("started_at"):
+        try:
+            previous_started = datetime.fromisoformat(str(previous["started_at"]))
+            previous_game_day = game_day_key(previous_started)
+        except ValueError:
+            previous_game_day = None
+    if not previous_game_day:
+        previous_game_day = previous.get("last_started_date")
+
+    if not force and previous_game_day == run_date:
         return False, previous
 
     current = {
         "last_started_date": run_date,
+        "last_started_game_day": run_date,
         "started_at": started_at,
         "completed_at": None,
         "status": "started",
@@ -215,6 +227,13 @@ def claim_daily_run(
     }
     _write_json_atomic(state_path, current)
     return True, current
+
+
+def game_day_key(current: datetime) -> str:
+    """Return the local game day, which rolls over every day at 08:00."""
+    if current.hour < DAILY_RESET_HOUR:
+        current -= timedelta(days=1)
+    return current.date().isoformat()
 
 
 def update_daily_state(state_path: Path, *, status: str, error: str | None = None) -> None:
@@ -715,11 +734,17 @@ def _require_phase(
 def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int:
     os.chdir(project_root)
     started = datetime.now()
-    run_date = date.today().isoformat()
+    run_date = game_day_key(started)
     run_root = project_root / "logs" / "daily" / run_date / started.strftime("%H%M%S")
     state_path = project_root / "state" / "daily_automation.json"
     master = MasterLogger(run_root)
-    master.event("daily", "start", "每日自动任务已启动", force=force)
+    master.event(
+        "daily",
+        "start",
+        "每日自动任务已启动（每天 08:00 刷新）",
+        force=force,
+        game_day=run_date,
+    )
 
     claimed, previous = claim_daily_run(
         state_path,
@@ -733,7 +758,13 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             f"today has already started once; previous status={previous.get('status')}, "
             f"run_root={previous.get('run_root')}"
         )
-        master.event("daily", "skipped", "今天已经运行过；需要重试时请使用桌面快捷方式", technical_message=message)
+        master.event(
+            "daily",
+            "skipped",
+            "本次刷新周期已经运行过；每天 08:00 后可再次执行",
+            technical_message=message,
+            game_day=run_date,
+        )
         master.summary(result="skipped", reason=message, previous=previous)
         return 0
 
