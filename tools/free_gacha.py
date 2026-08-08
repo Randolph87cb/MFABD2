@@ -38,6 +38,7 @@ from game_text_recognition import (
     recognize_quick_hunt_map_labels,
     recognize_quick_hunt_result_labels,
     recognize_quick_hunt_setup_labels,
+    recognize_regular_customer_notes_labels,
     recognize_restaurant_state,
 )
 from open_game import find_game_window
@@ -59,6 +60,8 @@ CLICK_POINTS = {
     "business_management_restaurant": (0.603, 0.278),
     "restaurant_home": (0.935, 0.055),
     "restaurant_regular_customer": (0.145, 0.262),
+    "restaurant_regular_customer_notes": (0.088, 0.141),
+    "restaurant_notes_back": (0.090, 0.045),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
     "plaza_cartridge": (0.413, 0.933),
@@ -121,6 +124,7 @@ FLOW_NAMES = {
     "business_management": "经营管理收益",
     "restaurant_entry": "进入餐厅",
     "restaurant_regular_customer": "领取餐厅常客奖励",
+    "restaurant_regular_customer_notes": "打开常客笔记奖励",
     "daily_arena_enter_battlefield": "进入竞技场",
     "daily_arena_cartridge_route": "选择竞技场卡带",
     "daily_arena_enter_battle_prep": "进入竞技场战斗准备",
@@ -163,6 +167,7 @@ STATE_NAMES = {
     "restaurant_loading": "餐厅加载中",
     "restaurant_home": "餐厅",
     "restaurant_regular_customer_mode": "餐厅查看常客",
+    "restaurant_regular_customer_notes": "餐厅常客笔记",
 }
 
 CLICK_NAMES = {
@@ -203,6 +208,8 @@ CLICK_NAMES = {
     "business_management_restaurant": "餐馆立即前往",
     "restaurant_home": "餐厅右上角主页",
     "restaurant_regular_customer": "常客",
+    "restaurant_regular_customer_notes": "常客笔记",
+    "restaurant_notes_back": "返回餐厅",
 }
 
 
@@ -511,6 +518,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     details["low_information_frame"] = low_information_frame
     if low_information_frame:
         return "loading", details
+
+    regular_customer_notes_candidate = (
+        full["dark_ratio"] > 0.75
+        and top_title["edge_ratio"] > 0.015
+        and modal["edge_ratio"] > 0.015
+    )
+    if regular_customer_notes_candidate:
+        notes_match, notes_text = recognize_regular_customer_notes_labels(image)
+        details["regular_customer_notes_text"] = notes_text
+        if notes_match:
+            return "restaurant_regular_customer_notes", details
 
     restaurant_loading_candidate = (
         full["dark_ratio"] < 0.60

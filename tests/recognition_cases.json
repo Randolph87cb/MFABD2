@@ -265,5 +265,10 @@
     "path": "fixtures/recognition/restaurant-regular-customer-mode-2567x1446.png",
     "expected": "restaurant_regular_customer_mode",
     "reason": "点击常客后的查看模式必须与普通餐厅主页区分"
+  },
+  {
+    "path": "fixtures/recognition/restaurant-regular-customer-notes-2567x1446.png",
+    "expected": "restaurant_regular_customer_notes",
+    "reason": "只有识别到常客笔记、访问奖励和全部获得后才准备领取"
   }
 ]

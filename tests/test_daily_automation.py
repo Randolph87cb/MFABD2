@@ -35,6 +35,7 @@ from daily_automation import (
 )
 from game_text_recognition import recognize_return_home_control
 from daily_arena import is_gameplay_tab_selected
+from business_management import detect_regular_customer_note_notification
 from free_gacha import (
     ActionResult,
     CLICK_POINTS,
@@ -350,9 +351,24 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                 "business_management_reward",
                 "restaurant_home",
                 "restaurant_regular_customer_mode",
+                "restaurant_regular_customer_notes",
             }
             <= DAILY_READY_STATES
         )
+
+    def test_regular_customer_note_red_dot_is_detected(self) -> None:
+        with Image.open(FIXTURES / "restaurant-regular-customer-mode-2567x1446.png") as image:
+            found, details = detect_regular_customer_note_notification(image)
+
+        self.assertTrue(found)
+        self.assertGreaterEqual(details["red_pixels"], 80)
+
+    def test_regular_customer_note_without_red_dot_is_skipped(self) -> None:
+        with Image.open(FIXTURES / "restaurant-home-2567x1446.png") as image:
+            found, details = detect_regular_customer_note_notification(image)
+
+        self.assertFalse(found)
+        self.assertLess(details["red_pixels"], 80)
 
     @patch("daily_automation.click_with_fixed_retry")
     @patch("daily_automation.classify_state")

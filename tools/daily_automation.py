@@ -71,6 +71,7 @@ DAILY_READY_STATES = {
     "business_management_reward",
     "restaurant_home",
     "restaurant_regular_customer_mode",
+    "restaurant_regular_customer_notes",
 }
 ENTRY_WAITING_STATES = {
     "download_waiting",
@@ -727,6 +728,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "restaurant_home"
             description = "return home from restaurant"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
+        elif state == "restaurant_regular_customer_notes":
+            key = "restaurant_notes_back"
+            description = "return from regular-customer notes"
+            expected = {"restaurant_home", "restaurant_regular_customer_mode", "loading"}
         elif state in {"gacha_page", "arena_cartridge_collection"}:
             key = "result_back"
             description = f"return home from {state}"

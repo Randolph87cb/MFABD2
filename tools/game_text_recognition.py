@@ -233,6 +233,21 @@ RESTAURANT_LABEL_GROUPS = {
     },
 }
 
+REGULAR_CUSTOMER_NOTES_LABEL_GROUPS = {
+    "title": {
+        "region": (0.08, 0.00, 0.28, 0.10),
+        "labels": ("常客笔记",),
+    },
+    "rewards": {
+        "region": (0.18, 0.08, 0.68, 0.78),
+        "labels": ("访问次数", "访问奖励"),
+    },
+    "claim": {
+        "region": (0.80, 0.86, 0.16, 0.11),
+        "labels": ("全部获得",),
+    },
+}
+
 ENTRY_STATUS_LABEL_GROUPS = {
     "status": {
         "region": (0.52, 0.46, 0.42, 0.38),
@@ -544,6 +559,31 @@ def recognize_restaurant_state(image: Image.Image) -> tuple[str, dict[str, Any]]
             "home": ["格鲁菲餐厅", "two bottom controls", "结算"],
             "loading": ["格鲁菲餐厅", "N%"],
             "regular_customer_mode": ["restaurant home", "查看常客"],
+        },
+    }
+
+
+def recognize_regular_customer_notes_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the restaurant regular-customer reward notebook."""
+    grouped_texts, matches, error = _recognize_label_groups(
+        image,
+        REGULAR_CUSTOMER_NOTES_LABEL_GROUPS,
+    )
+    if error is not None:
+        return False, error
+    is_notes = (
+        "常客笔记" in matches["title"]
+        and "访问奖励" in matches["rewards"]
+        and "全部获得" in matches["claim"]
+    )
+    return is_notes, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {
+            "title": ["常客笔记"],
+            "rewards": ["访问奖励"],
+            "claim": ["全部获得"],
         },
     }
 
