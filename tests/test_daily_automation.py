@@ -23,6 +23,7 @@ from daily_automation import (
     can_finish_entry_phase,
     claim_daily_run,
     classify_daily_entry_context,
+    enter_game_logged,
     ensure_home,
     game_day_key,
     mute_game_audio,
@@ -42,6 +43,7 @@ from free_gacha import (
     _click_ratio,
     classify_state,
     is_free_gacha_confirm_transition,
+    run_free_gacha,
     safe_capture_client,
 )
 
@@ -364,6 +366,164 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "returned to real_home")
         self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_home")
+
+    @patch("builtins.print")
+    def test_ensure_home_timeout_tracks_stalled_progress_not_total_duration(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        clock = [0.0]
+        states = iter(("arena_lobby", "home_overlay", "real_home"))
+        click_states = iter(("home_overlay", "real_home"))
+
+        def capture_client(*_args: object, **_kwargs: object) -> Image.Image:
+            clock[0] += 4.0
+            return image
+
+        def click_success(*_args: object, **_kwargs: object) -> tuple[bool, str, Image.Image, str]:
+            clock[0] += 4.0
+            next_state = next(click_states)
+            return True, next_state, image, "verified progress"
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("open_game.find_game_window", return_value=123),
+            patch("daily_automation.time.monotonic", side_effect=lambda: clock[0]),
+            patch("daily_automation.safe_capture_client", side_effect=capture_client),
+            patch(
+                "daily_automation.classify_state",
+                side_effect=lambda _image: (next(states), {}),
+            ),
+            patch("daily_automation.click_with_fixed_retry", side_effect=click_success),
+        ):
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertGreater(clock[0], 5.0)
+
+    @patch("builtins.print")
+    def test_ensure_home_stops_after_continuous_inactivity(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        clock = [0.0]
+
+        def capture_client(*_args: object, **_kwargs: object) -> Image.Image:
+            clock[0] += 3.0
+            return image
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("open_game.find_game_window", return_value=123),
+            patch("daily_automation.time.monotonic", side_effect=lambda: clock[0]),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", side_effect=capture_client),
+            patch("daily_automation.classify_state", return_value=("loading", {})),
+        ):
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertFalse(ok)
+        self.assertEqual(reason, "returning home made no progress for 5 seconds")
+
+    @patch("builtins.print")
+    def test_enter_game_timeout_tracks_progress_not_total_duration(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        clock = [0.0]
+        contexts = iter(
+            (
+                ("loading", {}, "loading", {}),
+                ("returnable_scene", {}, "unknown", {}),
+                ("real_home", {}, "unknown", {}),
+            )
+        )
+
+        def capture_client(*_args: object, **_kwargs: object) -> Image.Image:
+            clock[0] += 4.0
+            return image
+
+        def click_success(*_args: object, **_kwargs: object) -> tuple[bool, str, Image.Image, str]:
+            clock[0] += 4.0
+            return True, "real_home", image, "verified progress"
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_automation.find_game_window", return_value=123),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.time.monotonic", side_effect=lambda: clock[0]),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", side_effect=capture_client),
+            patch("daily_automation.classify_daily_entry_context", side_effect=lambda _image: next(contexts)),
+            patch("daily_automation.click_with_fixed_retry", side_effect=click_success),
+        ):
+            ok, reason = enter_game_logged(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "game is ready at state=real_home")
+        self.assertGreater(clock[0], 5.0)
+
+    @patch("builtins.print")
+    def test_free_gacha_timeout_tracks_progress_not_total_duration(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        clock = [0.0]
+        states = iter(
+            (
+                "real_home",
+                "gacha_page",
+                "gacha_page",
+                "confirm_free_gacha",
+                "gacha_animation",
+                "gacha_result",
+                "gacha_page",
+            )
+        )
+        click_states = iter(
+            (
+                "gacha_page",
+                "confirm_free_gacha",
+                "gacha_animation",
+                "gacha_result",
+                "gacha_page",
+            )
+        )
+
+        def capture_client(*_args: object, **_kwargs: object) -> Image.Image:
+            clock[0] += 3.0
+            return image
+
+        def click_success(*_args: object, **_kwargs: object) -> tuple[bool, str, Image.Image, str]:
+            clock[0] += 3.0
+            return True, next(click_states), image, "verified progress"
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("free_gacha.find_game_window", return_value=123),
+            patch("free_gacha.time.monotonic", side_effect=lambda: clock[0]),
+            patch("free_gacha.safe_capture_client", side_effect=capture_client),
+            patch("free_gacha.classify_state", side_effect=lambda _image: (next(states), {})),
+            patch("free_gacha.detect_selected_gacha_target", return_value="costume"),
+            patch("free_gacha.click_with_fixed_retry", side_effect=click_success),
+        ):
+            result = run_free_gacha(
+                targets=["costume"],
+                timeout=5.0,
+                interval=0.0,
+                dry_run=False,
+                test_mode=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertEqual(result.reason, "all requested free gacha targets completed")
+        self.assertGreater(clock[0], 5.0)
 
     def test_season_reward_overlay_sequence_is_recorded_as_a_regression(self) -> None:
         with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:

@@ -968,10 +968,11 @@ def run_free_gacha(
     target_index = 0
     switched: set[str] = set()
     result_back_target: str | None = None
-    deadline = time.monotonic() + timeout
+    last_progress_at = time.monotonic()
+    previous_state: str | None = None
     step = 0
 
-    while time.monotonic() < deadline:
+    while time.monotonic() - last_progress_at < timeout:
         step += 1
         try:
             image = safe_capture_client(hwnd, logger=logger)
@@ -981,6 +982,16 @@ def run_free_gacha(
             logger.event(action="stop", result="error", reason=reason)
             return ActionResult("capture_error", "stop", reason)
         state, details = classify_state(image)
+        if previous_state is not None and state != previous_state:
+            last_progress_at = time.monotonic()
+            logger.event(
+                action="progress",
+                reason="recognized_state_changed",
+                previous_state=previous_state,
+                state=state,
+                stall_timeout=timeout,
+            )
+        previous_state = state
         try:
             image_path = logger.save_image(image, f"step-{step:03d}-{state}.png")
         except Exception as exc:  # noqa: BLE001
@@ -1007,6 +1018,13 @@ def run_free_gacha(
             logger.event(action="target_complete", target=result_back_target)
             target_index += 1
             result_back_target = None
+            last_progress_at = time.monotonic()
+            logger.event(
+                action="progress",
+                reason="gacha_target_completed",
+                completed_targets=target_index,
+                stall_timeout=timeout,
+            )
             current_target = targets[target_index] if target_index < len(targets) else None
             if current_target is None:
                 reason = "all requested free gacha targets completed"
@@ -1036,6 +1054,8 @@ def run_free_gacha(
                 logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
                 return ActionResult(state, "stop", reason)
+            if not dry_run:
+                last_progress_at = time.monotonic()
             continue
 
         if state == "real_home":
@@ -1052,6 +1072,8 @@ def run_free_gacha(
                 logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
                 return ActionResult(state, "stop", reason)
+            if not dry_run:
+                last_progress_at = time.monotonic()
             continue
 
         if state == "plaza":
@@ -1066,6 +1088,8 @@ def run_free_gacha(
                 logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason)
                 return ActionResult(state, "stop", reason)
+            if not dry_run:
+                last_progress_at = time.monotonic()
             time.sleep(interval)
             continue
 
@@ -1080,6 +1104,7 @@ def run_free_gacha(
                 )
                 if selected_target == current_target:
                     switched.add(current_target)
+                    last_progress_at = time.monotonic()
                 else:
                     ok, _, _, reason = click_with_fixed_retry(
                         hwnd,
@@ -1098,6 +1123,8 @@ def run_free_gacha(
                         logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
                         return ActionResult(state, "stop", reason)
                     switched.add(current_target)
+                    if not dry_run:
+                        last_progress_at = time.monotonic()
                 continue
 
             ok, _, _, reason = click_with_fixed_retry(
@@ -1113,6 +1140,8 @@ def run_free_gacha(
                 logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
                 return ActionResult(state, "stop", reason)
+            if not dry_run:
+                last_progress_at = time.monotonic()
             continue
 
         if state == "confirm_free_gacha":
@@ -1151,6 +1180,8 @@ def run_free_gacha(
                         screenshot=str(image_path),
                     )
                     return ActionResult(next_state, "stop", reason)
+            if not dry_run:
+                last_progress_at = time.monotonic()
             continue
 
         if state == "gacha_animation":
@@ -1167,6 +1198,8 @@ def run_free_gacha(
                 logger.failure(reason)
                 logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
                 return ActionResult(state, "stop", reason)
+            if not dry_run:
+                last_progress_at = time.monotonic()
             continue
 
         if state == "gacha_result":
@@ -1184,6 +1217,8 @@ def run_free_gacha(
                 logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
                 return ActionResult(state, "stop", reason)
             result_back_target = current_target
+            if not dry_run:
+                last_progress_at = time.monotonic()
             continue
 
         reason = f"unknown or unsupported state: {state}"
@@ -1191,7 +1226,7 @@ def run_free_gacha(
         logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
         return ActionResult(state, "stop", reason)
 
-    reason = f"timeout after {timeout:.0f}s"
+    reason = f"free gacha made no progress for {timeout:.0f}s"
     logger.failure(reason)
     logger.event(action="stop", result="error", reason=reason)
     return ActionResult("timeout", "stop", reason)

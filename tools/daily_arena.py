@@ -14,6 +14,7 @@ from PIL import Image
 from free_gacha import (
     RunLogger,
     _click_ratio,
+    _mean_region_difference,
     _roi,
     _stats,
     classify_state,
@@ -160,11 +161,31 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     )
     dialogue_clicks = 0
     card_attempts = 1
-    deadline = time.monotonic() + 150.0
-    while time.monotonic() < deadline:
+    stall_timeout = 150.0
+    last_progress_at = time.monotonic()
+    previous_state = "arena_cartridge_bar"
+    previous_image = gameplay_image
+    while time.monotonic() - last_progress_at < stall_timeout:
         time.sleep(6.0 if dialogue_clicks or card_attempts else 3.0)
         current = safe_capture_client(hwnd, logger=logger)
         current_state, current_details = classify_state(current)
+        visual_difference = _mean_region_difference(previous_image, current)
+        if current_state != previous_state or visual_difference >= 2.5:
+            last_progress_at = time.monotonic()
+            logger.event(
+                action="progress",
+                reason=(
+                    "recognized_state_changed"
+                    if current_state != previous_state
+                    else "screen_content_changed"
+                ),
+                previous_state=previous_state,
+                state=current_state,
+                visual_difference=round(visual_difference, 3),
+                stall_timeout=stall_timeout,
+            )
+        previous_state = current_state
+        previous_image = current
         stamp = datetime.now().strftime("%H%M%S-%f")
         current_path = logger.save_image(current, f"transition-{stamp}-{current_state}.png")
         logger.event(
@@ -212,7 +233,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
         logger.failure(reason)
         return False, reason
 
-    reason = "arena cartridge transition timed out after 150 seconds"
+    reason = "arena cartridge transition made no progress for 150 seconds"
     logger.failure(reason)
     return False, reason
 

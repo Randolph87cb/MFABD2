@@ -500,7 +500,8 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         logger.failure(reason)
         return False, reason
 
-    deadline = time.monotonic() + timeout
+    last_progress_at = time.monotonic()
+    previous_context: tuple[str, str] | None = None
     step = 0
     touch_attempt = 0
     download_confirm_attempts = 0
@@ -508,15 +509,35 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     mute_attempt = 0
     next_mute_attempt = 0.0
     unknown_entry_frames = 0
-    while time.monotonic() < deadline:
+    while time.monotonic() - last_progress_at < timeout:
         if not audio_muted and time.monotonic() >= next_mute_attempt:
             mute_attempt += 1
             audio_muted = mute_game_audio(logger, attempt=mute_attempt)
             next_mute_attempt = time.monotonic() + 5.0
+            if audio_muted:
+                last_progress_at = time.monotonic()
+                logger.event(
+                    action="progress",
+                    reason="game_audio_muted",
+                    stall_timeout=timeout,
+                )
 
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details, entry_state, entry_details = classify_daily_entry_context(image)
+        context = (state, entry_state)
+        if previous_context is not None and context != previous_context:
+            last_progress_at = time.monotonic()
+            logger.event(
+                action="progress",
+                reason="recognized_state_changed",
+                previous_state=previous_context[0],
+                previous_entry_state=previous_context[1],
+                state=state,
+                entry_state=entry_state,
+                stall_timeout=timeout,
+            )
+        previous_context = context
         path = logger.save_image(image, f"step-{step:03d}-{state}-{entry_state}.png")
         logger.event(
             action="classify",
@@ -610,6 +631,14 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             if not ok:
                 logger.failure(reason)
                 return False, reason
+            last_progress_at = time.monotonic()
+            logger.event(
+                action="progress",
+                reason="verified_click_succeeded",
+                state=state,
+                click="plaza_home",
+                stall_timeout=timeout,
+            )
             continue
 
         if unknown_entry_frames >= MAX_UNKNOWN_ENTRY_FRAMES:
@@ -629,7 +658,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         )
         time.sleep(5.0)
 
-    reason = f"game entry timed out after {timeout:.0f} seconds"
+    reason = f"game entry made no progress for {timeout:.0f} seconds"
     logger.failure(reason)
     return False, reason
 
@@ -646,9 +675,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         logger.failure(reason)
         return False, reason
 
-    deadline = time.monotonic() + timeout
+    last_progress_at = time.monotonic()
+    previous_state: str | None = None
     step = 0
-    while time.monotonic() < deadline:
+    while time.monotonic() - last_progress_at < timeout:
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details = classify_state(image)
@@ -660,6 +690,16 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             screenshot=str(path),
             details=details,
         )
+        if previous_state is not None and state != previous_state:
+            last_progress_at = time.monotonic()
+            logger.event(
+                action="progress",
+                reason="recognized_state_changed",
+                previous_state=previous_state,
+                state=state,
+                stall_timeout=timeout,
+            )
+        previous_state = state
         if state == "real_home":
             reason = "returned to real_home"
             logger.event(action="stop", result="success", reason=reason)
@@ -690,7 +730,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             logger.failure(reason)
             return False, reason
 
-        ok, _next_state, _next_image, reason = click_with_fixed_retry(
+        ok, next_state, _next_image, reason = click_with_fixed_retry(
             hwnd,
             image,
             key,
@@ -710,8 +750,17 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         if not ok:
             logger.failure(reason)
             return False, reason
+        last_progress_at = time.monotonic()
+        previous_state = next_state
+        logger.event(
+            action="progress",
+            reason="verified_click_succeeded",
+            key=key,
+            state=next_state,
+            stall_timeout=timeout,
+        )
 
-    reason = f"returning home timed out after {timeout:.0f} seconds"
+    reason = f"returning home made no progress for {timeout:.0f} seconds"
     logger.failure(reason)
     return False, reason
 
