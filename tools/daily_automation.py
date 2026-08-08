@@ -44,6 +44,7 @@ from quick_hunt import (  # noqa: E402
 )
 from win32_windowpos_click import click_client  # noqa: E402
 from daily_arena import run_daily_arena  # noqa: E402
+from business_management import run_business_management  # noqa: E402
 from mute_browndust import set_mute  # noqa: E402
 
 
@@ -66,6 +67,8 @@ DAILY_READY_STATES = {
     "gacha_result",
     "gacha_item_overlay",
     "arena_lobby",
+    "business_management_dialog",
+    "business_management_reward",
 }
 ENTRY_WAITING_STATES = {
     "download_waiting",
@@ -87,6 +90,8 @@ MASTER_STAGE_NAMES = {
     "hunting_ground_confirm": "执行狩猎场",
     "crystal_cave_cycle": "执行圣石洞穴",
     "daily_arena": "每日竞技场",
+    "business_management_home": "经营管理前返回主页",
+    "business_management": "经营管理收益",
     "check": "环境检查",
 }
 
@@ -708,7 +713,15 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             time.sleep(3.0)
             continue
 
-        if state in {"gacha_page", "arena_cartridge_collection"}:
+        if state == "business_management_reward":
+            key = "business_management_reward_dismiss"
+            description = "dismiss business-management reward before returning home"
+            expected = {"business_management_dialog", "loading"}
+        elif state == "business_management_dialog":
+            key = "business_management_cancel"
+            description = "close business-management dialog"
+            expected = {"real_home", "loading"}
+        elif state in {"gacha_page", "arena_cartridge_collection"}:
             key = "result_back"
             description = f"return home from {state}"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
@@ -893,6 +906,18 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             "daily_arena",
             lambda *, log_root: run_daily_arena(dry_run=False, log_root=log_root),
             log_root=run_root / "09-daily-arena",
+        )
+        _require_phase(
+            master,
+            "business_management_home",
+            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+            log_root=run_root / "10-business-management" / "01-return-home",
+        )
+        _require_phase(
+            master,
+            "business_management",
+            lambda *, log_root: run_business_management(dry_run=False, log_root=log_root),
+            log_root=run_root / "10-business-management" / "02-claim-rewards",
         )
 
         update_daily_state(state_path, status="completed")

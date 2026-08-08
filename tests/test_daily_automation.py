@@ -175,6 +175,7 @@ class DailyAutomationStateTests(unittest.TestCase):
         stages = [call.args[1] for call in require_phase.call_args_list]
         self.assertEqual(result, 0)
         self.assertEqual(stages[:2], ["enter_game", "prepare_home"])
+        self.assertEqual(stages[-2:], ["business_management_home", "business_management"])
 
     def test_second_start_on_same_day_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -342,6 +343,12 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     def test_daily_run_can_resume_from_arena_lobby_before_returning_home(self) -> None:
         self.assertIn("arena_lobby", DAILY_READY_STATES)
 
+    def test_daily_run_can_resume_from_business_management_before_returning_home(self) -> None:
+        self.assertTrue(
+            {"business_management_dialog", "business_management_reward"}
+            <= DAILY_READY_STATES
+        )
+
     @patch("daily_automation.click_with_fixed_retry")
     @patch("daily_automation.classify_state")
     @patch("daily_automation.safe_capture_client")
@@ -366,6 +373,31 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "returned to real_home")
         self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_home")
+
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_closes_a_leftover_business_management_dialog(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image]
+        classify_state.side_effect = [("business_management_dialog", {}), ("real_home", {})]
+        click_with_fixed_retry.return_value = (True, "real_home", image, "closed dialog")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "business_management_cancel")
 
     @patch("builtins.print")
     def test_ensure_home_timeout_tracks_stalled_progress_not_total_duration(

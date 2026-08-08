@@ -240,5 +240,15 @@
     "path": "fixtures/recognition/arena-lobby-empty-2567x1446.png",
     "expected": "arena_lobby",
     "reason": "竞技场自动战斗后容量可能为0/40，仍必须识别为竞技场大厅"
+  },
+  {
+    "path": "fixtures/recognition/business-management-dialog-2567x1446.png",
+    "expected": "business_management_dialog",
+    "reason": "经营管理弹窗必须优先于背后的主页菜单被识别"
+  },
+  {
+    "path": "fixtures/recognition/business-management-reward-2567x1446.png",
+    "expected": "business_management_reward",
+    "reason": "经营管理奖励必须与快速狩猎奖励区分"
   }
 ]

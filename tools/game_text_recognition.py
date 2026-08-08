@@ -183,6 +183,25 @@ QUICK_HUNT_RESULT_LABEL_GROUPS = {
     },
 }
 
+BUSINESS_MANAGEMENT_LABEL_GROUPS = {
+    "dialog": {
+        "region": (0.32, 0.18, 0.36, 0.64),
+        "labels": (
+            "餐馆营业额现状",
+            "渔笼收获情况",
+            "助手工作情况",
+            "结算",
+            "回收",
+            "取消",
+            "一键获得",
+        ),
+    },
+    "reward": {
+        "region": (0.35, 0.20, 0.30, 0.75),
+        "labels": ("REWARD", "点击画面即可返回"),
+    },
+}
+
 ENTRY_STATUS_LABEL_GROUPS = {
     "status": {
         "region": (0.52, 0.46, 0.42, 0.38),
@@ -401,6 +420,59 @@ def recognize_gacha_item_detail_labels(image: Image.Image) -> tuple[bool, dict[s
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"detail": 2},
+    }
+
+
+def recognize_business_management_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
+    """Recognize the management dialog and its reward overlay."""
+    grouped_texts, matches, error = _recognize_label_groups(
+        image,
+        BUSINESS_MANAGEMENT_LABEL_GROUPS,
+    )
+    if error is not None:
+        return "unknown", error
+
+    normalized_reward_texts = [
+        _normalize_text(text)
+        for text in grouped_texts["reward"]
+    ]
+    normalized_dialog_texts = [
+        _normalize_text(text)
+        for text in grouped_texts["dialog"]
+    ]
+    has_reward_count = any(re.fullmatch(r"获得\d+种", text) for text in normalized_reward_texts)
+    has_management_context = any(
+        marker in text
+        for text in normalized_dialog_texts
+        for marker in ("餐馆营业额现状", "渔笼收获情况", "助手工作情况")
+    )
+    if (
+        "REWARD" in matches["reward"]
+        and "点击画面即可返回" in matches["reward"]
+        and has_reward_count
+        and has_management_context
+    ):
+        state = "business_management_reward"
+    else:
+        supporting_labels = {"助手工作情况", "结算", "回收"} & set(matches["dialog"])
+        is_dialog = (
+            "取消" in matches["dialog"]
+            and "一键获得" in matches["dialog"]
+            and bool(supporting_labels)
+        )
+        state = "business_management_dialog" if is_dialog else "unknown"
+
+    return state, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "has_reward_count": has_reward_count,
+        "has_management_context": has_management_context,
+        "state": state,
+        "requirements": {
+            "dialog": ["取消", "一键获得", "one management label"],
+            "reward": ["REWARD", "获得N种", "点击画面即可返回"],
+        },
     }
 
 

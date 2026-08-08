@@ -30,6 +30,7 @@ from game_text_recognition import (
     recognize_arena_repeat_result_labels,
     recognize_arena_rank_change_labels,
     recognize_arena_victory_result_labels,
+    recognize_business_management_state,
     recognize_free_gacha_confirmation_labels,
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
@@ -50,6 +51,10 @@ VK_H = 0x48
 SW_SHOWNOACTIVATE = 4
 
 CLICK_POINTS = {
+    "home_business_management": (0.085, 0.235),
+    "business_management_claim_all": (0.567, 0.752),
+    "business_management_reward_dismiss": (0.500, 0.800),
+    "business_management_cancel": (0.432, 0.752),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
     "plaza_cartridge": (0.413, 0.933),
@@ -104,6 +109,11 @@ FLOW_NAMES = {
     "quick_hunt_max_and_confirm": "执行普通狩猎场",
     "quick_hunt_crystal_cave_cycle": "执行圣石洞穴",
     "finish_crystal_cave_cycle": "结束圣石洞穴",
+    "business_management_entry": "进入经营管理",
+    "business_management_claim": "领取经营管理收益",
+    "business_management_reward_dismiss": "关闭经营管理奖励",
+    "business_management_cancel": "关闭经营管理",
+    "business_management": "经营管理收益",
     "daily_arena_enter_battlefield": "进入竞技场",
     "daily_arena_cartridge_route": "选择竞技场卡带",
     "daily_arena_enter_battle_prep": "进入竞技场战斗准备",
@@ -141,6 +151,8 @@ STATE_NAMES = {
     "quick_hunt_map": "快速狩猎地图",
     "quick_hunt_setup": "快速狩猎设置",
     "quick_hunt_result": "快速狩猎结算",
+    "business_management_dialog": "经营管理",
+    "business_management_reward": "经营管理奖励",
 }
 
 CLICK_NAMES = {
@@ -175,6 +187,9 @@ CLICK_NAMES = {
     "arena_repeat_result_close": "关闭连续战斗结果",
     "arena_victory_leave": "离开竞技场",
     "arena_rank_confirm": "确认段位变化",
+    "home_business_management": "经营管理",
+    "business_management_claim_all": "一键获得",
+    "business_management_reward_dismiss": "关闭经营管理奖励",
 }
 
 
@@ -483,6 +498,17 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     details["low_information_frame"] = low_information_frame
     if low_information_frame:
         return "loading", details
+
+    business_management_candidate = (
+        full["dark_ratio"] > 0.85
+        and center["mean"] > full["mean"] + 10
+        and modal["edge_ratio"] > 0.008
+    )
+    if business_management_candidate:
+        business_state, business_text = recognize_business_management_state(image)
+        details["business_management_text"] = business_text
+        if business_state != "unknown":
+            return business_state, details
 
     arena_repeat_result_candidate = (
         full["dark_ratio"] > 0.85
