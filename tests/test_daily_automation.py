@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
@@ -34,7 +34,7 @@ from daily_automation import (
     update_daily_state,
 )
 from game_text_recognition import recognize_return_home_control
-from daily_arena import is_gameplay_tab_selected
+from daily_arena import enter_battle_prep, is_gameplay_tab_selected
 from business_management import detect_regular_customer_note_notification
 from free_gacha import (
     ActionResult,
@@ -43,6 +43,7 @@ from free_gacha import (
     RunLogger,
     _click_ratio,
     classify_state,
+    detect_arena_pool_click,
     is_free_gacha_confirm_transition,
     run_free_gacha,
     safe_capture_client,
@@ -302,6 +303,84 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             x, y = CLICK_POINTS[key]
             self.assertTrue(x_range[0] <= x <= x_range[1], key)
             self.assertTrue(y_range[0] <= y <= y_range[1], key)
+
+    def test_arena_pool_detector_tracks_camera_shift_and_partial_visibility(self) -> None:
+        shifted = Image.new("RGB", (1000, 600))
+        ImageDraw.Draw(shifted).ellipse((700, 295, 860, 375), fill=(210, 20, 45))
+        partial = Image.new("RGB", (1000, 600))
+        ImageDraw.Draw(partial).ellipse((920, 190, 1080, 270), fill=(210, 20, 45))
+
+        shifted_point = detect_arena_pool_click(shifted)
+        partial_point = detect_arena_pool_click(partial)
+
+        self.assertIsNotNone(shifted_point)
+        self.assertIsNotNone(partial_point)
+        assert shifted_point is not None
+        assert partial_point is not None
+        self.assertAlmostEqual(shifted_point[0], 0.78, delta=0.02)
+        self.assertAlmostEqual(shifted_point[1], 0.558, delta=0.02)
+        self.assertGreater(partial_point[0], 0.95)
+
+    def test_arena_pool_detector_matches_lobby_but_not_battle_prep(self) -> None:
+        with Image.open(FIXTURES / "arena-lobby-2567x1446.png") as lobby:
+            lobby_point = detect_arena_pool_click(lobby)
+        with Image.open(FIXTURES / "arena-battle-prep-2567x1446.png") as battle_prep:
+            battle_prep_point = detect_arena_pool_click(battle_prep)
+
+        self.assertIsNotNone(lobby_point)
+        assert lobby_point is not None
+        self.assertAlmostEqual(lobby_point[0], 0.422, delta=0.02)
+        self.assertAlmostEqual(lobby_point[1], 0.595, delta=0.02)
+        self.assertIsNone(battle_prep_point)
+
+    @patch("builtins.print")
+    def test_arena_pool_loading_transition_waits_for_battle_prep(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1000, 600))
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_arena.find_game_window", return_value=123),
+            patch("daily_arena.safe_capture_client", return_value=image),
+            patch("daily_arena.classify_state", return_value=("arena_lobby", {})),
+            patch(
+                "daily_arena.click_with_fixed_retry",
+                return_value=(True, "loading", image, "portal click reached loading"),
+            ),
+            patch(
+                "daily_arena.wait_for_state",
+                return_value=("arena_battle_prep", image),
+            ) as wait_for_state,
+        ):
+            ok, reason = enter_battle_prep(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "entered arena battle preparation after loading")
+        wait_for_state.assert_called_once()
+
+    @patch("free_gacha.click_client")
+    def test_arena_pool_click_uses_detected_position(
+        self,
+        click_client: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1000, 600))
+        ImageDraw.Draw(image).ellipse((700, 295, 860, 375), fill=(210, 20, 45))
+
+        _click_ratio(
+            123,
+            image,
+            "arena_pool",
+            dry_run=False,
+            logger=MagicMock(annotate_clicks=False),
+        )
+
+        x, y = click_client.call_args.args[1:]
+        self.assertAlmostEqual(x, 780, delta=20)
+        self.assertAlmostEqual(y, 335, delta=15)
 
     def test_gameplay_cartridge_tab_highlight_is_detected(self) -> None:
         with Image.open(FIXTURES / "arena-cartridge-bar-gameplay-selected-annotated-2048x1200.png") as image:

@@ -20,6 +20,7 @@ from free_gacha import (
     classify_state,
     click_with_fixed_retry,
     safe_capture_client,
+    wait_for_state,
 )
 from game_text_recognition import recognize_arena_auto_battle_labels
 from open_game import find_game_window
@@ -91,11 +92,25 @@ def enter_battle_prep(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         hwnd,
         image,
         "arena_pool",
-        verify=lambda candidate, _image: candidate == "arena_battle_prep",
+        verify=lambda candidate, _image: candidate in {"arena_battle_prep", "loading"},
         description="enter arena battle preparation",
         dry_run=dry_run,
         logger=logger,
     )
+    if ok and not dry_run and next_state == "loading":
+        next_state, _next_image = wait_for_state(
+            hwnd,
+            logger,
+            expected={"arena_battle_prep"},
+            timeout=60.0,
+            interval=3.0,
+            label="after-arena-pool-loading",
+        )
+        if next_state != "arena_battle_prep":
+            ok = False
+            reason = "arena pool loading did not reach battle preparation within 60 seconds"
+        else:
+            reason = "entered arena battle preparation after loading"
     result = "success" if ok else "error"
     logger.event(action="stop", result=result, state=next_state, reason=reason)
     if not ok:

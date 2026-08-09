@@ -11,6 +11,7 @@ import argparse
 import ctypes
 import json
 import time
+from collections import deque
 from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
@@ -18,7 +19,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import numpy as np
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from enter_game import capture_client, recognize_home_screen
 from game_text_recognition import (
@@ -797,6 +798,83 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     return "unknown", details
 
 
+def detect_arena_pool_click(image: Image.Image) -> tuple[float, float] | None:
+    """Locate the arena's high-red portal, including when it is partly off-screen."""
+    source_width, source_height = image.size
+    width = min(768, source_width)
+    height = round(source_height * width / source_width)
+    resized = image.convert("RGB").resize((width, height), Image.Resampling.BILINEAR)
+    hsv = np.asarray(resized.convert("HSV"))
+    red_mask = (
+        (hsv[:, :, 0] >= 235)
+        & (hsv[:, :, 1] >= 100)
+        & (hsv[:, :, 2] >= 45)
+    )
+
+    kernel_size = max(3, min(width, height) // 70)
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    red_mask = np.asarray(
+        Image.fromarray(red_mask.astype(np.uint8) * 255)
+        .filter(ImageFilter.MaxFilter(kernel_size))
+        .filter(ImageFilter.MinFilter(kernel_size))
+    ) > 0
+
+    visited = np.zeros_like(red_mask, dtype=bool)
+    candidates: list[tuple[int, float, float]] = []
+    for start_y, start_x in zip(*np.nonzero(red_mask)):
+        if visited[start_y, start_x]:
+            continue
+        queue = deque([(int(start_x), int(start_y))])
+        visited[start_y, start_x] = True
+        area = 0
+        sum_x = 0
+        sum_y = 0
+        min_x = max_x = int(start_x)
+        min_y = max_y = int(start_y)
+        while queue:
+            x, y = queue.pop()
+            area += 1
+            sum_x += x
+            sum_y += y
+            min_x = min(min_x, x)
+            max_x = max(max_x, x)
+            min_y = min(min_y, y)
+            max_y = max(max_y, y)
+            neighbors = ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1))
+            for next_x, next_y in neighbors:
+                if (
+                    0 <= next_x < width
+                    and 0 <= next_y < height
+                    and red_mask[next_y, next_x]
+                    and not visited[next_y, next_x]
+                ):
+                    visited[next_y, next_x] = True
+                    queue.append((next_x, next_y))
+
+        center_x = sum_x / area
+        center_y = sum_y / area
+        component_width = max_x - min_x + 1
+        component_height = max_y - min_y + 1
+        rx = center_x / width
+        ry = center_y / height
+        relative_width = component_width / width
+        relative_height = component_height / height
+        if (
+            area >= width * height * 0.002
+            and 0.05 <= relative_width <= 0.20
+            and 0.08 <= relative_height <= 0.16
+            and 0.10 <= rx <= 1.00
+            and 0.18 <= ry <= 0.75
+        ):
+            candidates.append((area, rx, ry))
+
+    if not candidates:
+        return None
+    _area, rx, ry = max(candidates)
+    return rx, ry
+
+
 def _click_ratio(
     hwnd: int,
     image: Image.Image,
@@ -807,7 +885,12 @@ def _click_ratio(
     attempt: int = 1,
 ) -> None:
     point_variant = "retry" if attempt > 1 and key in RETRY_CLICK_POINTS else "primary"
-    rx, ry = RETRY_CLICK_POINTS[key] if point_variant == "retry" else CLICK_POINTS[key]
+    detected_point = detect_arena_pool_click(image) if key == "arena_pool" else None
+    if detected_point is not None:
+        rx, ry = detected_point
+        point_variant = "detected"
+    else:
+        rx, ry = RETRY_CLICK_POINTS[key] if point_variant == "retry" else CLICK_POINTS[key]
     width, height = image.size
     x = int(width * rx)
     y = int(height * ry)
