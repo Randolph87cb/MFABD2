@@ -15,6 +15,7 @@ TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
+import open_game as open_game_module
 from daily_automation import (
     DAILY_READY_STATES,
     DOWNLOAD_CONFIRM_CLICK,
@@ -51,6 +52,57 @@ from free_gacha import (
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
+
+
+class OpenGameTests(unittest.TestCase):
+    def test_starter_log_activity_extends_window_wait(self) -> None:
+        clock = [0.0]
+        windows = iter((0, 0, 0, 123))
+        log_activity = iter(((), (), (("starter.log", 10, 1),)))
+        starter = MagicMock()
+        starter.exists.return_value = True
+        starter.__str__.return_value = "starter.exe"
+        starter.parent = "."
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds * 4
+
+        with (
+            patch("open_game.STARTER", starter),
+            patch("open_game.subprocess.Popen"),
+            patch("open_game.find_game_window", side_effect=lambda: next(windows)),
+            patch("open_game._starter_log_activity", side_effect=lambda: next(log_activity)),
+            patch("open_game.time.monotonic", side_effect=lambda: clock[0]),
+            patch("open_game.time.sleep", side_effect=sleep),
+        ):
+            hwnd = open_game_module.open_game(timeout=5.0)
+
+        self.assertEqual(hwnd, 123)
+        self.assertGreater(clock[0], 5.0)
+
+    def test_starter_wait_stops_after_continuous_inactivity(self) -> None:
+        clock = [0.0]
+        starter = MagicMock()
+        starter.exists.return_value = True
+        starter.__str__.return_value = "starter.exe"
+        starter.parent = "."
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds * 3
+
+        with (
+            patch("open_game.STARTER", starter),
+            patch("open_game.subprocess.Popen"),
+            patch("open_game.find_game_window", return_value=0),
+            patch("open_game._starter_log_activity", return_value=()),
+            patch("open_game.time.monotonic", side_effect=lambda: clock[0]),
+            patch("open_game.time.sleep", side_effect=sleep),
+        ):
+            with self.assertRaisesRegex(
+                TimeoutError,
+                "starter made no progress for 5s",
+            ):
+                open_game_module.open_game(timeout=5.0)
 
 
 class DailyAutomationStateTests(unittest.TestCase):

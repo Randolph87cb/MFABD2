@@ -16,6 +16,7 @@ enable_dpi_awareness()
 
 
 STARTER = Path(r"C:\ProgramData\Neowiz\Browndust2Starter\Browndust2Starter.exe")
+STARTER_LOG_DIR = STARTER.parent / "Log"
 PROTOCOL_ARG = "browndust2:games/10000001?usn=0"
 WINDOW_CLASS = "UnityWndClass"
 WINDOW_TITLE = "BrownDust II"
@@ -54,6 +55,21 @@ def find_game_window() -> int:
     return int(found.value or 0)
 
 
+def _starter_log_activity() -> tuple[tuple[str, int, int], ...]:
+    if not STARTER_LOG_DIR.exists():
+        return ()
+    try:
+        return tuple(
+            sorted(
+                (path.name, stat.st_size, stat.st_mtime_ns)
+                for path in STARTER_LOG_DIR.glob("starter-*.log")
+                if (stat := path.stat())
+            )
+        )
+    except OSError:
+        return ()
+
+
 def open_game(timeout: float = 90.0) -> int:
     hwnd = find_game_window()
     if hwnd:
@@ -69,14 +85,24 @@ def open_game(timeout: float = 90.0) -> int:
         stderr=subprocess.DEVNULL,
     )
 
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    last_activity = time.monotonic()
+    log_activity = _starter_log_activity()
+    while True:
         hwnd = find_game_window()
         if hwnd:
             return hwnd
+
+        current_log_activity = _starter_log_activity()
+        if current_log_activity != log_activity:
+            log_activity = current_log_activity
+            last_activity = time.monotonic()
+        elif time.monotonic() - last_activity >= timeout:
+            break
         time.sleep(1)
 
-    raise TimeoutError(f"game window not found after {timeout:.0f}s")
+    raise TimeoutError(
+        f"game window not found; starter made no progress for {timeout:.0f}s"
+    )
 
 
 def main() -> None:
