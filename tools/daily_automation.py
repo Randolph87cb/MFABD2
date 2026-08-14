@@ -444,6 +444,16 @@ def classify_daily_entry_context(
         )
 
     state, details = classify_state(image)
+    if (
+        state == "gacha_animation"
+        and details.get("classification_rule") == "bright_scene"
+    ):
+        return (
+            "entry_screen",
+            details,
+            "startup_waiting",
+            {"source": "bright_startup_screen", "text": text_details},
+        )
     if state not in {"unknown", "gacha_animation"}:
         return state, details, "unknown", {"source": "deferred", "text": text_details}
 

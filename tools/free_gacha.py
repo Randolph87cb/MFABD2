@@ -747,6 +747,7 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
 
     bright_scene = full["bright_ratio"] > 0.62 and full["dark_ratio"] < 0.10
     if bright_scene:
+        details["classification_rule"] = "bright_scene"
         if top_left_back["mean"] < 220 and top_left_back["mid_ratio"] > 0.25:
             return "gacha_result", details
         return "gacha_animation", details

@@ -301,6 +301,17 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     def test_unknown_startup_pages_stop_after_three_confirming_frames(self) -> None:
         self.assertEqual(MAX_UNKNOWN_ENTRY_FRAMES, 3)
 
+    def test_bright_promotional_screen_is_waited_during_entry(self) -> None:
+        image = Image.new("RGB", (2000, 1000), "white")
+        ImageDraw.Draw(image).rectangle((800, 250, 1000, 750), fill="black")
+
+        state, details, entry_state, entry_details = classify_daily_entry_context(image)
+
+        self.assertEqual(state, "entry_screen")
+        self.assertEqual(details["classification_rule"], "bright_scene")
+        self.assertEqual(entry_state, "startup_waiting")
+        self.assertEqual(entry_details["source"], "bright_startup_screen")
+
     @patch("daily_automation.set_mute", return_value=2)
     def test_game_audio_mute_records_active_sessions(self, set_mute: MagicMock) -> None:
         logger = MagicMock()
