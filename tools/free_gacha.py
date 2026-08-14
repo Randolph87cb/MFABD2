@@ -92,6 +92,7 @@ CLICK_POINTS = {
     "gear_tab": (0.086, 0.385),
     "all_free": (0.178, 0.895),
     "confirm": (0.548, 0.598),
+    "startup_promotion": (0.74, 0.70),
     "skip_animation": (0.138, 0.565),
     "result_back": (0.090, 0.045),
 }
@@ -185,6 +186,7 @@ CLICK_NAMES = {
     "gear_tab": "装备抽卡",
     "all_free": "免费抽卡",
     "confirm": "确认抽卡",
+    "startup_promotion": "继续新卡展示",
     "skip_animation": "跳过抽卡动画",
     "result_back": "返回",
     "quick_hunt": "快速狩猎",

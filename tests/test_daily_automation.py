@@ -32,11 +32,13 @@ from daily_automation import (
     recognize_daily_entry_state,
     return_home_transition_succeeded,
     run_daily,
+    startup_promotion_transition_succeeded,
     update_daily_state,
 )
 from game_text_recognition import recognize_return_home_control
 from daily_arena import enter_battle_prep, is_gameplay_tab_selected
 from business_management import detect_regular_customer_note_notification
+from enter_game import TOUCH_CLICK
 from free_gacha import (
     ActionResult,
     CLICK_POINTS,
@@ -301,7 +303,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     def test_unknown_startup_pages_stop_after_three_confirming_frames(self) -> None:
         self.assertEqual(MAX_UNKNOWN_ENTRY_FRAMES, 3)
 
-    def test_bright_promotional_screen_is_waited_during_entry(self) -> None:
+    def test_bright_promotional_screen_is_actionable_during_entry(self) -> None:
         image = Image.new("RGB", (2000, 1000), "white")
         ImageDraw.Draw(image).rectangle((800, 250, 1000, 750), fill="black")
 
@@ -309,8 +311,31 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertEqual(state, "entry_screen")
         self.assertEqual(details["classification_rule"], "bright_scene")
-        self.assertEqual(entry_state, "startup_waiting")
-        self.assertEqual(entry_details["source"], "bright_startup_screen")
+        self.assertEqual(entry_state, "startup_promotion")
+        self.assertEqual(entry_details["source"], "bright_startup_promotion")
+
+    def test_startup_promotion_click_reuses_the_entry_safe_point(self) -> None:
+        self.assertEqual(CLICK_POINTS["startup_promotion"], TOUCH_CLICK)
+
+    def test_startup_promotion_requires_a_meaningful_visual_change(self) -> None:
+        before = Image.new("RGB", (2000, 1000), "white")
+        ImageDraw.Draw(before).rectangle((800, 250, 1000, 750), fill="black")
+        after = Image.new("RGB", before.size, "black")
+
+        self.assertFalse(
+            startup_promotion_transition_succeeded(
+                before,
+                "gacha_animation",
+                before.copy(),
+            )
+        )
+        self.assertTrue(
+            startup_promotion_transition_succeeded(
+                before,
+                "gacha_animation",
+                after,
+            )
+        )
 
     @patch("daily_automation.set_mute", return_value=2)
     def test_game_audio_mute_records_active_sessions(self, set_mute: MagicMock) -> None:
@@ -622,6 +647,57 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertFalse(ok)
         self.assertEqual(reason, "returning home made no progress for 5 seconds")
+
+    @patch("builtins.print")
+    def test_enter_game_clicks_startup_promotions_until_home(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        contexts = iter(
+            (
+                ("entry_screen", {}, "startup_promotion", {}),
+                ("entry_screen", {}, "startup_promotion", {}),
+                ("real_home", {}, "unknown", {}),
+            )
+        )
+        click_results = iter(
+            (
+                (True, "gacha_animation", image, "advanced first promotion"),
+                (True, "real_home", image, "advanced last promotion"),
+            )
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_automation.find_game_window", return_value=123),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_daily_entry_context",
+                side_effect=lambda _image: next(contexts),
+            ),
+            patch(
+                "daily_automation.click_with_fixed_retry",
+                side_effect=lambda *_args, **_kwargs: next(click_results),
+            ) as click_with_fixed_retry,
+        ):
+            ok, reason = enter_game_logged(
+                timeout=30.0,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "game is ready at state=real_home")
+        self.assertEqual(click_with_fixed_retry.call_count, 2)
+        self.assertTrue(
+            all(
+                call.args[2] == "startup_promotion"
+                for call in click_with_fixed_retry.call_args_list
+            )
+        )
 
     @patch("builtins.print")
     def test_enter_game_timeout_tracks_progress_not_total_duration(

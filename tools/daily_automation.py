@@ -56,6 +56,7 @@ NETWORK_ENDPOINTS = (
     ("github.com", 443),
 )
 DOWNLOAD_CONFIRM_CLICK = (0.548, 0.725)
+STARTUP_PROMOTION_TRANSITION_MIN_DIFF = 12.0
 DAILY_READY_STATES = {
     "real_home",
     "home_overlay",
@@ -451,8 +452,8 @@ def classify_daily_entry_context(
         return (
             "entry_screen",
             details,
-            "startup_waiting",
-            {"source": "bright_startup_screen", "text": text_details},
+            "startup_promotion",
+            {"source": "bright_startup_promotion", "text": text_details},
         )
     if state not in {"unknown", "gacha_animation"}:
         return state, details, "unknown", {"source": "deferred", "text": text_details}
@@ -475,6 +476,19 @@ def overlay_transition_succeeded(before: Any, next_state: str, after: Any) -> bo
     return (
         next_state not in {"home_overlay", "blocking_ad_overlay"}
         or _mean_region_difference(before, after) >= 2.5
+    )
+
+
+def startup_promotion_transition_succeeded(
+    before: Any,
+    next_state: str,
+    after: Any,
+) -> bool:
+    return (
+        next_state
+        in {"real_home", "home_overlay", "blocking_ad_overlay", "plaza", "loading"}
+        or _mean_region_difference(before, after)
+        >= STARTUP_PROMOTION_TRANSITION_MIN_DIFF
     )
 
 
@@ -523,6 +537,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     previous_context: tuple[str, str] | None = None
     step = 0
     touch_attempt = 0
+    promotion_clicks = 0
     download_confirm_attempts = 0
     audio_muted = False
     mute_attempt = 0
@@ -604,6 +619,41 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             continue
         if state == "loading":
             time.sleep(3.0)
+            continue
+        if entry_state == "startup_promotion":
+            promotion_clicks += 1
+            promotion_before = image.copy()
+            ok, next_state, _next_image, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "startup_promotion",
+                verify=lambda next_state, next_image: startup_promotion_transition_succeeded(
+                    promotion_before,
+                    next_state,
+                    next_image,
+                ),
+                description="advance startup promotion",
+                dry_run=False,
+                logger=logger,
+                attempts=1,
+            )
+            if ok:
+                last_progress_at = time.monotonic()
+                logger.event(
+                    action="progress",
+                    reason="verified_promotion_advance",
+                    click="startup_promotion",
+                    click_count=promotion_clicks,
+                    next_state=next_state,
+                    stall_timeout=timeout,
+                )
+            else:
+                logger.event(
+                    action="wait_startup_promotion",
+                    reason=reason,
+                    click_count=promotion_clicks,
+                    stall_timeout=timeout,
+                )
             continue
         if entry_state in ENTRY_WAITING_STATES:
             download_confirm_attempts = 0
