@@ -56,6 +56,14 @@ GACHA_PAGE_LABEL_GROUPS = {
     },
 }
 
+ALL_FREE_GACHA_LABEL_GROUPS = {
+    "button": {
+        "region": (0.10, 0.83, 0.16, 0.14),
+        "ocr_width": 640,
+        "labels": ("所有免费抽抽乐",),
+    },
+}
+
 FREE_GACHA_CONFIRM_LABEL_GROUPS = {
     "header": {
         "region": (0.30, 0.32, 0.40, 0.20),
@@ -424,6 +432,22 @@ def recognize_gacha_page_labels(image: Image.Image) -> tuple[bool, dict[str, Any
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"title": 1, "tabs": 1},
+    }
+
+
+def recognize_all_free_gacha_button(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Recognize the button that is present only while a free draw remains."""
+    grouped_texts, matches, error = _recognize_label_groups(
+        image,
+        ALL_FREE_GACHA_LABEL_GROUPS,
+    )
+    if error is not None:
+        return False, error
+    return "所有免费抽抽乐" in matches["button"], {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"button": 1},
     }
 
 

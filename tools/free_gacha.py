@@ -31,6 +31,7 @@ from game_text_recognition import (
     recognize_arena_repeat_result_labels,
     recognize_arena_rank_change_labels,
     recognize_arena_victory_result_labels,
+    recognize_all_free_gacha_button,
     recognize_business_management_state,
     recognize_free_gacha_confirmation_labels,
     recognize_gacha_item_detail_labels,
@@ -487,6 +488,35 @@ def detect_selected_gacha_target(image: Image.Image) -> str | None:
     if gear["mean"] > costume["mean"] + 8:
         return "gear"
     return None
+
+
+def _resolve_all_free_gacha_availability(
+    label_match: bool,
+    recognition_details: dict[str, Any],
+    button_stats: dict[str, float],
+) -> str:
+    if label_match:
+        return "available"
+    if not recognition_details.get("available"):
+        return "unknown"
+    if button_stats["edge_ratio"] < 0.012 and button_stats["bright_ratio"] < 0.015:
+        return "used"
+    return "unknown"
+
+
+def detect_all_free_gacha_availability(image: Image.Image) -> tuple[str, dict[str, Any]]:
+    frame = np.asarray(image.convert("RGB"))
+    button_stats = _stats(_roi(frame, (0.10, 0.83, 0.16, 0.14)))
+    label_match, recognition_details = recognize_all_free_gacha_button(image)
+    availability = _resolve_all_free_gacha_availability(
+        label_match,
+        recognition_details,
+        button_stats,
+    )
+    return availability, {
+        "button_stats": button_stats,
+        "recognition": recognition_details,
+    }
 
 
 def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
@@ -1306,6 +1336,34 @@ def run_free_gacha(
                     if not dry_run:
                         last_progress_at = time.monotonic()
                 continue
+
+            availability, availability_details = detect_all_free_gacha_availability(image)
+            logger.event(
+                action="detect_all_free_gacha_availability",
+                target=current_target,
+                availability=availability,
+                details=availability_details,
+            )
+            if availability == "used":
+                logger.event(
+                    action="target_complete",
+                    target=current_target,
+                    reason="free_gacha_already_used",
+                )
+                target_index += 1
+                last_progress_at = time.monotonic()
+                logger.event(
+                    action="progress",
+                    reason="free_gacha_target_already_used",
+                    completed_targets=target_index,
+                    stall_timeout=timeout,
+                )
+                continue
+            if availability == "unknown":
+                reason = f"cannot safely determine whether free gacha remains for {current_target}"
+                logger.failure(reason)
+                logger.event(action="stop", result="error", reason=reason, screenshot=str(image_path))
+                return ActionResult(state, "stop", reason)
 
             ok, _, _, reason = click_with_fixed_retry(
                 hwnd,

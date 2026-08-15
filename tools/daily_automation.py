@@ -802,6 +802,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "quick_hunt_back"
             description = "return home from quick-hunt map"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
+        elif state == "gacha_result":
+            key = "result_back"
+            description = "return from gacha result to gacha page"
+            expected = {"gacha_page", "loading"}
         elif state in {"gacha_page", "arena_cartridge_collection"}:
             key = "result_back"
             description = f"return home from {state}"

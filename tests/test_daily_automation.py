@@ -46,6 +46,7 @@ from free_gacha import (
     RunLogger,
     _click_ratio,
     _is_reveal_animation_like,
+    _resolve_all_free_gacha_availability,
     classify_state,
     detect_arena_pool_click,
     is_free_gacha_confirm_transition,
@@ -602,6 +603,41 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(reason, "returned to real_home")
         self.assertEqual(click_with_fixed_retry.call_args.args[2], "business_management_cancel")
 
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_returns_from_gacha_result_through_gacha_page(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image, image]
+        classify_state.side_effect = [
+            ("gacha_result", {}),
+            ("gacha_page", {}),
+            ("real_home", {}),
+        ]
+        click_with_fixed_retry.side_effect = [
+            (True, "gacha_page", image, "returned to gacha page"),
+            (True, "real_home", image, "returned home"),
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(
+            [call.args[2] for call in click_with_fixed_retry.call_args_list],
+            ["result_back", "result_back"],
+        )
+
     @patch("builtins.print")
     def test_ensure_home_timeout_tracks_stalled_progress_not_total_duration(
         self,
@@ -797,6 +833,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             patch("free_gacha.safe_capture_client", side_effect=capture_client),
             patch("free_gacha.classify_state", side_effect=lambda _image: (next(states), {})),
             patch("free_gacha.detect_selected_gacha_target", return_value="costume"),
+            patch("free_gacha.detect_all_free_gacha_availability", return_value=("available", {})),
             patch("free_gacha.click_with_fixed_retry", side_effect=click_success),
         ):
             result = run_free_gacha(
@@ -810,6 +847,45 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertEqual(result.reason, "all requested free gacha targets completed")
         self.assertGreater(clock[0], 5.0)
+
+    def test_used_free_gacha_target_is_skipped_without_clicking_paid_draw(self) -> None:
+        image = Image.new("RGB", (2000, 1000))
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("free_gacha.find_game_window", return_value=123),
+            patch("free_gacha.safe_capture_client", return_value=image),
+            patch("free_gacha.classify_state", return_value=("gacha_page", {})),
+            patch("free_gacha.detect_selected_gacha_target", return_value="costume"),
+            patch(
+                "free_gacha.detect_all_free_gacha_availability",
+                return_value=("used", {}),
+            ),
+            patch("free_gacha.click_with_fixed_retry") as click_with_fixed_retry,
+        ):
+            result = run_free_gacha(
+                targets=["costume"],
+                timeout=5.0,
+                interval=0.0,
+                dry_run=False,
+                test_mode=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertEqual(result.reason, "all requested free gacha targets completed")
+        click_with_fixed_retry.assert_not_called()
+
+    def test_used_free_gacha_detection_matches_recorded_button_region(self) -> None:
+        availability = _resolve_all_free_gacha_availability(
+            False,
+            {"available": True},
+            {
+                "edge_ratio": 0.005676,
+                "bright_ratio": 0.006589,
+            },
+        )
+
+        self.assertEqual(availability, "used")
 
     def test_season_reward_overlay_sequence_is_recorded_as_a_regression(self) -> None:
         with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:
