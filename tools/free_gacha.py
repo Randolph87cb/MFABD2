@@ -446,6 +446,20 @@ def _stats(region: np.ndarray) -> dict[str, float]:
     }
 
 
+def _is_reveal_animation_like(
+    animation_top_right: dict[str, float],
+    animation_bottom_reveal: dict[str, float],
+) -> bool:
+    # Bright equipment-draw scenes can put a little more light behind the
+    # top-right playback controls than costume-draw scenes do.
+    return (
+        animation_top_right["edge_ratio"] > 0.012
+        and animation_top_right["bright_ratio"] < 0.11
+        and animation_bottom_reveal["mid_ratio"] > 0.20
+        and animation_bottom_reveal["edge_ratio"] < 0.020
+    )
+
+
 def _mean_region_difference(
     before: Image.Image,
     after: Image.Image,
@@ -724,11 +738,9 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and animation_top_right["edge_ratio"] > 0.010
         and animation_bottom_reveal["mid_ratio"] > 0.20
     )
-    reveal_animation_like = (
-        animation_top_right["edge_ratio"] > 0.012
-        and animation_top_right["bright_ratio"] < 0.10
-        and animation_bottom_reveal["mid_ratio"] > 0.20
-        and animation_bottom_reveal["edge_ratio"] < 0.020
+    reveal_animation_like = _is_reveal_animation_like(
+        animation_top_right,
+        animation_bottom_reveal,
     )
     if dark_animation_like or reveal_animation_like:
         return "gacha_animation", details

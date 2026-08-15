@@ -45,6 +45,7 @@ from free_gacha import (
     RETRY_CLICK_POINTS,
     RunLogger,
     _click_ratio,
+    _is_reveal_animation_like,
     classify_state,
     detect_arena_pool_click,
     is_free_gacha_confirm_transition,
@@ -300,6 +301,20 @@ class DailyAutomationStateTests(unittest.TestCase):
 
 
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):
+    def test_equipment_gacha_animation_allows_recorded_top_right_brightness(self) -> None:
+        self.assertTrue(
+            _is_reveal_animation_like(
+                {
+                    "edge_ratio": 0.032396,
+                    "bright_ratio": 0.100353,
+                },
+                {
+                    "mid_ratio": 0.709,
+                    "edge_ratio": 0.014631,
+                },
+            )
+        )
+
     def test_unknown_startup_pages_stop_after_three_confirming_frames(self) -> None:
         self.assertEqual(MAX_UNKNOWN_ENTRY_FRAMES, 3)
 
