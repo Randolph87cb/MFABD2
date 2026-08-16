@@ -94,7 +94,7 @@ CLICK_POINTS = {
     "all_free": (0.178, 0.895),
     "confirm": (0.548, 0.598),
     "startup_promotion": (0.74, 0.70),
-    "skip_animation": (0.138, 0.565),
+    "skip_animation": (0.930, 0.055),
     "result_back": (0.090, 0.045),
 }
 
@@ -1151,6 +1151,48 @@ def click_with_fixed_retry(
     return False, current_state, current_image, reason
 
 
+def skip_gacha_animation(
+    hwnd: int,
+    image: Image.Image,
+    *,
+    dry_run: bool,
+    logger: RunLogger,
+    interval: float,
+    attempts: int = 2,
+    effect_timeout: float = 30.0,
+) -> tuple[bool, str, Image.Image, str]:
+    current_image = image
+    state = "gacha_animation"
+    for attempt in range(1, attempts + 1):
+        _click_ratio(
+            hwnd,
+            current_image,
+            "skip_animation",
+            dry_run=dry_run,
+            logger=logger,
+            attempt=attempt,
+        )
+        if dry_run:
+            return True, "gacha_animation", current_image, "dry-run planned skip gacha animation"
+
+        state, current_image = wait_for_state(
+            hwnd,
+            logger,
+            expected={"gacha_result", "loading"},
+            timeout=effect_timeout,
+            interval=interval,
+            label=f"after-skip-animation-{attempt}",
+        )
+        if state in {"gacha_result", "loading"}:
+            return True, state, current_image, f"skip gacha animation succeeded on attempt {attempt}"
+        if state not in {"gacha_animation", "unknown"}:
+            reason = f"skip gacha animation reached unexpected state {state}"
+            return False, state, current_image, reason
+
+    reason = f"skip gacha animation did not reach a result after {attempts} clicks"
+    return False, state, current_image, reason
+
+
 def run_free_gacha(
     *,
     targets: list[str],
@@ -1423,14 +1465,12 @@ def run_free_gacha(
             continue
 
         if state == "gacha_animation":
-            ok, _, _, reason = click_with_fixed_retry(
+            ok, _, _, reason = skip_gacha_animation(
                 hwnd,
                 image,
-                "skip_animation",
-                verify=lambda next_state, _next_image: next_state in {"gacha_result", "loading"},
-                description="skip gacha animation",
                 dry_run=dry_run,
                 logger=logger,
+                interval=interval,
             )
             if not ok:
                 logger.failure(reason)

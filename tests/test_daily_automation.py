@@ -52,6 +52,7 @@ from free_gacha import (
     is_free_gacha_confirm_transition,
     run_free_gacha,
     safe_capture_client,
+    skip_gacha_animation,
 )
 
 
@@ -381,8 +382,39 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             reason="BrownDust II audio session is not available yet",
         )
 
-    def test_animation_skip_uses_the_safe_left_margin(self) -> None:
-        self.assertEqual(CLICK_POINTS["skip_animation"], CLICK_POINTS["dismiss_overlay"])
+    def test_animation_skip_uses_the_top_right_fast_forward_control(self) -> None:
+        x, y = CLICK_POINTS["skip_animation"]
+        self.assertTrue(0.90 <= x <= 0.96)
+        self.assertTrue(0.02 <= y <= 0.09)
+
+    def test_animation_skip_waits_through_an_unknown_transition_frame(self) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        logger = MagicMock()
+
+        with (
+            patch("free_gacha._click_ratio") as click_ratio,
+            patch(
+                "free_gacha.wait_for_state",
+                side_effect=[
+                    ("unknown", image),
+                    ("gacha_result", image),
+                ],
+            ) as wait_for_state,
+        ):
+            ok, state, _image, reason = skip_gacha_animation(
+                123,
+                image,
+                dry_run=False,
+                logger=logger,
+                interval=0.0,
+                effect_timeout=1.0,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(state, "gacha_result")
+        self.assertEqual(reason, "skip gacha animation succeeded on attempt 2")
+        self.assertEqual(click_ratio.call_count, 2)
+        self.assertEqual(wait_for_state.call_count, 2)
 
     def test_return_battlefield_click_stays_in_the_bottom_right_tile(self) -> None:
         x, y = CLICK_POINTS["home_return_battlefield"]
@@ -813,7 +845,6 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                 "gacha_page",
                 "confirm_free_gacha",
                 "gacha_animation",
-                "gacha_result",
                 "gacha_page",
             )
         )
@@ -835,6 +866,10 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             patch("free_gacha.detect_selected_gacha_target", return_value="costume"),
             patch("free_gacha.detect_all_free_gacha_availability", return_value=("available", {})),
             patch("free_gacha.click_with_fixed_retry", side_effect=click_success),
+            patch(
+                "free_gacha.skip_gacha_animation",
+                return_value=(True, "gacha_result", image, "skipped animation"),
+            ),
         ):
             result = run_free_gacha(
                 targets=["costume"],
