@@ -35,7 +35,10 @@ from daily_automation import (
     startup_promotion_transition_succeeded,
     update_daily_state,
 )
-from game_text_recognition import recognize_return_home_control
+from game_text_recognition import (
+    recognize_arena_cartridge_bar_labels,
+    recognize_return_home_control,
+)
 from daily_arena import enter_battle_prep, is_gameplay_tab_selected
 from business_management import detect_regular_customer_note_notification
 from enter_game import TOUCH_CLICK
@@ -303,6 +306,32 @@ class DailyAutomationStateTests(unittest.TestCase):
 
 
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):
+    @patch("game_text_recognition._recognize_label_groups")
+    def test_split_gameplay_cartridge_labels_are_recognized(
+        self,
+        recognize_label_groups: MagicMock,
+    ) -> None:
+        recognized = [
+            "店长游戏卡",
+            "剧情游戏卡",
+            "角色游戏卡",
+            "战斗玩法游戏卡带",
+            "生活玩法游戏卡带",
+            "活动游戏卡",
+        ]
+        recognize_label_groups.return_value = (
+            {"bottom_bar": recognized},
+            {"bottom_bar": recognized},
+            None,
+        )
+
+        matched, details = recognize_arena_cartridge_bar_labels(
+            Image.new("RGB", (2000, 1000))
+        )
+
+        self.assertTrue(matched)
+        self.assertIn("战斗玩法游戏卡带", details["matches"]["bottom_bar"])
+
     def test_equipment_gacha_animation_allows_recorded_top_right_brightness(self) -> None:
         self.assertTrue(
             _is_reveal_animation_like(

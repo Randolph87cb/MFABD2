@@ -96,7 +96,15 @@ ARENA_CARTRIDGE_LABEL_GROUPS = {
 ARENA_CARTRIDGE_BAR_LABEL_GROUPS = {
     "bottom_bar": {
         "region": (0.02, 0.76, 0.96, 0.23),
-        "labels": ("店长游戏卡", "剧情游戏卡", "角色游戏卡", "玩法游戏卡", "活动游戏卡"),
+        "labels": (
+            "店长游戏卡",
+            "剧情游戏卡",
+            "角色游戏卡",
+            "玩法游戏卡",
+            "战斗玩法游戏卡带",
+            "生活玩法游戏卡带",
+            "活动游戏卡",
+        ),
     },
 }
 
@@ -602,12 +610,22 @@ def recognize_arena_cartridge_bar_labels(image: Image.Image) -> tuple[bool, dict
     grouped_texts, matches, error = _recognize_label_groups(image, ARENA_CARTRIDGE_BAR_LABEL_GROUPS)
     if error is not None:
         return False, error
-    is_bar = len(matches["bottom_bar"]) >= 3 and "玩法游戏卡" in matches["bottom_bar"]
+    gameplay_labels = {
+        "玩法游戏卡",
+        "战斗玩法游戏卡带",
+        "生活玩法游戏卡带",
+    }
+    is_bar = len(matches["bottom_bar"]) >= 3 and bool(
+        gameplay_labels.intersection(matches["bottom_bar"])
+    )
     return is_bar, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,
-        "requirements": {"bottom_bar": 3, "gameplay_card_label": 1},
+        "requirements": {
+            "bottom_bar": 3,
+            "gameplay_card_labels": sorted(gameplay_labels),
+        },
     }
 
 
