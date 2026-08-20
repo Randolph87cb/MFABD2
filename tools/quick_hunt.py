@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from adaptive_wait import AdaptivePoll
 from free_gacha import (
     RunLogger,
     _click_ratio,
@@ -90,7 +91,7 @@ def _select_max_quick_hunt_count(
     *,
     dry_run: bool,
     logger: RunLogger,
-    delay: float = 6.0,
+    verify_timeout: float = 20.0,
 ) -> tuple[bool, str, Image.Image, int | None]:
     current = before
     for attempt in range(1, 3):
@@ -98,47 +99,54 @@ def _select_max_quick_hunt_count(
         if dry_run:
             return True, "dry-run planned select maximum quick-hunt count", current, initial_count
 
-        time.sleep(delay)
-        current = safe_capture_client(hwnd, logger=logger)
-        state, details = classify_state(current)
-        count = _quick_hunt_count(details)
-        at_max, max_scores = is_quick_hunt_count_at_max(current)
-        verify_path = logger.save_image(
-            current,
-            f"verify-quick-hunt-max-attempt-{attempt}-{state}-count-{count}.png",
-        )
-        succeeded = (
-            state == "quick_hunt_setup"
-            and count is not None
-            and count > initial_count
-            and at_max
-        )
-        logger.event(
-            action="verify_click",
-            key="quick_hunt_max",
-            description="select maximum quick-hunt count",
-            attempt=attempt,
-            state=state,
-            initial_count=initial_count,
-            count=count,
-            at_max=at_max,
-            max_scores=max_scores,
-            succeeded=succeeded,
-            screenshot=str(verify_path),
-            details=details,
-        )
-        if succeeded:
-            return True, f"maximum count selected on attempt {attempt}", current, count
-        if state != "quick_hunt_setup":
-            reason = f"MAX changed to unexpected state {state}; retry cancelled"
-            return False, reason, current, count
+        deadline = time.monotonic() + verify_timeout
+        poll = AdaptivePoll()
+        sample = 0
+        while time.monotonic() < deadline:
+            delay = poll.next_delay(remaining=deadline - time.monotonic())
+            time.sleep(delay)
+            sample += 1
+            current = safe_capture_client(hwnd, logger=logger)
+            state, details = classify_state(current)
+            count = _quick_hunt_count(details)
+            at_max, max_scores = is_quick_hunt_count_at_max(current)
+            verify_path = logger.save_image(
+                current,
+                f"verify-quick-hunt-max-attempt-{attempt}-sample-{sample}-{state}-count-{count}.png",
+            )
+            succeeded = (
+                state == "quick_hunt_setup"
+                and count is not None
+                and count > initial_count
+                and at_max
+            )
+            logger.event(
+                action="verify_click",
+                key="quick_hunt_max",
+                description="select maximum quick-hunt count",
+                attempt=attempt,
+                sample=sample,
+                state=state,
+                initial_count=initial_count,
+                count=count,
+                at_max=at_max,
+                max_scores=max_scores,
+                succeeded=succeeded,
+                screenshot=str(verify_path),
+                details=details,
+            )
+            if succeeded:
+                return True, f"maximum count selected on attempt {attempt}", current, count
+            if state != "quick_hunt_setup":
+                reason = f"MAX changed to unexpected state {state}; retry cancelled"
+                return False, reason, current, count
         if attempt < 2:
             logger.event(
                 action="retry_click",
                 key="quick_hunt_max",
                 description="select maximum quick-hunt count",
                 previous_attempts=attempt,
-                delay=delay,
+                verify_timeout=verify_timeout,
             )
 
     return False, "MAX did not increase the quick-hunt count after 2 clicks", current, None
@@ -393,10 +401,19 @@ def _wait_out_loading(
     logger: RunLogger,
     label: str,
 ) -> tuple[str, Image.Image]:
-    for attempt in range(1, 6):
-        if state != "loading":
-            break
-        time.sleep(6.0)
+    poll = AdaptivePoll()
+    attempt = 0
+    while state == "loading":
+        attempt += 1
+        delay = poll.next_delay()
+        logger.event(
+            action="wait_loading_delay",
+            label=label,
+            attempt=attempt,
+            next_check_seconds=delay,
+            timeout_suspended=True,
+        )
+        time.sleep(delay)
         image = safe_capture_client(hwnd, logger=logger)
         state, details = classify_state(image)
         path = logger.save_image(image, f"{label}-attempt-{attempt}-{state}.png")

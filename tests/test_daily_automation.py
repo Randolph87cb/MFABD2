@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -16,6 +17,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 import open_game as open_game_module
+from adaptive_wait import AdaptivePoll
 from daily_automation import (
     DAILY_READY_STATES,
     DOWNLOAD_CONFIRM_CLICK,
@@ -34,6 +36,7 @@ from daily_automation import (
     run_daily,
     startup_promotion_transition_succeeded,
     update_daily_state,
+    wait_for_network,
 )
 from game_text_recognition import (
     recognize_arena_cartridge_bar_labels,
@@ -51,11 +54,13 @@ from free_gacha import (
     _is_reveal_animation_like,
     _resolve_all_free_gacha_availability,
     classify_state,
+    click_with_fixed_retry,
     detect_arena_pool_click,
     is_free_gacha_confirm_transition,
     run_free_gacha,
     safe_capture_client,
     skip_gacha_animation,
+    wait_for_state,
 )
 
 
@@ -114,6 +119,35 @@ class OpenGameTests(unittest.TestCase):
 
 
 class DailyAutomationStateTests(unittest.TestCase):
+    def test_adaptive_poll_uses_fibonacci_like_delays_and_caps_at_eight(self) -> None:
+        poll = AdaptivePoll()
+
+        self.assertEqual([poll.next_delay() for _ in range(7)], [1, 2, 3, 5, 8, 8, 8])
+        poll.reset()
+        self.assertEqual(poll.next_delay(), 1)
+
+    @patch("daily_automation.time.sleep")
+    @patch("daily_automation.urllib.request.urlopen")
+    def test_network_wait_requires_google_and_retries_adaptively(
+        self,
+        urlopen: MagicMock,
+        sleep: MagicMock,
+    ) -> None:
+        response = MagicMock()
+        response.__enter__.return_value.getcode.return_value = 204
+        urlopen.side_effect = [
+            urllib.error.URLError("offline"),
+            urllib.error.URLError("still offline"),
+            response,
+        ]
+        logger = MagicMock()
+
+        self.assertTrue(wait_for_network(logger, timeout=None))
+
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+        requested_urls = [call.args[0].full_url for call in urlopen.call_args_list]
+        self.assertEqual(requested_urls, ["https://www.google.com/generate_204"] * 3)
+
     def test_game_day_rolls_over_at_eight_in_the_morning(self) -> None:
         self.assertEqual(game_day_key(datetime(2026, 8, 8, 7, 59, 59)), "2026-08-07")
         self.assertEqual(game_day_key(datetime(2026, 8, 8, 8, 0, 0)), "2026-08-08")
@@ -306,6 +340,121 @@ class DailyAutomationStateTests(unittest.TestCase):
 
 
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):
+    @patch("free_gacha._click_ratio")
+    @patch("free_gacha.time.sleep")
+    @patch("free_gacha.safe_capture_client")
+    @patch("free_gacha.classify_state")
+    def test_click_verification_checks_after_one_two_then_three_seconds(
+        self,
+        classify_state: MagicMock,
+        safe_capture_client: MagicMock,
+        sleep: MagicMock,
+        _click_ratio: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        classify_state.side_effect = [
+            ("real_home", {}),
+            ("real_home", {}),
+            ("real_home", {}),
+            ("gacha_page", {}),
+        ]
+        safe_capture_client.return_value = image
+        logger = MagicMock()
+        logger.save_image.return_value = Path("verify.png")
+
+        ok, state, _image, _reason = click_with_fixed_retry(
+            123,
+            image,
+            "home_gacha",
+            verify=lambda candidate, _next_image: candidate == "gacha_page",
+            description="open gacha",
+            dry_run=False,
+            logger=logger,
+            attempts=1,
+        )
+
+        self.assertTrue(ok)
+        self.assertEqual(state, "gacha_page")
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2, 3])
+
+    @patch("free_gacha._click_ratio")
+    @patch("free_gacha.safe_capture_client")
+    @patch("free_gacha.classify_state", return_value=("real_home", {}))
+    def test_click_verification_stops_at_its_ten_second_limit(
+        self,
+        _classify_state: MagicMock,
+        safe_capture_client: MagicMock,
+        _click_ratio: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.return_value = image
+        logger = MagicMock()
+        logger.save_image.return_value = Path("verify.png")
+        clock = [0.0]
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        with (
+            patch("free_gacha.time.monotonic", side_effect=lambda: clock[0]),
+            patch("free_gacha.time.sleep", side_effect=sleep),
+        ):
+            ok, state, _image, _reason = click_with_fixed_retry(
+                123,
+                image,
+                "home_gacha",
+                verify=lambda _candidate, _next_image: False,
+                description="open gacha",
+                dry_run=False,
+                logger=logger,
+                verify_timeout=10.0,
+                attempts=1,
+            )
+
+        self.assertFalse(ok)
+        self.assertEqual(state, "real_home")
+        self.assertEqual(sleeps, [1, 2, 3, 4])
+        self.assertEqual(clock[0], 10.0)
+
+    @patch("free_gacha.safe_capture_client")
+    @patch("free_gacha.classify_state")
+    def test_loading_state_suspends_the_wait_limit(
+        self,
+        classify_state: MagicMock,
+        safe_capture_client: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        classify_state.side_effect = [
+            ("loading", {}),
+            ("loading", {}),
+            ("real_home", {}),
+        ]
+        safe_capture_client.return_value = image
+        clock = [0.0]
+        sleeps: list[float] = []
+
+        def sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        with (
+            patch("free_gacha.time.monotonic", side_effect=lambda: clock[0]),
+            patch("free_gacha.time.sleep", side_effect=sleep),
+        ):
+            state, _image = wait_for_state(
+                123,
+                MagicMock(),
+                expected={"real_home"},
+                timeout=2.0,
+                interval=10.0,
+                label="loading-test",
+            )
+
+        self.assertEqual(state, "real_home")
+        self.assertEqual(sleeps, [1, 2])
+
     @patch("game_text_recognition._recognize_label_groups")
     def test_split_gameplay_cartridge_labels_are_recognized(
         self,
@@ -736,7 +885,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertGreater(clock[0], 5.0)
 
     @patch("builtins.print")
-    def test_ensure_home_stops_after_continuous_inactivity(
+    def test_ensure_home_waits_past_limit_while_game_is_loading(
         self,
         _print: MagicMock,
     ) -> None:
@@ -753,12 +902,16 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             patch("daily_automation.time.monotonic", side_effect=lambda: clock[0]),
             patch("daily_automation.time.sleep"),
             patch("daily_automation.safe_capture_client", side_effect=capture_client),
-            patch("daily_automation.classify_state", return_value=("loading", {})),
+            patch(
+                "daily_automation.classify_state",
+                side_effect=[("loading", {}), ("loading", {}), ("real_home", {})],
+            ),
         ):
             ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
 
-        self.assertFalse(ok)
-        self.assertEqual(reason, "returning home made no progress for 5 seconds")
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertGreater(clock[0], 5.0)
 
     @patch("builtins.print")
     def test_enter_game_clicks_startup_promotions_until_home(

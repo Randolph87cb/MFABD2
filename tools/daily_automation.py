@@ -6,10 +6,11 @@ import argparse
 import ctypes
 import json
 import os
-import socket
 import sys
 import time
 import traceback
+import urllib.error
+import urllib.request
 from ctypes import wintypes
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -22,6 +23,7 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from enter_game import TOUCH_CLICK, recognize_entry_state  # noqa: E402
+from adaptive_wait import AdaptivePoll  # noqa: E402
 from free_gacha import (  # noqa: E402
     RunLogger,
     _click_ratio,
@@ -51,10 +53,7 @@ from mute_browndust import set_mute  # noqa: E402
 TASK_NAME = "BrownDust2DailyAutomation"
 MUTEX_NAME = r"Local\BrownDust2DailyAutomation"
 ERROR_ALREADY_EXISTS = 183
-NETWORK_ENDPOINTS = (
-    ("www.baidu.com", 443),
-    ("github.com", 443),
-)
+GOOGLE_CONNECTIVITY_URL = "https://www.google.com/generate_204"
 DOWNLOAD_CONFIRM_CLICK = (0.548, 0.725)
 STARTUP_PROMOTION_TRANSITION_MIN_DIFF = 12.0
 DAILY_READY_STATES = {
@@ -257,37 +256,52 @@ def update_daily_state(state_path: Path, *, status: str, error: str | None = Non
 def wait_for_network(
     logger: MasterLogger,
     *,
-    timeout: float,
-    interval: float = 15.0,
+    timeout: float | None,
+    request_timeout: float = 5.0,
 ) -> bool:
-    deadline = time.monotonic() + timeout
+    deadline = None if timeout is None or timeout <= 0 else time.monotonic() + timeout
+    poll = AdaptivePoll()
     attempt = 0
-    while time.monotonic() < deadline:
+    while True:
         attempt += 1
-        errors: list[str] = []
-        for host, port in NETWORK_ENDPOINTS:
-            try:
-                with socket.create_connection((host, port), timeout=5.0):
-                    logger.event(
-                        "network",
-                        "success",
-                        "网络连接正常",
-                        attempt=attempt,
-                        endpoint=f"{host}:{port}",
-                    )
-                    return True
-            except OSError as exc:
-                errors.append(f"{host}:{port}={exc}")
+        try:
+            request = urllib.request.Request(
+                GOOGLE_CONNECTIVITY_URL,
+                headers={"User-Agent": "BrownDust2DailyAutomation/1.0"},
+            )
+            with urllib.request.urlopen(request, timeout=request_timeout) as response:
+                status = response.getcode()
+            if status == 204:
+                logger.event(
+                    "network",
+                    "success",
+                    "已确认可以访问 Google",
+                    attempt=attempt,
+                    endpoint=GOOGLE_CONNECTIVITY_URL,
+                    http_status=status,
+                )
+                return True
+            error = f"unexpected HTTP status {status}"
+        except (OSError, urllib.error.URLError) as exc:
+            error = repr(exc)
+
+        now = time.monotonic()
+        if deadline is not None and now >= deadline:
+            logger.event("network", "error", f"等待 Google 网络连接超过 {timeout:.0f} 秒")
+            return False
+
+        remaining = None if deadline is None else deadline - now
+        delay = poll.next_delay(remaining=remaining)
         logger.event(
             "network",
             "waiting",
-            "网络暂不可用，稍后重新检查",
+            "暂时无法访问 Google，稍后重新检查",
             attempt=attempt,
-            errors=errors,
+            endpoint=GOOGLE_CONNECTIVITY_URL,
+            error=error,
+            next_check_seconds=delay,
         )
-        time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
-    logger.event("network", "error", f"等待网络超过 {timeout:.0f} 秒")
-    return False
+        time.sleep(delay)
 
 
 def _click_touch(
@@ -543,6 +557,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     mute_attempt = 0
     next_mute_attempt = 0.0
     unknown_entry_frames = 0
+    poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
         if not audio_muted and time.monotonic() >= next_mute_attempt:
             mute_attempt += 1
@@ -562,6 +577,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         context = (state, entry_state)
         if previous_context is not None and context != previous_context:
             last_progress_at = time.monotonic()
+            poll.reset()
             logger.event(
                 action="progress",
                 reason="recognized_state_changed",
@@ -602,7 +618,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                     state=state,
                     reason="game is ready but its audio session is not muted yet",
                 )
-                time.sleep(5.0)
+                time.sleep(poll.next_delay())
                 continue
             reason = f"game is ready at state={state}"
             logger.event(action="stop", result="success", reason=reason)
@@ -615,10 +631,11 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                 reason="cold launch has not shown Touch To Start yet",
                 screenshot=str(path),
             )
-            time.sleep(5.0)
+            time.sleep(poll.next_delay())
             continue
         if state == "loading":
-            time.sleep(3.0)
+            last_progress_at = time.monotonic()
+            time.sleep(poll.next_delay())
             continue
         if entry_state == "startup_promotion":
             promotion_clicks += 1
@@ -657,13 +674,14 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             continue
         if entry_state in ENTRY_WAITING_STATES:
             download_confirm_attempts = 0
+            last_progress_at = time.monotonic()
             logger.event(
                 action="wait_entry_state",
                 reason="startup, loading, or download work is still in progress",
                 screenshot=str(path),
                 entry_details=entry_details,
             )
-            time.sleep(10.0)
+            time.sleep(poll.next_delay())
             continue
         if entry_state == "download_confirmation":
             download_confirm_attempts += 1
@@ -679,13 +697,15 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                 logger=logger,
                 attempt=download_confirm_attempts,
             )
-            time.sleep(6.0)
+            poll.reset()
+            time.sleep(poll.next_delay())
             continue
         if entry_state == "touch_ready":
             download_confirm_attempts = 0
             touch_attempt += 1
             _click_touch(hwnd, image, logger=logger, attempt=touch_attempt)
-            time.sleep(6.0)
+            poll.reset()
+            time.sleep(poll.next_delay())
             continue
         if state == "returnable_scene":
             ok, _next_state, _next_image, reason = click_with_fixed_retry(
@@ -725,7 +745,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             reason="startup or login screen is not actionable yet",
             screenshot=str(path),
         )
-        time.sleep(5.0)
+        time.sleep(poll.next_delay())
 
     reason = f"game entry made no progress for {timeout:.0f} seconds"
     logger.failure(reason)
@@ -747,6 +767,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     last_progress_at = time.monotonic()
     previous_state: str | None = None
     step = 0
+    poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
@@ -761,6 +782,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         )
         if previous_state is not None and state != previous_state:
             last_progress_at = time.monotonic()
+            poll.reset()
             logger.event(
                 action="progress",
                 reason="recognized_state_changed",
@@ -774,7 +796,8 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
         if state == "loading":
-            time.sleep(3.0)
+            last_progress_at = time.monotonic()
+            time.sleep(poll.next_delay())
             continue
 
         if state == "reward_overlay":
@@ -849,6 +872,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             logger.failure(reason)
             return False, reason
         last_progress_at = time.monotonic()
+        poll.reset()
         previous_state = next_state
         logger.event(
             action="progress",
@@ -1032,7 +1056,7 @@ def check_environment(*, project_root: Path, network_timeout: float) -> int:
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     logger = MasterLogger(project_root / "logs" / "daily-check" / stamp)
     logger.event("check", "start", "开始检查运行环境")
-    network_ok = wait_for_network(logger, timeout=network_timeout, interval=2.0)
+    network_ok = wait_for_network(logger, timeout=network_timeout)
     starter = Path(r"C:\ProgramData\Neowiz\Browndust2Starter\Browndust2Starter.exe")
     starter_ok = starter.exists()
     logger.event(
@@ -1053,7 +1077,12 @@ def main() -> None:
     parser.add_argument("--force", action="store_true", help="allow a manual rerun today")
     parser.add_argument("--check", action="store_true", help="check prerequisites without claiming today")
     parser.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
-    parser.add_argument("--network-timeout", type=float, default=900.0)
+    parser.add_argument(
+        "--network-timeout",
+        type=float,
+        default=0.0,
+        help="Google connectivity wait limit in seconds; 0 waits indefinitely",
+    )
     parser.add_argument("--project-root", type=Path, default=PROJECT_ROOT)
     args = parser.parse_args()
     project_root = args.project_root.resolve()

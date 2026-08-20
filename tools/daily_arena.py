@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from adaptive_wait import AdaptivePoll
 from free_gacha import (
     RunLogger,
     _click_ratio,
@@ -108,7 +109,7 @@ def enter_battle_prep(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         )
         if next_state != "arena_battle_prep":
             ok = False
-            reason = "arena pool loading did not reach battle preparation within 60 seconds"
+            reason = "arena pool loading ended without reaching battle preparation"
         else:
             reason = "entered arena battle preparation after loading"
     result = "success" if ok else "error"
@@ -180,13 +181,15 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     last_progress_at = time.monotonic()
     previous_state = "arena_cartridge_bar"
     previous_image = gameplay_image
+    poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < stall_timeout:
-        time.sleep(6.0 if dialogue_clicks or card_attempts else 3.0)
+        time.sleep(poll.next_delay())
         current = safe_capture_client(hwnd, logger=logger)
         current_state, current_details = classify_state(current)
         visual_difference = _mean_region_difference(previous_image, current)
         if current_state != previous_state or visual_difference >= 2.5:
             last_progress_at = time.monotonic()
+            poll.reset()
             logger.event(
                 action="progress",
                 reason=(
@@ -216,6 +219,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
         if current_state == "loading":
+            last_progress_at = time.monotonic()
             continue
         if current_state == "arena_cartridge_bar":
             if card_attempts >= 2:
@@ -231,6 +235,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
                 logger=logger,
                 attempt=card_attempts,
             )
+            poll.reset()
             continue
         if current_state in {"unknown", "home_overlay"} and dialogue_clicks < 12:
             dialogue_clicks += 1
@@ -242,6 +247,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
                 logger=logger,
                 attempt=dialogue_clicks,
             )
+            poll.reset()
             continue
 
         reason = f"unsupported state after arena cartridge selection: {current_state}"
@@ -367,6 +373,7 @@ def wait_and_close_repeat_result(
 
     deadline = time.monotonic() + timeout
     sample = 0
+    poll = AdaptivePoll()
     while time.monotonic() < deadline:
         sample += 1
         image = safe_capture_client(hwnd, logger=logger)
@@ -381,7 +388,7 @@ def wait_and_close_repeat_result(
             screenshot=str(image_path),
         )
         if state != "arena_repeat_battle_result":
-            time.sleep(15.0)
+            time.sleep(poll.next_delay(remaining=deadline - time.monotonic()))
             continue
 
         ok, next_state, _next_image, reason = click_with_fixed_retry(
@@ -421,6 +428,7 @@ def leave_arena_victory(
 
     deadline = time.monotonic() + timeout
     sample = 0
+    poll = AdaptivePoll()
     while time.monotonic() < deadline:
         sample += 1
         image = safe_capture_client(hwnd, logger=logger)
@@ -435,7 +443,7 @@ def leave_arena_victory(
             screenshot=str(image_path),
         )
         if state != "arena_victory_result":
-            time.sleep(5.0)
+            time.sleep(poll.next_delay(remaining=deadline - time.monotonic()))
             continue
 
         ok, next_state, _next_image, reason = click_with_fixed_retry(
@@ -476,6 +484,7 @@ def confirm_optional_rank_change(
     stable_states = {"arena_lobby", "plaza", "real_home", "arena_cartridge_collection"}
     deadline = time.monotonic() + timeout
     sample = 0
+    poll = AdaptivePoll()
     while time.monotonic() < deadline:
         sample += 1
         image = safe_capture_client(hwnd, logger=logger)
@@ -494,7 +503,7 @@ def confirm_optional_rank_change(
             logger.event(action="stop", result="success", state=state, reason=reason)
             return True, reason
         if state != "arena_rank_change":
-            time.sleep(5.0)
+            time.sleep(poll.next_delay(remaining=deadline - time.monotonic()))
             continue
 
         ok, next_state, _next_image, reason = click_with_fixed_retry(

@@ -21,6 +21,7 @@ from typing import Any, Callable
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 
+from adaptive_wait import AdaptivePoll
 from enter_game import capture_client, recognize_home_screen
 from game_text_recognition import (
     recognize_arena_auto_battle_labels,
@@ -53,6 +54,7 @@ WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 VK_H = 0x48
 SW_SHOWNOACTIVATE = 4
+UNBOUNDED_LOADING_STATES = {"loading", "restaurant_loading"}
 
 CLICK_POINTS = {
     "home_business_management": (0.085, 0.235),
@@ -981,11 +983,14 @@ def wait_for_state(
     interval: float,
     label: str,
 ) -> tuple[str, Image.Image]:
+    # Kept for caller compatibility; polling now follows the shared adaptive schedule.
+    _ = interval
     deadline = time.monotonic() + timeout
     last_state = "unknown"
     last_image: Image.Image | None = None
     sample = 0
-    while time.monotonic() < deadline:
+    poll = AdaptivePoll()
+    while True:
         sample += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details = classify_state(image)
@@ -999,11 +1004,27 @@ def wait_for_state(
             screenshot=str(image_path),
             details=details,
         )
+        if state != last_state:
+            poll.reset()
         last_state = state
         last_image = image
         if state in expected:
             return state, image
-        time.sleep(interval)
+        now = time.monotonic()
+        if state in UNBOUNDED_LOADING_STATES:
+            deadline = now + timeout
+        elif now >= deadline:
+            break
+        delay = poll.next_delay(remaining=deadline - now)
+        logger.event(
+            action="wait_state_delay",
+            label=label,
+            sample=sample,
+            state=state,
+            next_check_seconds=delay,
+            timeout_suspended=state in UNBOUNDED_LOADING_STATES,
+        )
+        time.sleep(delay)
     if last_image is None:
         raise RuntimeError(f"no state captured while waiting for {sorted(expected)}")
     return last_state, last_image
@@ -1100,7 +1121,7 @@ def click_with_fixed_retry(
     description: str,
     dry_run: bool,
     logger: RunLogger,
-    delay: float = 6.0,
+    verify_timeout: float = 20.0,
     attempts: int = 2,
 ) -> tuple[bool, str, Image.Image, str]:
     current_image = image
@@ -1111,40 +1132,62 @@ def click_with_fixed_retry(
         if dry_run:
             return True, current_state, current_image, f"dry-run planned {description}"
 
-        time.sleep(delay)
-        current_image = safe_capture_client(hwnd, logger=logger)
-        current_state, details = classify_state(current_image)
-        stamp = datetime.now().strftime("%H%M%S-%f")
-        verify_path = logger.save_image(
-            current_image,
-            f"verify-{stamp}-{key}-attempt-{attempt}-{current_state}.png",
-        )
-        succeeded = verify(current_state, current_image)
-        logger.event(
-            action="verify_click",
-            key=key,
-            description=description,
-            attempt=attempt,
-            state=current_state,
-            succeeded=succeeded,
-            screenshot=str(verify_path),
-            details=details,
-        )
-        if succeeded:
-            return True, current_state, current_image, f"{description} succeeded on attempt {attempt}"
-        if attempt < attempts:
+        deadline = time.monotonic() + verify_timeout
+        poll = AdaptivePoll()
+        sample = 0
+        while True:
+            now = time.monotonic()
+            if now >= deadline:
+                break
+            delay = poll.next_delay(remaining=deadline - now)
+            logger.event(
+                action="wait_click_effect",
+                key=key,
+                description=description,
+                attempt=attempt,
+                sample=sample + 1,
+                next_check_seconds=delay,
+            )
+            time.sleep(delay)
+            sample += 1
+            current_image = safe_capture_client(hwnd, logger=logger)
+            current_state, details = classify_state(current_image)
+            stamp = datetime.now().strftime("%H%M%S-%f")
+            verify_path = logger.save_image(
+                current_image,
+                f"verify-{stamp}-{key}-attempt-{attempt}-sample-{sample}-{current_state}.png",
+            )
+            succeeded = verify(current_state, current_image)
+            logger.event(
+                action="verify_click",
+                key=key,
+                description=description,
+                attempt=attempt,
+                sample=sample,
+                state=current_state,
+                succeeded=succeeded,
+                screenshot=str(verify_path),
+                details=details,
+            )
+            if succeeded:
+                return True, current_state, current_image, f"{description} succeeded on attempt {attempt}"
+            if current_state in UNBOUNDED_LOADING_STATES:
+                deadline = time.monotonic() + verify_timeout
+                continue
             if current_state != source_state:
                 reason = (
                     f"{description} changed from {source_state} to unexpected state "
                     f"{current_state}; retry cancelled"
                 )
                 return False, current_state, current_image, reason
+
+        if attempt < attempts:
             logger.event(
                 action="retry_click",
                 key=key,
                 description=description,
                 previous_attempts=attempt,
-                delay=delay,
+                verify_timeout=verify_timeout,
             )
 
     reason = f"{description} did not take effect after {attempts} clicks"
@@ -1223,6 +1266,7 @@ def run_free_gacha(
     last_progress_at = time.monotonic()
     previous_state: str | None = None
     step = 0
+    loading_poll = AdaptivePoll()
 
     while time.monotonic() - last_progress_at < timeout:
         step += 1
@@ -1236,6 +1280,7 @@ def run_free_gacha(
         state, details = classify_state(image)
         if previous_state is not None and state != previous_state:
             last_progress_at = time.monotonic()
+            loading_poll.reset()
             logger.event(
                 action="progress",
                 reason="recognized_state_changed",
@@ -1285,7 +1330,8 @@ def run_free_gacha(
 
         if state == "loading":
             logger.event(action="wait_loading", step=step)
-            time.sleep(interval)
+            last_progress_at = time.monotonic()
+            time.sleep(loading_poll.next_delay())
             continue
 
         if state in {"home_overlay", "blocking_ad_overlay", "gacha_item_overlay"}:
