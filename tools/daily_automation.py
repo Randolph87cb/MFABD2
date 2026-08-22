@@ -269,7 +269,9 @@ def wait_for_network(
                 GOOGLE_CONNECTIVITY_URL,
                 headers={"User-Agent": "BrownDust2DailyAutomation/1.0"},
             )
-            with urllib.request.urlopen(request, timeout=request_timeout) as response:
+            proxy_handler = urllib.request.ProxyHandler(urllib.request.getproxies())
+            opener = urllib.request.build_opener(proxy_handler)
+            with opener.open(request, timeout=request_timeout) as response:
                 status = response.getcode()
             if status == 204:
                 logger.event(

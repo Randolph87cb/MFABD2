@@ -127,25 +127,36 @@ class DailyAutomationStateTests(unittest.TestCase):
         self.assertEqual(poll.next_delay(), 1)
 
     @patch("daily_automation.time.sleep")
-    @patch("daily_automation.urllib.request.urlopen")
-    def test_network_wait_requires_google_and_retries_adaptively(
+    @patch(
+        "daily_automation.urllib.request.getproxies",
+        side_effect=[{}, {}, {"https": "http://127.0.0.1:7890"}],
+    )
+    @patch("daily_automation.urllib.request.build_opener")
+    def test_network_wait_refreshes_proxy_and_retries_adaptively(
         self,
-        urlopen: MagicMock,
+        build_opener: MagicMock,
+        getproxies: MagicMock,
         sleep: MagicMock,
     ) -> None:
         response = MagicMock()
         response.__enter__.return_value.getcode.return_value = 204
-        urlopen.side_effect = [
+        opener = MagicMock()
+        opener.open.side_effect = [
             urllib.error.URLError("offline"),
-            urllib.error.URLError("still offline"),
+            urllib.error.URLError("VPN is still starting"),
             response,
         ]
+        build_opener.return_value = opener
         logger = MagicMock()
 
         self.assertTrue(wait_for_network(logger, timeout=None))
 
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
-        requested_urls = [call.args[0].full_url for call in urlopen.call_args_list]
+        self.assertEqual(getproxies.call_count, 3)
+        self.assertEqual(build_opener.call_count, 3)
+        proxy_snapshots = [call.args[0].proxies for call in build_opener.call_args_list]
+        self.assertEqual(proxy_snapshots, [{}, {}, {"https": "http://127.0.0.1:7890"}])
+        requested_urls = [call.args[0].full_url for call in opener.open.call_args_list]
         self.assertEqual(requested_urls, ["https://www.google.com/generate_204"] * 3)
 
     def test_game_day_rolls_over_at_eight_in_the_morning(self) -> None:
