@@ -253,6 +253,21 @@ def update_daily_state(state_path: Path, *, status: str, error: str | None = Non
     _write_json_atomic(state_path, current)
 
 
+def current_proxy_settings() -> dict[str, str]:
+    """Read proxy settings again so a VPN started after this process is visible."""
+    if os.name != "nt":
+        return urllib.request.getproxies()
+
+    registry = urllib.request.getproxies_registry()
+    environment = urllib.request.getproxies_environment()
+    supported_environment = {
+        scheme: url
+        for scheme, url in environment.items()
+        if scheme in {"http", "https", "ftp", "all"}
+    }
+    return {**registry, **supported_environment}
+
+
 def wait_for_network(
     logger: MasterLogger,
     *,
@@ -269,7 +284,7 @@ def wait_for_network(
                 GOOGLE_CONNECTIVITY_URL,
                 headers={"User-Agent": "BrownDust2DailyAutomation/1.0"},
             )
-            proxy_handler = urllib.request.ProxyHandler(urllib.request.getproxies())
+            proxy_handler = urllib.request.ProxyHandler(current_proxy_settings())
             opener = urllib.request.build_opener(proxy_handler)
             with opener.open(request, timeout=request_timeout) as response:
                 status = response.getcode()

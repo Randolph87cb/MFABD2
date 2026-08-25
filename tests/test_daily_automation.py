@@ -127,17 +127,20 @@ class DailyAutomationStateTests(unittest.TestCase):
         self.assertEqual(poll.next_delay(), 1)
 
     @patch("daily_automation.time.sleep")
+    @patch("daily_automation.urllib.request.getproxies_environment")
     @patch(
-        "daily_automation.urllib.request.getproxies",
-        side_effect=[{}, {}, {"https": "http://127.0.0.1:7890"}],
+        "daily_automation.urllib.request.getproxies_registry",
+        side_effect=[{}, {}, {"https": "http://127.0.0.1:7897"}],
     )
     @patch("daily_automation.urllib.request.build_opener")
-    def test_network_wait_refreshes_proxy_and_retries_adaptively(
+    def test_network_wait_uses_vpn_proxy_added_after_process_start(
         self,
         build_opener: MagicMock,
-        getproxies: MagicMock,
+        getproxies_registry: MagicMock,
+        getproxies_environment: MagicMock,
         sleep: MagicMock,
     ) -> None:
+        getproxies_environment.return_value = {"lark_cli_no": "1"}
         response = MagicMock()
         response.__enter__.return_value.getcode.return_value = 204
         opener = MagicMock()
@@ -152,10 +155,11 @@ class DailyAutomationStateTests(unittest.TestCase):
         self.assertTrue(wait_for_network(logger, timeout=None))
 
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
-        self.assertEqual(getproxies.call_count, 3)
+        self.assertEqual(getproxies_registry.call_count, 3)
+        self.assertEqual(getproxies_environment.call_count, 3)
         self.assertEqual(build_opener.call_count, 3)
         proxy_snapshots = [call.args[0].proxies for call in build_opener.call_args_list]
-        self.assertEqual(proxy_snapshots, [{}, {}, {"https": "http://127.0.0.1:7890"}])
+        self.assertEqual(proxy_snapshots, [{}, {}, {"https": "http://127.0.0.1:7897"}])
         requested_urls = [call.args[0].full_url for call in opener.open.call_args_list]
         self.assertEqual(requested_urls, ["https://www.google.com/generate_204"] * 3)
 
