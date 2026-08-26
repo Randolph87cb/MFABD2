@@ -393,6 +393,44 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2, 3])
 
     @patch("free_gacha._click_ratio")
+    @patch("free_gacha.time.sleep")
+    @patch("free_gacha.safe_capture_client")
+    @patch("free_gacha.classify_state")
+    def test_click_verification_waits_through_unknown_transition_without_reclicking(
+        self,
+        classify_state: MagicMock,
+        safe_capture_client: MagicMock,
+        sleep: MagicMock,
+        click_ratio: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        classify_state.side_effect = [
+            ("plaza", {}),
+            ("unknown", {}),
+            ("real_home", {}),
+        ]
+        safe_capture_client.return_value = image
+        logger = MagicMock()
+        logger.save_image.return_value = Path("verify.png")
+
+        ok, state, _image, _reason = click_with_fixed_retry(
+            123,
+            image,
+            "plaza_home",
+            verify=lambda candidate, _next_image: candidate == "real_home",
+            description="return home from plaza",
+            dry_run=False,
+            logger=logger,
+            attempts=1,
+            wait_on_unknown_transition=True,
+        )
+
+        self.assertTrue(ok)
+        self.assertEqual(state, "real_home")
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+        click_ratio.assert_called_once()
+
+    @patch("free_gacha._click_ratio")
     @patch("free_gacha.safe_capture_client")
     @patch("free_gacha.classify_state", return_value=("real_home", {}))
     def test_click_verification_stops_at_its_ten_second_limit(
@@ -802,6 +840,36 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "returned to real_home")
         self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_home")
+
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_waits_once_through_plaza_unknown_transition(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image]
+        classify_state.side_effect = [("plaza", {}), ("real_home", {})]
+        click_with_fixed_retry.return_value = (True, "real_home", image, "returned home")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=120.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "plaza_home")
+        self.assertEqual(click_with_fixed_retry.call_args.kwargs["verify_timeout"], 120.0)
+        self.assertEqual(click_with_fixed_retry.call_args.kwargs["attempts"], 1)
+        self.assertTrue(
+            click_with_fixed_retry.call_args.kwargs["wait_on_unknown_transition"]
+        )
 
     @patch("daily_automation.click_with_fixed_retry")
     @patch("daily_automation.classify_state")

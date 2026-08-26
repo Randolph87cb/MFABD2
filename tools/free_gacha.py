@@ -1123,6 +1123,7 @@ def click_with_fixed_retry(
     logger: RunLogger,
     verify_timeout: float = 20.0,
     attempts: int = 2,
+    wait_on_unknown_transition: bool = False,
 ) -> tuple[bool, str, Image.Image, str]:
     current_image = image
     source_state, _ = classify_state(image)
@@ -1173,6 +1174,16 @@ def click_with_fixed_retry(
                 return True, current_state, current_image, f"{description} succeeded on attempt {attempt}"
             if current_state in UNBOUNDED_LOADING_STATES:
                 deadline = time.monotonic() + verify_timeout
+                continue
+            if current_state == "unknown" and wait_on_unknown_transition:
+                logger.event(
+                    action="wait_unknown_transition",
+                    key=key,
+                    description=description,
+                    attempt=attempt,
+                    sample=sample,
+                    verify_timeout=verify_timeout,
+                )
                 continue
             if current_state != source_state:
                 reason = (
