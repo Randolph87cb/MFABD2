@@ -570,84 +570,57 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if low_information_frame:
         return "loading", details
 
-    reward_overlay_candidate = (
-        full["dark_ratio"] > 0.85
-        and center["mean"] > full["mean"] + 10
-        and modal["edge_ratio"] > 0.003
-    )
-    if reward_overlay_candidate:
-        reward_overlay_match, reward_overlay_text = recognize_reward_overlay_labels(image)
-        details["reward_overlay_text"] = reward_overlay_text
-        if reward_overlay_match:
-            return "reward_overlay", details
+    reward_overlay_match, reward_overlay_text = recognize_reward_overlay_labels(image)
+    details["reward_overlay_text"] = reward_overlay_text
+    if reward_overlay_match:
+        return "reward_overlay", details
 
-    regular_customer_notes_candidate = (
-        full["dark_ratio"] > 0.75
-        and top_title["edge_ratio"] > 0.015
-        and modal["edge_ratio"] > 0.015
-    )
-    if regular_customer_notes_candidate:
-        notes_match, notes_text = recognize_regular_customer_notes_labels(image)
-        details["regular_customer_notes_text"] = notes_text
-        if notes_match:
-            return "restaurant_regular_customer_notes", details
+    notes_match, notes_text = recognize_regular_customer_notes_labels(image)
+    details["regular_customer_notes_text"] = notes_text
+    if notes_match:
+        return "restaurant_regular_customer_notes", details
 
-    restaurant_loading_candidate = (
-        full["dark_ratio"] < 0.60
-        and full["edge_ratio"] < 0.012
-        and full["contrast"] > 25
-    )
-    if restaurant_loading_candidate:
-        restaurant_state, restaurant_text = recognize_restaurant_state(image)
-        details["restaurant_text"] = restaurant_text
-        if restaurant_state != "unknown":
-            return restaurant_state, details
+    business_state, business_text = recognize_business_management_state(image)
+    details["business_management_text"] = business_text
+    if business_state != "unknown":
+        return business_state, details
 
-    business_management_candidate = (
-        full["dark_ratio"] > 0.85
-        and center["mean"] > full["mean"] + 10
-        and modal["edge_ratio"] > 0.008
+    arena_repeat_result_match, arena_repeat_result_text = recognize_arena_repeat_result_labels(
+        image
     )
-    if business_management_candidate:
-        business_state, business_text = recognize_business_management_state(image)
-        details["business_management_text"] = business_text
-        if business_state != "unknown":
-            return business_state, details
+    details["arena_repeat_result_text"] = arena_repeat_result_text
+    if arena_repeat_result_match:
+        return "arena_repeat_battle_result", details
 
-    arena_repeat_result_candidate = (
-        full["dark_ratio"] > 0.85
-        and modal["mean"] > full["mean"] + 10
-        and modal["edge_ratio"] > 0.012
-    )
-    if arena_repeat_result_candidate:
-        arena_repeat_result_match, arena_repeat_result_text = recognize_arena_repeat_result_labels(
-            image
-        )
-        details["arena_repeat_result_text"] = arena_repeat_result_text
-        if arena_repeat_result_match:
-            return "arena_repeat_battle_result", details
+    arena_victory_match, arena_victory_text = recognize_arena_victory_result_labels(image)
+    details["arena_victory_text"] = arena_victory_text
+    if arena_victory_match:
+        return "arena_victory_result", details
 
-    arena_victory_candidate = (
-        full["dark_ratio"] > 0.70
-        and home_bottom_nav["dark_ratio"] > 0.95
-        and home_right_events["dark_ratio"] > 0.90
-    )
-    if arena_victory_candidate:
-        arena_victory_match, arena_victory_text = recognize_arena_victory_result_labels(image)
-        details["arena_victory_text"] = arena_victory_text
-        if arena_victory_match:
-            return "arena_victory_result", details
+    arena_auto_battle_match, arena_auto_battle_text = recognize_arena_auto_battle_labels(image)
+    details["arena_auto_battle_text"] = arena_auto_battle_text
+    if arena_auto_battle_match:
+        return "arena_auto_battle_dialog", details
 
-    arena_auto_candidate = (
-        full["dark_ratio"] > 0.75
-        and center["mean"] > full["mean"] + 15
-        and modal["edge_ratio"] > 0.008
-    )
-    if arena_auto_candidate:
-        arena_auto_battle_match, arena_auto_battle_text = recognize_arena_auto_battle_labels(image)
-        details["arena_auto_battle_text"] = arena_auto_battle_text
-        if arena_auto_battle_match:
-            return "arena_auto_battle_dialog", details
+    confirm_match, confirm_text = recognize_free_gacha_confirmation_labels(image)
+    details["free_gacha_confirm_text"] = confirm_text
+    if confirm_match:
+        return "confirm_free_gacha", details
+
+    quick_hunt_setup_match, quick_hunt_setup_text = recognize_quick_hunt_setup_labels(image)
+    details["quick_hunt_setup_text"] = quick_hunt_setup_text
+    if quick_hunt_setup_match:
+        return "quick_hunt_setup", details
+
+    item_detail_match, item_detail_text = recognize_gacha_item_detail_labels(image)
+    details["gacha_item_detail_text"] = item_detail_text
+    if item_detail_match:
+        return "gacha_item_overlay", details
+
+    arena_rank_match, arena_rank_text = recognize_arena_rank_change_labels(image)
+    details["arena_rank_change_text"] = arena_rank_text
+    if arena_rank_match:
+        return "arena_rank_change", details
 
     large_activity_overlay_like = (
         full["dark_ratio"] > 0.65
@@ -672,30 +645,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if blocking_ad_overlay_like:
         return "blocking_ad_overlay", details
 
-    dark_confirm_like = (
-        full["dark_ratio"] > 0.90
-        and modal["dark_ratio"] < 0.94
-        and modal["edge_ratio"] > 0.012
-        and confirm_buttons["mean"] > modal["mean"] + 20
-        and confirm_buttons["edge_ratio"] > 0.015
-    )
-    if dark_confirm_like:
-        confirm_match, confirm_text = recognize_free_gacha_confirmation_labels(image)
-        details["free_gacha_confirm_text"] = confirm_text
-        if confirm_match:
-            return "confirm_free_gacha", details
-
-    quick_hunt_setup_candidate = (
-        full["dark_ratio"] > 0.90
-        and center["mean"] > full["mean"] + 15
-        and center["edge_ratio"] > 0.008
-    )
-    if quick_hunt_setup_candidate:
-        quick_hunt_setup_match, quick_hunt_setup_text = recognize_quick_hunt_setup_labels(image)
-        details["quick_hunt_setup_text"] = quick_hunt_setup_text
-        if quick_hunt_setup_match:
-            return "quick_hunt_setup", details
-
     dark_item_overlay_like = (
         full["dark_ratio"] > 0.95
         and center["mean"] > full["mean"] + 25
@@ -706,64 +655,24 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if dark_item_overlay_like:
         return "home_overlay", details
 
-    gacha_item_detail_candidate = (
-        full["dark_ratio"] > 0.95
-        and 40 < full["mean"] < 80
-        and abs(center["mean"] - full["mean"]) < 15
-        and modal["edge_ratio"] > 0.004
-    )
-    if gacha_item_detail_candidate:
-        item_detail_match, item_detail_text = recognize_gacha_item_detail_labels(image)
-        details["gacha_item_detail_text"] = item_detail_text
-        if item_detail_match:
-            return "gacha_item_overlay", details
-
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:
-        arena_rank_match, arena_rank_text = recognize_arena_rank_change_labels(image)
-        details["arena_rank_change_text"] = arena_rank_text
-        if arena_rank_match:
-            return "arena_rank_change", details
         return "loading", details
 
-    restaurant_home_candidate = (
-        full["dark_ratio"] < 0.65
-        and left_tabs["edge_ratio"] > 0.015
-        and top_title["edge_ratio"] > 0.025
-    )
-    if restaurant_home_candidate:
-        restaurant_state, restaurant_text = recognize_restaurant_state(image)
-        details["restaurant_text"] = restaurant_text
-        if restaurant_state in {"restaurant_home", "restaurant_regular_customer_mode"}:
-            return restaurant_state, details
+    restaurant_state, restaurant_text = recognize_restaurant_state(image)
+    details["restaurant_text"] = restaurant_text
+    if restaurant_state != "unknown":
+        return restaurant_state, details
 
-    quick_hunt_map_candidate = (
-        full["dark_ratio"] < 0.65
-        and left_tabs["edge_ratio"] > 0.015
-        and top_title["edge_ratio"] > 0.030
-    )
-    if quick_hunt_map_candidate:
-        quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
-        details["quick_hunt_map_text"] = quick_hunt_map_text
-        if quick_hunt_map_match:
-            return "quick_hunt_map", details
+    quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
+    details["quick_hunt_map_text"] = quick_hunt_map_text
+    if quick_hunt_map_match:
+        return "quick_hunt_map", details
 
     gacha_page_match, gacha_page_text = recognize_gacha_page_labels(image)
     details["gacha_page_text"] = gacha_page_text
     if gacha_page_match:
         return "gacha_page", details
-
-    confirm_like = (
-        full["dark_ratio"] > 0.45
-        and modal["mid_ratio"] > 0.45
-        and modal["contrast"] > 20
-        and confirm_buttons["bright_ratio"] > 0.15
-    )
-    if confirm_like:
-        confirm_match, confirm_text = recognize_free_gacha_confirmation_labels(image)
-        details["free_gacha_confirm_text"] = confirm_text
-        if confirm_match:
-            return "confirm_free_gacha", details
 
     dark_animation_like = (
         animation_left_margin["dark_ratio"] > 0.98
@@ -792,6 +701,26 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if home_labels_match:
         return "real_home", details
 
+    arena_battle_prep_match, arena_battle_prep_text = recognize_arena_battle_prep_labels(image)
+    details["arena_battle_prep_text"] = arena_battle_prep_text
+    if arena_battle_prep_match:
+        return "arena_battle_prep", details
+
+    arena_lobby_match, arena_lobby_text = recognize_arena_lobby_labels(image)
+    details["arena_lobby_text"] = arena_lobby_text
+    if arena_lobby_match:
+        return "arena_lobby", details
+
+    arena_cartridge_bar_match, arena_cartridge_bar_text = recognize_arena_cartridge_bar_labels(image)
+    details["arena_cartridge_bar_text"] = arena_cartridge_bar_text
+    if arena_cartridge_bar_match:
+        return "arena_cartridge_bar", details
+
+    arena_cartridge_match, arena_cartridge_text = recognize_arena_cartridge_labels(image)
+    details["arena_cartridge_text"] = arena_cartridge_text
+    if arena_cartridge_match:
+        return "arena_cartridge_collection", details
+
     bright_scene = full["bright_ratio"] > 0.62 and full["dark_ratio"] < 0.10
     if bright_scene:
         details["classification_rule"] = "bright_scene"
@@ -817,26 +746,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if plaza_like:
         return "plaza", details
-
-    arena_battle_prep_match, arena_battle_prep_text = recognize_arena_battle_prep_labels(image)
-    details["arena_battle_prep_text"] = arena_battle_prep_text
-    if arena_battle_prep_match:
-        return "arena_battle_prep", details
-
-    arena_lobby_match, arena_lobby_text = recognize_arena_lobby_labels(image)
-    details["arena_lobby_text"] = arena_lobby_text
-    if arena_lobby_match:
-        return "arena_lobby", details
-
-    arena_cartridge_bar_match, arena_cartridge_bar_text = recognize_arena_cartridge_bar_labels(image)
-    details["arena_cartridge_bar_text"] = arena_cartridge_bar_text
-    if arena_cartridge_bar_match:
-        return "arena_cartridge_bar", details
-
-    arena_cartridge_match, arena_cartridge_text = recognize_arena_cartridge_labels(image)
-    details["arena_cartridge_text"] = arena_cartridge_text
-    if arena_cartridge_match:
-        return "arena_cartridge_collection", details
 
     is_home, home_scores = recognize_home_screen(image)
     details["home_scores"] = home_scores

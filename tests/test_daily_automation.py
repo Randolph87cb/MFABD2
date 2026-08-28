@@ -1245,6 +1245,34 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(details["gacha_page_text"]["matches"]["title"])
         self.assertTrue(details["gacha_page_text"]["matches"]["tabs"])
 
+    def test_positioned_text_interfaces_are_recognized_without_visual_prefilters(
+        self,
+    ) -> None:
+        cases = {
+            "business-management-dialog-2567x1446.png": "business_management_dialog",
+            "business-management-reward-2567x1446.png": "reward_overlay",
+            "restaurant-loading-2567x1446.png": "restaurant_loading",
+            "restaurant-home-2567x1446.png": "restaurant_home",
+            "restaurant-regular-customer-mode-2567x1446.png": "restaurant_regular_customer_mode",
+            "restaurant-regular-customer-notes-2567x1446.png": "restaurant_regular_customer_notes",
+            "restaurant-regular-customer-reward-2567x1446.png": "reward_overlay",
+            "quick-hunt-map.png": "quick_hunt_map",
+            "quick-hunt-setup.png": "quick_hunt_setup",
+            "quick-hunt-result.png": "reward_overlay",
+            "gacha-confirm-3421x1927.png": "confirm_free_gacha",
+            "gacha-item-detail-3421x1927.png": "gacha_item_overlay",
+            "arena-auto-battle-dialog-2567x1446.png": "arena_auto_battle_dialog",
+            "arena-repeat-battle-result-2567x1446.png": "arena_repeat_battle_result",
+            "arena-victory-result-2567x1446.png": "arena_victory_result",
+            "arena-rank-change-2567x1446.png": "arena_rank_change",
+        }
+
+        for fixture, expected in cases.items():
+            with self.subTest(fixture=fixture):
+                with Image.open(FIXTURES / fixture) as image:
+                    state, _details = classify_state(image)
+                self.assertEqual(state, expected)
+
     def test_season_reward_overlay_sequence_is_recorded_as_a_regression(self) -> None:
         with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:
             overlay_state, _details = classify_state(overlay)
