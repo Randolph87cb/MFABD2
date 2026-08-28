@@ -1234,6 +1234,16 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertEqual(availability, "used")
 
+    def test_state_classification_reuses_one_ocr_pass_per_screenshot(self) -> None:
+        ocr_result = MagicMock(boxes=None, txts=None, scores=None)
+        ocr_engine = MagicMock(return_value=ocr_result)
+
+        with Image.open(FIXTURES / "gacha-page-3421x1927.png") as image:
+            with patch("game_text_recognition._ocr_engine", return_value=ocr_engine):
+                classify_state(image)
+
+        self.assertEqual(ocr_engine.call_count, 1)
+
     def test_dark_animated_gacha_page_is_recognized_from_fixed_text(self) -> None:
         with Image.open(
             FIXTURES / "gacha-page-dark-animation-2567x1446.png"

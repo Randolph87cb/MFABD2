@@ -24,6 +24,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from adaptive_wait import AdaptivePoll
 from enter_game import capture_client, recognize_home_screen
 from game_text_recognition import (
+    LabelRecognitionSession,
     recognize_arena_auto_battle_labels,
     recognize_arena_battle_prep_labels,
     recognize_arena_cartridge_bar_labels,
@@ -570,54 +571,84 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if low_information_frame:
         return "loading", details
 
-    reward_overlay_match, reward_overlay_text = recognize_reward_overlay_labels(image)
+    text_session = LabelRecognitionSession(image)
+
+    reward_overlay_match, reward_overlay_text = recognize_reward_overlay_labels(
+        image,
+        session=text_session,
+    )
     details["reward_overlay_text"] = reward_overlay_text
     if reward_overlay_match:
         return "reward_overlay", details
 
-    notes_match, notes_text = recognize_regular_customer_notes_labels(image)
+    notes_match, notes_text = recognize_regular_customer_notes_labels(
+        image,
+        session=text_session,
+    )
     details["regular_customer_notes_text"] = notes_text
     if notes_match:
         return "restaurant_regular_customer_notes", details
 
-    business_state, business_text = recognize_business_management_state(image)
+    business_state, business_text = recognize_business_management_state(
+        image,
+        session=text_session,
+    )
     details["business_management_text"] = business_text
     if business_state != "unknown":
         return business_state, details
 
     arena_repeat_result_match, arena_repeat_result_text = recognize_arena_repeat_result_labels(
-        image
+        image,
+        session=text_session,
     )
     details["arena_repeat_result_text"] = arena_repeat_result_text
     if arena_repeat_result_match:
         return "arena_repeat_battle_result", details
 
-    arena_victory_match, arena_victory_text = recognize_arena_victory_result_labels(image)
+    arena_victory_match, arena_victory_text = recognize_arena_victory_result_labels(
+        image,
+        session=text_session,
+    )
     details["arena_victory_text"] = arena_victory_text
     if arena_victory_match:
         return "arena_victory_result", details
 
-    arena_auto_battle_match, arena_auto_battle_text = recognize_arena_auto_battle_labels(image)
+    arena_auto_battle_match, arena_auto_battle_text = recognize_arena_auto_battle_labels(
+        image,
+        session=text_session,
+    )
     details["arena_auto_battle_text"] = arena_auto_battle_text
     if arena_auto_battle_match:
         return "arena_auto_battle_dialog", details
 
-    confirm_match, confirm_text = recognize_free_gacha_confirmation_labels(image)
+    confirm_match, confirm_text = recognize_free_gacha_confirmation_labels(
+        image,
+        session=text_session,
+    )
     details["free_gacha_confirm_text"] = confirm_text
     if confirm_match:
         return "confirm_free_gacha", details
 
-    quick_hunt_setup_match, quick_hunt_setup_text = recognize_quick_hunt_setup_labels(image)
+    quick_hunt_setup_match, quick_hunt_setup_text = recognize_quick_hunt_setup_labels(
+        image,
+        session=text_session,
+    )
     details["quick_hunt_setup_text"] = quick_hunt_setup_text
     if quick_hunt_setup_match:
         return "quick_hunt_setup", details
 
-    item_detail_match, item_detail_text = recognize_gacha_item_detail_labels(image)
+    item_detail_match, item_detail_text = recognize_gacha_item_detail_labels(
+        image,
+        session=text_session,
+    )
     details["gacha_item_detail_text"] = item_detail_text
     if item_detail_match:
         return "gacha_item_overlay", details
 
-    arena_rank_match, arena_rank_text = recognize_arena_rank_change_labels(image)
+    arena_rank_match, arena_rank_text = recognize_arena_rank_change_labels(
+        image,
+        session=text_session,
+    )
     details["arena_rank_change_text"] = arena_rank_text
     if arena_rank_match:
         return "arena_rank_change", details
@@ -659,17 +690,26 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if loading_like:
         return "loading", details
 
-    restaurant_state, restaurant_text = recognize_restaurant_state(image)
+    restaurant_state, restaurant_text = recognize_restaurant_state(
+        image,
+        session=text_session,
+    )
     details["restaurant_text"] = restaurant_text
     if restaurant_state != "unknown":
         return restaurant_state, details
 
-    quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
+    quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(
+        image,
+        session=text_session,
+    )
     details["quick_hunt_map_text"] = quick_hunt_map_text
     if quick_hunt_map_match:
         return "quick_hunt_map", details
 
-    gacha_page_match, gacha_page_text = recognize_gacha_page_labels(image)
+    gacha_page_match, gacha_page_text = recognize_gacha_page_labels(
+        image,
+        session=text_session,
+    )
     details["gacha_page_text"] = gacha_page_text
     if gacha_page_match:
         return "gacha_page", details
@@ -696,27 +736,42 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if overlay_like:
         return "home_overlay", details
 
-    home_labels_match, home_text = recognize_home_labels(image)
+    home_labels_match, home_text = recognize_home_labels(
+        image,
+        session=text_session,
+    )
     details["home_text"] = home_text
     if home_labels_match:
         return "real_home", details
 
-    arena_battle_prep_match, arena_battle_prep_text = recognize_arena_battle_prep_labels(image)
+    arena_battle_prep_match, arena_battle_prep_text = recognize_arena_battle_prep_labels(
+        image,
+        session=text_session,
+    )
     details["arena_battle_prep_text"] = arena_battle_prep_text
     if arena_battle_prep_match:
         return "arena_battle_prep", details
 
-    arena_lobby_match, arena_lobby_text = recognize_arena_lobby_labels(image)
+    arena_lobby_match, arena_lobby_text = recognize_arena_lobby_labels(
+        image,
+        session=text_session,
+    )
     details["arena_lobby_text"] = arena_lobby_text
     if arena_lobby_match:
         return "arena_lobby", details
 
-    arena_cartridge_bar_match, arena_cartridge_bar_text = recognize_arena_cartridge_bar_labels(image)
+    arena_cartridge_bar_match, arena_cartridge_bar_text = recognize_arena_cartridge_bar_labels(
+        image,
+        session=text_session,
+    )
     details["arena_cartridge_bar_text"] = arena_cartridge_bar_text
     if arena_cartridge_bar_match:
         return "arena_cartridge_bar", details
 
-    arena_cartridge_match, arena_cartridge_text = recognize_arena_cartridge_labels(image)
+    arena_cartridge_match, arena_cartridge_text = recognize_arena_cartridge_labels(
+        image,
+        session=text_session,
+    )
     details["arena_cartridge_text"] = arena_cartridge_text
     if arena_cartridge_match:
         return "arena_cartridge_collection", details

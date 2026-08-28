@@ -333,10 +333,84 @@ def _partial_similarity(expected: str, actual: str) -> float:
     )
 
 
+LabelGroupResult = tuple[
+    dict[str, list[str]],
+    dict[str, list[str]],
+    dict[str, Any] | None,
+]
+
+
+def _match_label_groups(
+    grouped_texts: dict[str, list[str]],
+    groups: dict[str, dict[str, Any]],
+) -> dict[str, list[str]]:
+    matches: dict[str, list[str]] = {}
+    for name, config in groups.items():
+        actual_texts = grouped_texts[name]
+        matches[name] = [
+            expected
+            for expected in config["labels"]
+            if any(_partial_similarity(expected, actual) >= 0.74 for actual in actual_texts)
+        ]
+    return matches
+
+
+class LabelRecognitionSession:
+    """Run OCR once for one screenshot and reuse its positioned text."""
+
+    def __init__(self, image: Image.Image) -> None:
+        self._source = image.convert("RGB")
+        self._observations: list[tuple[float, float, str]] | None = None
+        self._error: dict[str, Any] | None = None
+
+    def _load(self) -> tuple[list[tuple[float, float, str]], dict[str, Any] | None]:
+        if self._observations is not None:
+            return self._observations, self._error
+
+        try:
+            engine = _ocr_engine()
+            result = engine(np.asarray(self._source))
+        except (ImportError, ModuleNotFoundError) as exc:
+            self._observations = []
+            self._error = {"available": False, "error": repr(exc)}
+            return self._observations, self._error
+        except Exception as exc:  # noqa: BLE001 - recognition failure must be visible to callers.
+            self._observations = []
+            self._error = {"available": True, "error": repr(exc)}
+            return self._observations, self._error
+
+        boxes = result.boxes if result.boxes is not None else ()
+        texts = result.txts if result.txts is not None else ()
+        scores = result.scores if result.scores is not None else ()
+        self._observations = [
+            (
+                float(np.mean(box[:, 0])) / self._source.width,
+                float(np.mean(box[:, 1])) / self._source.height,
+                str(text),
+            )
+            for box, text, score in zip(boxes, texts, scores)
+            if float(score) >= 0.55
+        ]
+        return self._observations, None
+
+    def recognize(self, groups: dict[str, dict[str, Any]]) -> LabelGroupResult:
+        observations, error = self._load()
+        if error is not None:
+            return {}, {}, error
+
+        grouped_texts: dict[str, list[str]] = {name: [] for name in groups}
+        for name, config in groups.items():
+            x, y, width, height = config["region"]
+            for center_x, center_y, text in observations:
+                if x <= center_x <= x + width and y <= center_y <= y + height:
+                    grouped_texts[name].append(text)
+        return grouped_texts, _match_label_groups(grouped_texts, groups), None
+
+
 def _recognize_label_groups(
     image: Image.Image,
     groups: dict[str, dict[str, Any]],
-) -> tuple[dict[str, list[str]], dict[str, list[str]], dict[str, Any] | None]:
+) -> LabelGroupResult:
     source = image.convert("RGB")
     grouped_texts: dict[str, list[str]] = {name: [] for name in groups}
     crops: list[tuple[str, Image.Image]] = []
@@ -396,20 +470,26 @@ def _recognize_label_groups(
                 grouped_texts[name].append(str(text))
                 break
 
-    matches: dict[str, list[str]] = {}
-    for name, config in groups.items():
-        actual_texts = grouped_texts[name]
-        matches[name] = [
-            expected
-            for expected in config["labels"]
-            if any(_partial_similarity(expected, actual) >= 0.74 for actual in actual_texts)
-        ]
-    return grouped_texts, matches, None
+    return grouped_texts, _match_label_groups(grouped_texts, groups), None
 
 
-def recognize_home_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def _recognize_with_session(
+    image: Image.Image,
+    groups: dict[str, dict[str, Any]],
+    session: LabelRecognitionSession | None,
+) -> LabelGroupResult:
+    if session is not None:
+        return session.recognize(groups)
+    return _recognize_label_groups(image, groups)
+
+
+def recognize_home_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize homepage labels only when they appear in their fixed UI regions."""
-    grouped_texts, matches, error = _recognize_label_groups(image, HOME_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(image, HOME_LABEL_GROUPS, session)
     if error is not None:
         return False, error
     is_home = (
@@ -429,9 +509,17 @@ def recognize_home_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
     }
 
 
-def recognize_gacha_page_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_gacha_page_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the gacha page from its fixed title and left category labels."""
-    grouped_texts, matches, error = _recognize_label_groups(image, GACHA_PAGE_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        GACHA_PAGE_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     is_gacha_page = bool(matches["title"]) and bool(matches["tabs"])
@@ -459,11 +547,16 @@ def recognize_all_free_gacha_button(image: Image.Image) -> tuple[bool, dict[str,
     }
 
 
-def recognize_free_gacha_confirmation_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_free_gacha_confirmation_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the all-free gacha confirmation from fixed dialog labels."""
-    grouped_texts, matches, error = _recognize_label_groups(
+    grouped_texts, matches, error = _recognize_with_session(
         image,
         FREE_GACHA_CONFIRM_LABEL_GROUPS,
+        session,
     )
     if error is not None:
         return False, error
@@ -480,11 +573,16 @@ def recognize_free_gacha_confirmation_labels(image: Image.Image) -> tuple[bool, 
     }
 
 
-def recognize_gacha_item_detail_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_gacha_item_detail_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the item detail opened from a gacha animation or result."""
-    grouped_texts, matches, error = _recognize_label_groups(
+    grouped_texts, matches, error = _recognize_with_session(
         image,
         GACHA_ITEM_DETAIL_LABEL_GROUPS,
+        session,
     )
     if error is not None:
         return False, error
@@ -497,11 +595,16 @@ def recognize_gacha_item_detail_labels(image: Image.Image) -> tuple[bool, dict[s
     }
 
 
-def recognize_business_management_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
+def recognize_business_management_state(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Recognize the management dialog."""
-    grouped_texts, matches, error = _recognize_label_groups(
+    grouped_texts, matches, error = _recognize_with_session(
         image,
         BUSINESS_MANAGEMENT_LABEL_GROUPS,
+        session,
     )
     if error is not None:
         return "unknown", error
@@ -525,9 +628,17 @@ def recognize_business_management_state(image: Image.Image) -> tuple[str, dict[s
     }
 
 
-def recognize_restaurant_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
+def recognize_restaurant_state(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[str, dict[str, Any]]:
     """Recognize the restaurant loading screen and interactive restaurant home."""
-    grouped_texts, matches, error = _recognize_label_groups(image, RESTAURANT_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        RESTAURANT_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return "unknown", error
 
@@ -566,11 +677,16 @@ def recognize_restaurant_state(image: Image.Image) -> tuple[str, dict[str, Any]]
     }
 
 
-def recognize_regular_customer_notes_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_regular_customer_notes_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the restaurant regular-customer reward notebook."""
-    grouped_texts, matches, error = _recognize_label_groups(
+    grouped_texts, matches, error = _recognize_with_session(
         image,
         REGULAR_CUSTOMER_NOTES_LABEL_GROUPS,
+        session,
     )
     if error is not None:
         return False, error
@@ -591,9 +707,17 @@ def recognize_regular_customer_notes_labels(image: Image.Image) -> tuple[bool, d
     }
 
 
-def recognize_arena_cartridge_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_cartridge_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the cartridge collection page from its title and gameplay row."""
-    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_CARTRIDGE_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        ARENA_CARTRIDGE_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     is_collection = bool(matches["title"]) and bool(matches["gameplay_cards"])
@@ -605,9 +729,17 @@ def recognize_arena_cartridge_labels(image: Image.Image) -> tuple[bool, dict[str
     }
 
 
-def recognize_arena_cartridge_bar_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_cartridge_bar_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the in-field cartridge bar from its fixed category labels."""
-    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_CARTRIDGE_BAR_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        ARENA_CARTRIDGE_BAR_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     gameplay_labels = {
@@ -629,9 +761,17 @@ def recognize_arena_cartridge_bar_labels(image: Image.Image) -> tuple[bool, dict
     }
 
 
-def recognize_arena_lobby_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_lobby_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the arena lobby from season text and cocktail capacity."""
-    grouped_texts, _matches, error = _recognize_label_groups(image, ARENA_LOBBY_LABEL_GROUPS)
+    grouped_texts, _matches, error = _recognize_with_session(
+        image,
+        ARENA_LOBBY_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     top_left = "".join(_normalize_text(text) for text in grouped_texts["top_left"])
@@ -645,9 +785,17 @@ def recognize_arena_lobby_labels(image: Image.Image) -> tuple[bool, dict[str, An
     }
 
 
-def recognize_arena_battle_prep_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_battle_prep_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the arena battle preparation page from bottom controls."""
-    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_BATTLE_PREP_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        ARENA_BATTLE_PREP_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     is_prep = "自动战斗" in matches["bottom_controls"] and "BATTLE" in matches["bottom_controls"]
@@ -659,9 +807,17 @@ def recognize_arena_battle_prep_labels(image: Image.Image) -> tuple[bool, dict[s
     }
 
 
-def recognize_arena_auto_battle_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_auto_battle_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the arena auto-battle dialog from its fixed controls."""
-    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_AUTO_BATTLE_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        ARENA_AUTO_BATTLE_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     required = {"自动战斗", "MAX", "取消", "10倍战斗开始"}
@@ -674,9 +830,17 @@ def recognize_arena_auto_battle_labels(image: Image.Image) -> tuple[bool, dict[s
     }
 
 
-def recognize_arena_repeat_result_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_repeat_result_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the completed repeated-battle result dialog."""
-    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_REPEAT_RESULT_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        ARENA_REPEAT_RESULT_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     # The stylized title is occasionally read poorly; three independent result
@@ -690,9 +854,17 @@ def recognize_arena_repeat_result_labels(image: Image.Image) -> tuple[bool, dict
     }
 
 
-def recognize_arena_victory_result_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_victory_result_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the arena victory page shown after closing repeated-battle results."""
-    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_VICTORY_RESULT_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        ARENA_VICTORY_RESULT_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     is_result = (
@@ -711,9 +883,17 @@ def recognize_arena_victory_result_labels(image: Image.Image) -> tuple[bool, dic
     }
 
 
-def recognize_arena_rank_change_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_arena_rank_change_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize an optional arena promotion or demotion confirmation page."""
-    grouped_texts, matches, error = _recognize_label_groups(image, ARENA_RANK_CHANGE_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        ARENA_RANK_CHANGE_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     is_rank_change = bool(matches["rank"]) and "确认" in matches["button"]
@@ -801,9 +981,17 @@ def recognize_return_home_control(image: Image.Image) -> tuple[bool, dict[str, A
     }
 
 
-def recognize_quick_hunt_map_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_quick_hunt_map_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the quick-hunt map from stable labels at fixed positions."""
-    grouped_texts, matches, error = _recognize_label_groups(image, QUICK_HUNT_MAP_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        QUICK_HUNT_MAP_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     is_quick_hunt_map = (
@@ -821,9 +1009,17 @@ def recognize_quick_hunt_map_labels(image: Image.Image) -> tuple[bool, dict[str,
     }
 
 
-def recognize_quick_hunt_setup_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_quick_hunt_setup_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize the quick-hunt setup dialog from its fixed text groups."""
-    grouped_texts, matches, error = _recognize_label_groups(image, QUICK_HUNT_SETUP_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        QUICK_HUNT_SETUP_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     has_hunt_button = any(
@@ -849,9 +1045,17 @@ def recognize_quick_hunt_setup_labels(image: Image.Image) -> tuple[bool, dict[st
     }
 
 
-def recognize_reward_overlay_labels(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+def recognize_reward_overlay_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
     """Recognize any reward overlay from its shared heading and return hint."""
-    grouped_texts, matches, error = _recognize_label_groups(image, REWARD_OVERLAY_LABEL_GROUPS)
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        REWARD_OVERLAY_LABEL_GROUPS,
+        session,
+    )
     if error is not None:
         return False, error
     is_reward_overlay = (
