@@ -736,6 +736,11 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         for texts in grouped_texts.values()
         for text in texts
     ]
+    compact_texts = [
+        re.sub(r"\s+", "", text)
+        for texts in grouped_texts.values()
+        for text in texts
+    ]
     confirm_texts = [
         _normalize_text(text)
         for text in grouped_texts["confirm_button"]
@@ -749,6 +754,8 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         for marker in ("游戏启动中", "正在启动", "正在登录", "连接服务器", "加载中")
     ):
         state = "startup_waiting"
+    elif any("PICKUP" in text and "抽抽乐" in text for text in normalized):
+        state = "startup_promotion"
     elif has_download_context and any(
         text in {"确认下载", "开始下载", "下载", "确定"}
         for text in confirm_texts
@@ -765,6 +772,11 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         for text in normalized
     ):
         state = "download_waiting"
+    elif any(
+        re.fullmatch(r"\d{1,3}(?:\.\d+)?%", text)
+        for text in compact_texts
+    ):
+        state = "startup_waiting"
     else:
         state = "unknown"
     return state, {

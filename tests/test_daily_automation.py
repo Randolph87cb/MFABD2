@@ -40,6 +40,7 @@ from daily_automation import (
 )
 from game_text_recognition import (
     recognize_arena_cartridge_bar_labels,
+    recognize_entry_status,
     recognize_return_home_control,
 )
 from daily_arena import enter_battle_prep, is_gameplay_tab_selected
@@ -550,6 +551,52 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
     def test_unknown_startup_pages_stop_after_three_confirming_frames(self) -> None:
         self.assertEqual(MAX_UNKNOWN_ENTRY_FRAMES, 3)
+
+    @patch("game_text_recognition._recognize_label_groups")
+    def test_entry_progress_percentage_is_waited(
+        self,
+        recognize_label_groups: MagicMock,
+    ) -> None:
+        recognize_label_groups.return_value = (
+            {
+                "status": [],
+                "confirm_button": [],
+                "download_progress": ["0%"],
+            },
+            {
+                "status": [],
+                "confirm_button": [],
+                "download_progress": [],
+            },
+            None,
+        )
+
+        state, _details = recognize_entry_status(Image.new("RGB", (2000, 1000)))
+
+        self.assertEqual(state, "startup_waiting")
+
+    @patch("game_text_recognition._recognize_label_groups")
+    def test_pickup_promotion_text_is_actionable(
+        self,
+        recognize_label_groups: MagicMock,
+    ) -> None:
+        recognize_label_groups.return_value = (
+            {
+                "status": [],
+                "confirm_button": [],
+                "download_progress": ["推出全新Pickup抽抽乐"],
+            },
+            {
+                "status": [],
+                "confirm_button": [],
+                "download_progress": [],
+            },
+            None,
+        )
+
+        state, _details = recognize_entry_status(Image.new("RGB", (2000, 1000)))
+
+        self.assertEqual(state, "startup_promotion")
 
     def test_bright_promotional_screen_is_actionable_during_entry(self) -> None:
         image = Image.new("RGB", (2000, 1000), "white")
