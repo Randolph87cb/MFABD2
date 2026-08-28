@@ -1234,6 +1234,17 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertEqual(availability, "used")
 
+    def test_dark_animated_gacha_page_is_recognized_from_fixed_text(self) -> None:
+        with Image.open(
+            FIXTURES / "gacha-page-dark-animation-2567x1446.png"
+        ) as image:
+            state, details = classify_state(image)
+
+        self.assertGreater(details["full"]["dark_ratio"], 0.65)
+        self.assertEqual(state, "gacha_page")
+        self.assertTrue(details["gacha_page_text"]["matches"]["title"])
+        self.assertTrue(details["gacha_page_text"]["matches"]["tabs"])
+
     def test_season_reward_overlay_sequence_is_recorded_as_a_regression(self) -> None:
         with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:
             overlay_state, _details = classify_state(overlay)

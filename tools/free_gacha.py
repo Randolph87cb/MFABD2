@@ -737,20 +737,21 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         if restaurant_state in {"restaurant_home", "restaurant_regular_customer_mode"}:
             return restaurant_state, details
 
-    gacha_like = (
+    quick_hunt_map_candidate = (
         full["dark_ratio"] < 0.65
         and left_tabs["edge_ratio"] > 0.015
         and top_title["edge_ratio"] > 0.030
     )
-    if gacha_like:
+    if quick_hunt_map_candidate:
         quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(image)
         details["quick_hunt_map_text"] = quick_hunt_map_text
         if quick_hunt_map_match:
             return "quick_hunt_map", details
-        gacha_page_match, gacha_page_text = recognize_gacha_page_labels(image)
-        details["gacha_page_text"] = gacha_page_text
-        if gacha_page_match:
-            return "gacha_page", details
+
+    gacha_page_match, gacha_page_text = recognize_gacha_page_labels(image)
+    details["gacha_page_text"] = gacha_page_text
+    if gacha_page_match:
+        return "gacha_page", details
 
     confirm_like = (
         full["dark_ratio"] > 0.45
