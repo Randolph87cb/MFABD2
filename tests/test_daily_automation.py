@@ -433,6 +433,58 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
     @patch("free_gacha._click_ratio")
     @patch("free_gacha.safe_capture_client")
+    @patch("free_gacha.classify_state")
+    def test_click_verification_extends_while_the_screen_keeps_transitioning(
+        self,
+        classify_state: MagicMock,
+        safe_capture_client: MagicMock,
+        click_ratio: MagicMock,
+    ) -> None:
+        source = Image.new("RGB", (2000, 1000), color=(180, 180, 180))
+        safe_capture_client.side_effect = [
+            Image.new("RGB", source.size, color=(140, 140, 140)),
+            Image.new("RGB", source.size, color=(90, 90, 90)),
+            Image.new("RGB", source.size, color=(30, 30, 30)),
+        ]
+        states = iter(("real_home", "real_home", "real_home", "gacha_page"))
+        clock = [0.0]
+        classify_calls = [0]
+
+        def classify(_image: Image.Image) -> tuple[str, dict[str, object]]:
+            classify_calls[0] += 1
+            if classify_calls[0] > 1:
+                clock[0] += 15.0
+            return next(states), {}
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds
+
+        classify_state.side_effect = classify
+        logger = MagicMock()
+        logger.save_image.return_value = Path("verify.png")
+        with (
+            patch("free_gacha.time.monotonic", side_effect=lambda: clock[0]),
+            patch("free_gacha.time.sleep", side_effect=sleep),
+        ):
+            ok, state, _image, _reason = click_with_fixed_retry(
+                123,
+                source,
+                "home_gacha",
+                verify=lambda candidate, _next_image: candidate == "gacha_page",
+                description="open gacha",
+                dry_run=False,
+                logger=logger,
+                verify_timeout=20.0,
+                attempts=2,
+                extend_on_visual_progress=True,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(state, "gacha_page")
+        click_ratio.assert_called_once()
+
+    @patch("free_gacha._click_ratio")
+    @patch("free_gacha.safe_capture_client")
     @patch("free_gacha.classify_state", return_value=("real_home", {}))
     def test_click_verification_stops_at_its_ten_second_limit(
         self,

@@ -1089,6 +1089,7 @@ def click_with_fixed_retry(
     verify_timeout: float = 20.0,
     attempts: int = 2,
     wait_on_unknown_transition: bool = False,
+    extend_on_visual_progress: bool = False,
 ) -> tuple[bool, str, Image.Image, str]:
     current_image = image
     source_state, _ = classify_state(image)
@@ -1101,6 +1102,8 @@ def click_with_fixed_retry(
         deadline = time.monotonic() + verify_timeout
         poll = AdaptivePoll()
         sample = 0
+        greatest_visual_difference = 0.0
+        visual_transition_detected = False
         while True:
             now = time.monotonic()
             if now >= deadline:
@@ -1118,6 +1121,11 @@ def click_with_fixed_retry(
             sample += 1
             current_image = safe_capture_client(hwnd, logger=logger)
             current_state, details = classify_state(current_image)
+            visual_difference = _mean_region_difference(
+                image,
+                current_image,
+                (0.04, 0.83, 0.60, 0.16),
+            )
             stamp = datetime.now().strftime("%H%M%S-%f")
             verify_path = logger.save_image(
                 current_image,
@@ -1137,6 +1145,25 @@ def click_with_fixed_retry(
             )
             if succeeded:
                 return True, current_state, current_image, f"{description} succeeded on attempt {attempt}"
+            if (
+                extend_on_visual_progress
+                and visual_difference >= 12.0
+                and visual_difference >= greatest_visual_difference + 3.0
+            ):
+                greatest_visual_difference = visual_difference
+                visual_transition_detected = True
+                deadline = time.monotonic() + verify_timeout
+                poll.reset()
+                logger.event(
+                    action="visual_transition_progress",
+                    key=key,
+                    description=description,
+                    attempt=attempt,
+                    sample=sample,
+                    visual_difference=round(visual_difference, 3),
+                    verify_timeout=verify_timeout,
+                )
+                continue
             if current_state in UNBOUNDED_LOADING_STATES:
                 deadline = time.monotonic() + verify_timeout
                 continue
@@ -1157,6 +1184,12 @@ def click_with_fixed_retry(
                 )
                 return False, current_state, current_image, reason
 
+        if visual_transition_detected:
+            reason = (
+                f"{description} started changing visually but stalled before the expected state; "
+                "retry cancelled"
+            )
+            return False, current_state, current_image, reason
         if attempt < attempts:
             logger.event(
                 action="retry_click",
@@ -1341,6 +1374,7 @@ def run_free_gacha(
                 description="open gacha from home",
                 dry_run=dry_run,
                 logger=logger,
+                extend_on_visual_progress=True,
             )
             if not ok:
                 logger.failure(reason)
