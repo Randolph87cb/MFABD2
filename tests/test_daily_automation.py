@@ -39,6 +39,7 @@ from daily_automation import (
     wait_for_network,
 )
 from game_text_recognition import (
+    LabelRecognitionSession,
     recognize_arena_cartridge_bar_labels,
     recognize_entry_status,
     recognize_gacha_target_labels,
@@ -72,6 +73,18 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_single_character_ocr_noise_is_not_meaningful_ui_text(self) -> None:
+        session = LabelRecognitionSession(Image.new("RGB", (80, 45)))
+        with patch.object(
+            session,
+            "_load",
+            return_value=([(0.2, 0.3, "A"), (0.6, 0.7, "M")], None),
+        ):
+            texts, error = session.meaningful_texts()
+
+        self.assertIsNone(error)
+        self.assertEqual(texts, [])
+
     def test_plaza_uses_bottom_left_chat_input_text(self) -> None:
         session = MagicMock()
         session.recognize.return_value = (
@@ -1498,9 +1511,10 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
     def test_return_home_transition_frame_is_waited_without_a_second_click(self) -> None:
         with Image.open(FIXTURES / "entry-return-home-transition-3421x1927.png") as image:
-            state, _details, entry_state, _entry_details = classify_daily_entry_context(image)
+            state, details, entry_state, _entry_details = classify_daily_entry_context(image)
 
-        self.assertEqual(state, "unknown")
+        self.assertEqual(state, "loading")
+        self.assertEqual(details["classification_rule"], "no_meaningful_text")
         self.assertEqual(entry_state, "unknown")
         self.assertTrue(return_home_transition_succeeded(state))
 

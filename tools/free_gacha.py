@@ -830,6 +830,16 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if is_home:
         return "ambiguous_home", details
 
+    meaningful_texts, meaningful_text_error = text_session.meaningful_texts()
+    details["unmatched_text"] = (
+        meaningful_text_error
+        if meaningful_text_error is not None
+        else {"available": True, "texts": meaningful_texts}
+    )
+    if meaningful_text_error is None and not meaningful_texts:
+        details["classification_rule"] = "no_meaningful_text"
+        return "loading", details
+
     return "unknown", details
 
 

@@ -420,6 +420,17 @@ class LabelRecognitionSession:
                     grouped_texts[name].append(text)
         return grouped_texts, _match_label_groups(grouped_texts, groups), None
 
+    def meaningful_texts(self) -> tuple[list[str], dict[str, Any] | None]:
+        """Return OCR text that is substantial enough to represent visible UI copy."""
+        observations, error = self._load()
+        if error is not None:
+            return [], error
+        return [
+            text
+            for _center_x, _center_y, text in observations
+            if sum(character.isalnum() for character in text) >= 2
+        ], None
+
 
 def _recognize_label_groups(
     image: Image.Image,
