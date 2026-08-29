@@ -6,8 +6,8 @@
   },
   {
     "path": "../自动化截图标注/主页过渡画面.png",
-    "expected": "home_overlay",
-    "reason": "主页活动推送应点击中间亮区外侧"
+    "expected": "blocking_ad_overlay",
+    "reason": "主页活动推送统一作为广告弹窗，应点击中间亮区外侧"
   },
   {
     "path": "../自动化截图标注/广场.png",
@@ -134,18 +134,18 @@
   },
   {
     "path": "fixtures/recognition/entry-home-signin-overlay-v2318.png",
-    "expected": "home_overlay",
-    "reason": "返回主页后的签到弹窗不能误别为 Touch To Start"
+    "expected": "blocking_ad_overlay",
+    "reason": "返回主页后的签到弹窗统一作为广告弹窗，不能误别为 Touch To Start"
   },
   {
     "path": "fixtures/recognition/entry-home-item-detail-v2318.png",
-    "expected": "home_overlay",
-    "reason": "签到物品说明弹窗不能误别为永久加载画面"
+    "expected": "blocking_ad_overlay",
+    "reason": "签到物品说明弹窗统一作为广告弹窗，不能误别为永久加载画面"
   },
   {
     "path": "fixtures/recognition/home-special-pass-overlay-3421x1927.png",
-    "expected": "home_overlay",
-    "reason": "新显示器分辨率下特别通行证弹窗不能因背后主页文字而误判为主页"
+    "expected": "blocking_ad_overlay",
+    "reason": "新显示器分辨率下特别通行证统一作为广告弹窗，不能因背后主页文字而误判为主页"
   },
   {
     "path": "fixtures/recognition/gacha-page-3421x1927.png",

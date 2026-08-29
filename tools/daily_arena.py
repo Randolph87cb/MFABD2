@@ -27,6 +27,9 @@ from game_text_recognition import recognize_arena_auto_battle_labels
 from open_game import find_game_window
 
 
+ARENA_DIALOGUE_STATES = {"unknown", "home_overlay", "blocking_ad_overlay"}
+
+
 def is_gameplay_tab_selected(image: Image.Image) -> bool:
     frame = np.asarray(image.convert("RGB"))
     selected = _stats(_roi(frame, (0.46, 0.77, 0.13, 0.10)))
@@ -237,7 +240,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
             )
             poll.reset()
             continue
-        if current_state in {"unknown", "home_overlay"} and dialogue_clicks < 12:
+        if current_state in ARENA_DIALOGUE_STATES and dialogue_clicks < 12:
             dialogue_clicks += 1
             _click_ratio(
                 hwnd,

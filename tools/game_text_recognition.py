@@ -56,6 +56,20 @@ GACHA_PAGE_LABEL_GROUPS = {
     },
 }
 
+GACHA_TARGET_LABEL_GROUPS = {
+    "title": {
+        "region": (0.00, 0.00, 0.36, 0.13),
+        "labels": (),
+    },
+}
+
+PLAZA_LABEL_GROUPS = {
+    "chat_input": {
+        "region": (0.01, 0.84, 0.30, 0.15),
+        "labels": (),
+    },
+}
+
 ALL_FREE_GACHA_LABEL_GROUPS = {
     "button": {
         "region": (0.10, 0.83, 0.16, 0.14),
@@ -528,6 +542,59 @@ def recognize_gacha_page_labels(
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"title": 1, "tabs": 1},
+    }
+
+
+def recognize_gacha_target_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[str | None, dict[str, Any]]:
+    """Recognize the selected gacha category from the fixed top-left title."""
+    grouped_texts, _matches, error = _recognize_with_session(
+        image,
+        GACHA_TARGET_LABEL_GROUPS,
+        session,
+    )
+    if error is not None:
+        return None, error
+    normalized = [_normalize_text(text) for text in grouped_texts["title"]]
+    has_costume_title = any("服装抽抽乐" in text for text in normalized)
+    has_gear_title = any("装备抽抽乐" in text for text in normalized)
+    if has_costume_title and not has_gear_title:
+        target = "costume"
+    elif has_gear_title and not has_costume_title:
+        target = "gear"
+    else:
+        target = None
+    return target, {
+        "available": True,
+        "texts": grouped_texts,
+        "target": target,
+        "requirements": {"title": "服装抽抽乐 or 装备抽抽乐"},
+    }
+
+
+def recognize_plaza_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Recognize the plaza from its fixed bottom-left chat input label."""
+    grouped_texts, _matches, error = _recognize_with_session(
+        image,
+        PLAZA_LABEL_GROUPS,
+        session,
+    )
+    if error is not None:
+        return False, error
+    normalized = [_normalize_text(text) for text in grouped_texts["chat_input"]]
+    has_chat_input = any("输入聊天内容" in text for text in normalized)
+    return has_chat_input, {
+        "available": True,
+        "texts": grouped_texts,
+        "has_chat_input": has_chat_input,
+        "requirements": {"chat_input": "输入聊天内容"},
     }
 
 

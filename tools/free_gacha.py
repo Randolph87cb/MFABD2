@@ -38,7 +38,9 @@ from game_text_recognition import (
     recognize_free_gacha_confirmation_labels,
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
+    recognize_gacha_target_labels,
     recognize_home_labels,
+    recognize_plaza_labels,
     recognize_quick_hunt_map_labels,
     recognize_reward_overlay_labels,
     recognize_quick_hunt_setup_labels,
@@ -479,6 +481,13 @@ def _mean_region_difference(
 
 
 def detect_selected_gacha_target(image: Image.Image) -> str | None:
+    text_target, text_details = recognize_gacha_target_labels(image)
+    if text_target is not None:
+        return text_target
+    if text_details.get("available") is not False:
+        return None
+
+    # Retain a visual fallback for OCR outages, but text is the primary signal.
     frame = np.asarray(image.convert("RGB"))
     costume = _stats(_roi(frame, (0.055, 0.24, 0.075, 0.12)))
     gear = _stats(_roi(frame, (0.055, 0.35, 0.075, 0.12)))
@@ -662,7 +671,8 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and home_right_events["dark_ratio"] > 0.90
     )
     if large_activity_overlay_like:
-        return "home_overlay", details
+        details["classification_rule"] = "blocking_overlay_brightness"
+        return "blocking_ad_overlay", details
 
     blocking_ad_overlay_like = (
         full["dark_ratio"] > 0.55
@@ -674,6 +684,7 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and home_right_events["dark_ratio"] > 0.90
     )
     if blocking_ad_overlay_like:
+        details["classification_rule"] = "blocking_overlay_brightness"
         return "blocking_ad_overlay", details
 
     dark_item_overlay_like = (
@@ -684,7 +695,8 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and home_bottom_nav["dark_ratio"] > 0.98
     )
     if dark_item_overlay_like:
-        return "home_overlay", details
+        details["classification_rule"] = "blocking_overlay_brightness"
+        return "blocking_ad_overlay", details
 
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:
@@ -697,6 +709,15 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     details["restaurant_text"] = restaurant_text
     if restaurant_state != "unknown":
         return restaurant_state, details
+
+    plaza_text_match, plaza_text = recognize_plaza_labels(
+        image,
+        session=text_session,
+    )
+    details["plaza_text"] = plaza_text
+    if plaza_text_match:
+        details["classification_rule"] = "plaza_text"
+        return "plaza", details
 
     quick_hunt_map_match, quick_hunt_map_text = recognize_quick_hunt_map_labels(
         image,
@@ -734,7 +755,8 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and home_bottom_nav["dark_ratio"] > 0.85
     )
     if overlay_like:
-        return "home_overlay", details
+        details["classification_rule"] = "blocking_overlay_brightness"
+        return "blocking_ad_overlay", details
 
     home_labels_match, home_text = recognize_home_labels(
         image,
@@ -800,6 +822,7 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and plaza_top_right["edge_ratio"] > 0.050
     )
     if plaza_like:
+        details["classification_rule"] = "plaza_visual_fallback"
         return "plaza", details
 
     is_home, home_scores = recognize_home_screen(image)
@@ -1003,7 +1026,7 @@ def return_home_from_plaza(
     logger: RunLogger,
     interval: float,
 ) -> tuple[bool, str]:
-    expected = {"real_home", "home_overlay"}
+    expected = {"real_home", "home_overlay", "blocking_ad_overlay"}
 
     for attempt in range(1, 3):
         logger.event(action="return_home_attempt", method="plaza_home_click", attempt=attempt)

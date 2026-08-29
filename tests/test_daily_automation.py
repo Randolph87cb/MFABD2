@@ -41,9 +41,11 @@ from daily_automation import (
 from game_text_recognition import (
     recognize_arena_cartridge_bar_labels,
     recognize_entry_status,
+    recognize_gacha_target_labels,
+    recognize_plaza_labels,
     recognize_return_home_control,
 )
-from daily_arena import enter_battle_prep, is_gameplay_tab_selected
+from daily_arena import ARENA_DIALOGUE_STATES, enter_battle_prep, is_gameplay_tab_selected
 from business_management import detect_regular_customer_note_notification
 from enter_game import TOUCH_CLICK
 from free_gacha import (
@@ -57,6 +59,7 @@ from free_gacha import (
     classify_state,
     click_with_fixed_retry,
     detect_arena_pool_click,
+    detect_selected_gacha_target,
     is_free_gacha_confirm_transition,
     run_free_gacha,
     safe_capture_client,
@@ -66,6 +69,61 @@ from free_gacha import (
 
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
+
+
+class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_plaza_uses_bottom_left_chat_input_text(self) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {"chat_input": ["输入聊天内容（最多100字）"]},
+            {"chat_input": []},
+            None,
+        )
+
+        matched, details = recognize_plaza_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertTrue(details["has_chat_input"])
+
+    def test_gacha_target_uses_top_title_text(self) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {"title": ["装备抽抽乐", "抽抽乐记录"]},
+            {"title": []},
+            None,
+        )
+
+        target, details = recognize_gacha_target_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertEqual(target, "gear")
+        self.assertEqual(details["target"], "gear")
+
+    def test_selected_gacha_target_prefers_title_over_visual_fallback(self) -> None:
+        with patch(
+            "free_gacha.recognize_gacha_target_labels",
+            return_value=("gear", {"target": "gear"}),
+        ):
+            target = detect_selected_gacha_target(Image.new("RGB", (80, 45)))
+
+        self.assertEqual(target, "gear")
+
+    def test_selected_gacha_target_does_not_guess_when_text_is_available(self) -> None:
+        with patch(
+            "free_gacha.recognize_gacha_target_labels",
+            return_value=(None, {"available": True, "target": None}),
+        ):
+            target = detect_selected_gacha_target(Image.new("RGB", (80, 45)))
+
+        self.assertIsNone(target)
+
+    def test_unified_blocking_overlay_remains_an_arena_dialogue_state(self) -> None:
+        self.assertIn("blocking_ad_overlay", ARENA_DIALOGUE_STATES)
 
 
 class OpenGameTests(unittest.TestCase):
@@ -1335,13 +1393,13 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                     state, _details = classify_state(image)
                 self.assertEqual(state, expected)
 
-    def test_season_reward_overlay_sequence_is_recorded_as_a_regression(self) -> None:
+    def test_season_reward_overlay_uses_the_unified_blocking_state(self) -> None:
         with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:
             overlay_state, _details = classify_state(overlay)
         with Image.open(FIXTURES / "arena-lobby-2567x1446.png") as lobby:
             lobby_state, _details = classify_state(lobby)
 
-        self.assertEqual(overlay_state, "home_overlay")
+        self.assertEqual(overlay_state, "blocking_ad_overlay")
         self.assertEqual(lobby_state, "arena_lobby")
 
     def test_v2318_touch_screen_is_actionable(self) -> None:
@@ -1446,18 +1504,18 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(entry_state, "unknown")
         self.assertTrue(return_home_transition_succeeded(state))
 
-    def test_known_home_overlay_wins_over_title_image_fallback(self) -> None:
+    def test_known_blocking_overlay_wins_over_title_image_fallback(self) -> None:
         with Image.open(FIXTURES / "entry-home-signin-overlay-v2318.png") as image:
             state, _details, entry_state, entry_details = classify_daily_entry_context(image)
 
-        self.assertEqual(state, "home_overlay")
+        self.assertEqual(state, "blocking_ad_overlay")
         self.assertEqual(entry_state, "unknown")
         self.assertEqual(entry_details["source"], "deferred")
 
     def test_changed_stacked_overlay_counts_as_a_successful_dismissal(self) -> None:
         with Image.open(FIXTURES / "entry-home-item-detail-v2318.png") as before:
             with Image.open(FIXTURES / "entry-home-signin-overlay-v2318.png") as after:
-                succeeded = overlay_transition_succeeded(before, "home_overlay", after)
+                succeeded = overlay_transition_succeeded(before, "blocking_ad_overlay", after)
 
         self.assertTrue(succeeded)
 
