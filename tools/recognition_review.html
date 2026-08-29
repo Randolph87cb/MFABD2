@@ -1,0 +1,765 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>界面识别审阅台</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --canvas: oklch(15% 0.008 75);
+      --sidebar: oklch(18% 0.009 75);
+      --surface: oklch(21% 0.010 75);
+      --surface-raised: oklch(24% 0.012 75);
+      --surface-strong: oklch(28% 0.014 75);
+      --line: oklch(32% 0.012 75);
+      --line-strong: oklch(40% 0.018 75);
+      --text: oklch(91% 0.012 80);
+      --text-muted: oklch(68% 0.015 75);
+      --text-faint: oklch(54% 0.012 75);
+      --accent: oklch(78% 0.13 78);
+      --accent-soft: oklch(28% 0.055 78);
+      --danger: oklch(67% 0.15 28);
+      --danger-soft: oklch(25% 0.055 28);
+      --success: oklch(72% 0.11 150);
+      --radius-s: 4px;
+      --radius-m: 8px;
+      --radius-l: 12px;
+      --gap: 12px;
+      --header-height: 64px;
+    }
+
+    * { box-sizing: border-box; }
+    html { height: 100%; background: var(--canvas); }
+    body {
+      min-height: 100%;
+      margin: 0;
+      overflow: hidden;
+      color: var(--text);
+      background: var(--canvas);
+      font-family: -apple-system, "Segoe UI Variable Text", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+      font-size: 14px;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    button, input, textarea { font: inherit; }
+    button { touch-action: manipulation; }
+    button:active { transform: scale(0.96); }
+    button:focus-visible, input:focus-visible, textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 20;
+      top: 8px;
+      left: 8px;
+      padding: 8px 12px;
+      color: var(--canvas);
+      background: var(--accent);
+      border-radius: var(--radius-s);
+      transform: translateY(-150%);
+    }
+    .skip-link:focus { transform: translateY(0); }
+
+    .topbar {
+      height: var(--header-height);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 18px;
+      background: var(--sidebar);
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand-mark {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      color: var(--canvas);
+      background: var(--accent);
+      border-radius: var(--radius-m);
+      font-family: Bahnschrift, "Segoe UI", sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 650;
+      line-height: 1.2;
+      text-wrap: balance;
+    }
+    .brand-subtitle { color: var(--text-muted); font-size: 12px; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .file-status {
+      max-width: 360px;
+      overflow: hidden;
+      color: var(--text-muted);
+      font-family: Bahnschrift, Consolas, monospace;
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .app-shell {
+      height: calc(100vh - var(--header-height));
+      display: grid;
+      grid-template-columns: 332px minmax(420px, 1fr) 356px;
+      overflow: hidden;
+    }
+    .queue, .inspector {
+      min-width: 0;
+      background: var(--sidebar);
+      overflow: hidden;
+    }
+    .queue { border-right: 1px solid var(--line); }
+    .inspector { border-left: 1px solid var(--line); }
+    .panel-scroll { height: 100%; overflow: auto; overscroll-behavior: contain; }
+    .panel-pad { padding: 14px; }
+
+    .filters { display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
+    .filter-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .filter-tab, .quiet-button, .primary-button, .danger-button {
+      min-height: 40px;
+      border: 0;
+      border-radius: var(--radius-m);
+      cursor: pointer;
+      transition-property: transform, opacity, background-color;
+      transition-duration: 140ms;
+      transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .filter-tab {
+      padding: 0 6px;
+      color: var(--text-muted);
+      background: transparent;
+      font-size: 12px;
+    }
+    .filter-tab[aria-selected="true"] { color: var(--text); background: var(--surface-strong); }
+    .search-wrap { position: relative; }
+    .search-wrap span { position: absolute; left: 12px; top: 9px; color: var(--text-faint); }
+    .search-input, .text-input, .note-input {
+      width: 100%;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-m);
+    }
+    .search-input { height: 42px; padding: 0 12px 0 34px; }
+    .text-input { height: 42px; padding: 0 11px; }
+    .note-input { min-height: 132px; padding: 10px 11px; resize: vertical; line-height: 1.65; }
+    .search-input::placeholder, .text-input::placeholder, .note-input::placeholder { color: var(--text-faint); }
+
+    .queue-summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 14px;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-variant-numeric: tabular-nums;
+    }
+    .queue-list { display: grid; gap: 3px; padding: 0 8px 14px; }
+    .queue-item {
+      width: 100%;
+      min-height: 68px;
+      display: grid;
+      grid-template-columns: 76px minmax(0, 1fr) 10px;
+      align-items: center;
+      gap: 10px;
+      padding: 7px;
+      text-align: left;
+      color: var(--text);
+      background: transparent;
+      border: 0;
+      border-radius: var(--radius-m);
+      cursor: pointer;
+      transition-property: transform, background-color;
+      transition-duration: 140ms;
+      transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .queue-item[aria-current="true"] { background: var(--surface-strong); }
+    .thumb {
+      width: 76px;
+      height: 50px;
+      display: block;
+      object-fit: cover;
+      background: var(--canvas);
+      border-radius: var(--radius-s);
+      outline: 1px solid rgba(255,255,255,0.10);
+      outline-offset: -1px;
+    }
+    .queue-copy { min-width: 0; }
+    .queue-name { overflow: hidden; font-size: 13px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+    .queue-meta { display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; color: var(--text-muted); font-size: 11px; }
+    .queue-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .issue-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--line-strong); }
+    .issue-dot.marked { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+    .group-title {
+      padding: 13px 7px 5px;
+      color: var(--text-faint);
+      font-size: 11px;
+      font-weight: 650;
+      text-transform: uppercase;
+    }
+    .show-more { width: calc(100% - 14px); margin: 10px 7px 0; }
+
+    .workspace {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      background: var(--canvas);
+      overflow: hidden;
+    }
+    .workspace-head {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 11px 18px;
+      border-bottom: 1px solid var(--line);
+    }
+    .item-heading { min-width: 0; }
+    .item-name { overflow: hidden; margin: 0; font-size: 16px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .item-path { overflow: hidden; color: var(--text-muted); font-family: Bahnschrift, Consolas, monospace; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+    .state-strip { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
+    .state-chip {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      color: var(--text-muted);
+      background: var(--surface);
+      font-family: Bahnschrift, Consolas, monospace;
+      font-size: 11px;
+    }
+    .state-chip strong { margin-right: 5px; color: var(--text-faint); font-family: inherit; font-weight: 500; }
+    .state-chip.current { color: var(--accent); background: var(--accent-soft); }
+
+    .image-stage {
+      position: relative;
+      min-height: 0;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      overflow: auto;
+      background-image:
+        linear-gradient(45deg, rgba(255,255,255,0.018) 25%, transparent 25%),
+        linear-gradient(-45deg, rgba(255,255,255,0.018) 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, rgba(255,255,255,0.018) 75%),
+        linear-gradient(-45deg, transparent 75%, rgba(255,255,255,0.018) 75%);
+      background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+      background-size: 18px 18px;
+    }
+    .main-image {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+      object-fit: contain;
+      border-radius: var(--radius-s);
+      outline: 1px solid rgba(255,255,255,0.12);
+      outline-offset: -1px;
+      box-shadow: 0 18px 50px rgba(0,0,0,0.34);
+    }
+    .empty-state { max-width: 340px; color: var(--text-muted); text-align: center; text-wrap: pretty; }
+
+    .inspector h2 { margin: 0 0 12px; font-size: 14px; font-weight: 650; }
+    .inspector-tools { display: none; }
+    .section { padding: 16px; border-bottom: 1px solid var(--line); }
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      padding: 2px 8px;
+      margin-bottom: 9px;
+      color: var(--text-muted);
+      background: var(--surface-strong);
+      border-radius: var(--radius-s);
+      font-size: 11px;
+    }
+    .reason { margin: 0; color: var(--text-muted); font-size: 13px; text-wrap: pretty; }
+    .form-stack { display: grid; gap: 12px; }
+    .field-label { display: block; margin-bottom: 5px; color: var(--text-muted); font-size: 12px; }
+    .issue-toggle {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      color: var(--text);
+      background: var(--surface);
+      border-radius: var(--radius-m);
+      cursor: pointer;
+    }
+    .issue-toggle input { width: 18px; height: 18px; accent-color: var(--danger); }
+    .form-hint { margin: -4px 0 0; color: var(--text-faint); font-size: 11px; }
+    .button-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .quiet-button, .primary-button, .danger-button { padding: 0 13px; font-weight: 600; }
+    .quiet-button { color: var(--text); background: var(--surface-strong); }
+    .primary-button { color: oklch(18% 0.02 78); background: var(--accent); }
+    .danger-button { color: var(--danger); background: var(--danger-soft); }
+    button:disabled { cursor: wait; opacity: 0.52; }
+    .save-status { min-height: 24px; color: var(--text-muted); font-size: 12px; }
+    .save-status.error { color: var(--danger); }
+    .save-status.success { color: var(--success); }
+
+    .loading-line { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 12px; }
+    .spinner { width: 12px; height: 12px; border: 2px solid var(--line-strong); border-top-color: var(--accent); border-radius: 999px; animation: spin 720ms linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    @media (hover: hover) {
+      .queue-item:hover, .filter-tab:hover, .quiet-button:hover { background: var(--surface-raised); }
+      .primary-button:hover { opacity: 0.9; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+    }
+    @media (max-width: 1180px) {
+      .app-shell { grid-template-columns: 286px minmax(360px, 1fr); }
+      .inspector { position: fixed; z-index: 10; right: 0; top: var(--header-height); bottom: 0; width: 356px; box-shadow: -16px 0 40px rgba(0,0,0,0.35); transform: translateX(100%); transition: transform 180ms cubic-bezier(0.16,1,0.3,1); }
+      .inspector.open { transform: translateX(0); }
+      .inspector-tools { position: sticky; z-index: 2; top: 0; display: flex; justify-content: flex-end; padding: 10px 16px; border-bottom: 1px solid var(--line); background: var(--sidebar); }
+      .mobile-review { display: inline-flex !important; }
+    }
+    @media (max-width: 720px) {
+      body { overflow: auto; }
+      .topbar { position: sticky; z-index: 5; top: 0; height: auto; min-height: var(--header-height); padding: 10px 12px; }
+      .brand-subtitle, .file-status { display: none; }
+      .app-shell { height: auto; min-height: calc(100vh - var(--header-height)); grid-template-columns: 1fr; overflow: visible; }
+      .queue { min-height: 42vh; border-right: 0; border-bottom: 1px solid var(--line); }
+      .queue .panel-scroll { max-height: 44vh; }
+      .workspace { min-height: 56vh; }
+      .workspace-head { align-items: flex-start; flex-direction: column; }
+      .state-strip { justify-content: flex-start; }
+      .image-stage { min-height: 52vw; padding: 10px; }
+      .inspector { top: 0; width: min(92vw, 356px); }
+      .filter-tabs { grid-template-columns: repeat(2, 1fr); }
+    }
+    .mobile-review { display: none; }
+  </style>
+</head>
+<body lang="zh">
+  <a class="skip-link" href="#main-content">跳到截图</a>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">UI</div>
+      <div>
+        <h1>界面识别审阅台</h1>
+        <div class="brand-subtitle">测试截图与每日错误，统一标注</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span class="file-status" id="file-status">正在加载标注文件</span>
+      <button class="quiet-button" id="refresh-button" type="button">刷新内容</button>
+      <button class="quiet-button mobile-review" id="mobile-review-button" type="button">填写批注</button>
+    </div>
+  </header>
+
+  <main class="app-shell" id="main-content">
+    <aside class="queue" aria-label="截图列表">
+      <div class="filters">
+        <div class="filter-tabs" role="tablist" aria-label="截图来源">
+          <button class="filter-tab" type="button" role="tab" aria-selected="true" data-filter="all">全部</button>
+          <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="test">测试</button>
+          <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="daily">每日错误</button>
+          <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="marked">已标注</button>
+        </div>
+        <label class="search-wrap">
+          <span aria-hidden="true">⌕</span>
+          <input class="search-input" id="search-input" type="search" placeholder="搜索文件名、状态、批注" aria-label="搜索截图">
+        </label>
+      </div>
+      <div class="panel-scroll">
+        <div class="queue-summary"><span id="queue-count">0 张截图</span><span id="marked-count">0 条标注</span></div>
+        <div class="queue-list" id="queue-list"></div>
+      </div>
+    </aside>
+
+    <section class="workspace" aria-label="截图预览">
+      <div class="workspace-head">
+        <div class="item-heading">
+          <p class="item-name" id="item-name">选择一张截图</p>
+          <div class="item-path" id="item-path">左侧会自动加载测试与每日失败截图</div>
+        </div>
+        <div class="state-strip" id="state-strip"></div>
+      </div>
+      <div class="image-stage" id="image-stage">
+        <p class="empty-state">从左侧选择截图。测试截图显示既有期望状态，每日错误截图显示运行时记录状态。</p>
+      </div>
+    </section>
+
+    <aside class="inspector" id="inspector" aria-label="问题批注">
+      <div class="panel-scroll">
+        <div class="inspector-tools">
+          <button class="quiet-button" id="inspector-close" type="button">关闭批注</button>
+        </div>
+        <section class="section">
+          <span class="source-badge" id="source-badge">尚未选择</span>
+          <h2>这张截图发生了什么</h2>
+          <p class="reason" id="item-reason">选择截图后显示测试说明或当天失败原因。</p>
+        </section>
+        <section class="section">
+          <h2>用当前脚本检查</h2>
+          <div class="form-stack">
+            <button class="quiet-button" id="classify-button" type="button" disabled>重新识别当前截图</button>
+            <div class="save-status" id="classify-status">识别可能需要几秒钟，只在需要时运行。</div>
+          </div>
+        </section>
+        <section class="section">
+          <h2>问题标注</h2>
+          <form class="form-stack" id="annotation-form">
+            <label class="issue-toggle">
+              <input id="issue-toggle" type="checkbox" disabled>
+              <span>这张截图的识别有问题</span>
+            </label>
+            <label>
+              <span class="field-label">正确界面</span>
+              <input class="text-input" id="correct-state" list="known-states" placeholder="例如 quick_hunt_map" disabled>
+              <datalist id="known-states"></datalist>
+            </label>
+            <label>
+              <span class="field-label">我的批注</span>
+              <textarea class="note-input" id="annotation-note" placeholder="例如：这是快速狩猎地图，不是主页弹窗；左侧能看到圣石洞穴。" disabled></textarea>
+            </label>
+            <p class="form-hint">填写正确界面或批注即可保存。网页没有清空全部标注的功能。</p>
+            <div class="button-row">
+              <button class="primary-button" id="save-button" type="submit" disabled>保存标注</button>
+              <button class="danger-button" id="remove-button" type="button" hidden>取消此条标注</button>
+            </div>
+            <div class="save-status" id="save-status" role="status"></div>
+          </form>
+        </section>
+      </div>
+    </aside>
+  </main>
+
+  <script>
+    const state = {
+      items: [],
+      selectedId: null,
+      filter: "all",
+      query: "",
+      visibleLimit: 100,
+      annotationFile: "state\\recognition_feedback.json",
+      currentResults: new Map(),
+    };
+
+    const elements = Object.fromEntries([
+      "file-status", "refresh-button", "mobile-review-button", "inspector-close", "search-input", "queue-count",
+      "marked-count", "queue-list", "item-name", "item-path", "state-strip", "image-stage",
+      "inspector", "source-badge", "item-reason", "classify-button", "classify-status",
+      "annotation-form", "issue-toggle", "correct-state", "known-states", "annotation-note",
+      "save-button", "remove-button", "save-status"
+    ].map(id => [id, document.getElementById(id)]));
+
+    function selectedItem() {
+      return state.items.find(item => item.id === state.selectedId) || null;
+    }
+
+    function searchableText(item) {
+      const annotation = item.annotation || {};
+      return [item.name, item.path, item.group, item.expected_state, item.recorded_state,
+        item.reason, annotation.correct_state, annotation.note].filter(Boolean).join(" ").toLowerCase();
+    }
+
+    function visibleItems() {
+      const query = state.query.trim().toLowerCase();
+      return state.items.filter(item => {
+        const matchesFilter = state.filter === "all" || item.source === state.filter ||
+          (state.filter === "marked" && item.annotation);
+        return matchesFilter && (!query || searchableText(item).includes(query));
+      });
+    }
+
+    function stateLabel(item) {
+      return item.expected_state || item.recorded_state || "未记录";
+    }
+
+    function updateAnnotationSummary() {
+      const count = state.items.filter(item => item.annotation).length;
+      elements["marked-count"].textContent = `${count} 条标注`;
+      elements["file-status"].textContent = `${state.annotationFile} · ${count} 条待处理`;
+    }
+
+    function renderQueue() {
+      const allItems = visibleItems();
+      const items = allItems.slice(0, state.visibleLimit);
+      elements["queue-count"].textContent = `${allItems.length} 张截图`;
+      updateAnnotationSummary();
+      elements["queue-list"].replaceChildren();
+      let lastGroup = null;
+      for (const item of items) {
+        if (item.group !== lastGroup) {
+          const heading = document.createElement("div");
+          heading.className = "group-title";
+          heading.textContent = item.group;
+          elements["queue-list"].append(heading);
+          lastGroup = item.group;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "queue-item";
+        button.dataset.id = item.id;
+        button.setAttribute("aria-current", String(item.id === state.selectedId));
+        button.addEventListener("click", () => selectItem(item.id));
+
+        const image = document.createElement("img");
+        image.className = "thumb";
+        image.src = item.image_url;
+        image.alt = "";
+        image.loading = "lazy";
+        image.width = 76;
+        image.height = 50;
+
+        const copy = document.createElement("span");
+        copy.className = "queue-copy";
+        const name = document.createElement("span");
+        name.className = "queue-name";
+        name.textContent = item.name;
+        const meta = document.createElement("span");
+        meta.className = "queue-meta";
+        const source = document.createElement("span");
+        source.textContent = item.source === "test" ? "测试" : "日志";
+        const label = document.createElement("span");
+        label.className = "queue-label";
+        label.textContent = stateLabel(item);
+        meta.append(source, document.createTextNode("·"), label);
+        copy.append(name, meta);
+
+        const dot = document.createElement("span");
+        dot.className = `issue-dot${item.annotation ? " marked" : ""}`;
+        dot.setAttribute("aria-label", item.annotation ? "已标注问题" : "未标注");
+        button.append(image, copy, dot);
+        elements["queue-list"].append(button);
+      }
+      if (!items.length) {
+        const empty = document.createElement("p");
+        empty.className = "empty-state";
+        empty.textContent = "没有符合当前筛选的截图。";
+        elements["queue-list"].append(empty);
+      }
+      if (allItems.length > items.length) {
+        const more = document.createElement("button");
+        more.type = "button";
+        more.className = "quiet-button show-more";
+        more.textContent = `再显示 ${Math.min(100, allItems.length - items.length)} 张`;
+        more.addEventListener("click", () => {
+          state.visibleLimit += 100;
+          renderQueue();
+        });
+        elements["queue-list"].append(more);
+      }
+    }
+
+    function addChip(label, value, current = false) {
+      if (value === null || value === undefined || value === "") return;
+      const chip = document.createElement("span");
+      chip.className = `state-chip${current ? " current" : ""}`;
+      const key = document.createElement("strong");
+      key.textContent = label;
+      chip.append(key, document.createTextNode(String(value)));
+      elements["state-strip"].append(chip);
+    }
+
+    function renderSelection() {
+      const item = selectedItem();
+      const disabled = !item;
+      elements["classify-button"].disabled = disabled;
+      elements["issue-toggle"].disabled = disabled;
+      elements["correct-state"].disabled = disabled;
+      elements["annotation-note"].disabled = disabled;
+      elements["save-button"].disabled = disabled;
+      if (!item) return;
+
+      elements["item-name"].textContent = item.name;
+      elements["item-path"].textContent = item.path;
+      elements["source-badge"].textContent = item.source === "test" ? "测试截图" : `每日错误 · ${item.group}`;
+      elements["item-reason"].textContent = item.reason || "没有记录说明。";
+      elements["state-strip"].replaceChildren();
+      addChip("期望", item.expected_state);
+      addChip("运行记录", item.recorded_state);
+      const current = state.currentResults.get(item.id);
+      if (current) addChip("当前脚本", current.state, true);
+
+      const image = document.createElement("img");
+      image.className = "main-image";
+      image.src = item.image_url;
+      image.alt = `${item.name} 截图`;
+      elements["image-stage"].replaceChildren(image);
+
+      const annotation = item.annotation;
+      elements["issue-toggle"].checked = Boolean(annotation);
+      elements["correct-state"].value = annotation?.correct_state || "";
+      elements["annotation-note"].value = annotation?.note || "";
+      elements["remove-button"].hidden = !annotation;
+      elements["save-status"].className = "save-status";
+      elements["save-status"].textContent = annotation ? `已保存于 ${annotation.updated_at}` : "";
+      elements["classify-status"].className = "save-status";
+      elements["classify-status"].textContent = current ? describeCurrentResult(current) : "识别可能需要几秒钟，只在需要时运行。";
+    }
+
+    function describeCurrentResult(result) {
+      const details = [];
+      if (result.target) details.push(`抽卡分类 ${result.target}`);
+      if (result.quick_hunt_category) details.push(`狩猎分类 ${result.quick_hunt_category}`);
+      if (result.quick_hunt_max === true) details.push("次数已 MAX");
+      return details.length ? details.join("，") : `当前识别为 ${result.state}`;
+    }
+
+    function selectItem(id) {
+      state.selectedId = id;
+      renderQueue();
+      renderSelection();
+    }
+
+    async function request(url, options = {}) {
+      const response = await fetch(url, options);
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || `请求失败 ${response.status}`);
+      return payload;
+    }
+
+    async function loadCatalog(preserveSelection = true) {
+      const button = elements["refresh-button"];
+      button.disabled = true;
+      button.textContent = "正在刷新";
+      try {
+        const payload = await request("/api/catalog");
+        const previousId = preserveSelection ? state.selectedId : null;
+        state.items = payload.items;
+        state.selectedId = state.items.some(item => item.id === previousId) ? previousId : state.items[0]?.id || null;
+        state.annotationFile = payload.annotation_file;
+        elements["known-states"].replaceChildren(...payload.known_states.map(value => {
+          const option = document.createElement("option");
+          option.value = value;
+          return option;
+        }));
+        renderQueue();
+        renderSelection();
+      } catch (error) {
+        elements["file-status"].textContent = error.message;
+      } finally {
+        button.disabled = false;
+        button.textContent = "刷新内容";
+      }
+    }
+
+    async function classifySelected() {
+      const item = selectedItem();
+      if (!item) return;
+      const button = elements["classify-button"];
+      button.disabled = true;
+      button.textContent = "正在识别";
+      elements["classify-status"].className = "loading-line";
+      elements["classify-status"].replaceChildren(Object.assign(document.createElement("span"), { className: "spinner" }), document.createTextNode("OCR 正在读取文字和位置"));
+      try {
+        const result = await request("/api/classify", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: item.id }),
+        });
+        state.currentResults.set(item.id, result);
+        renderSelection();
+      } catch (error) {
+        elements["classify-status"].className = "save-status error";
+        elements["classify-status"].textContent = error.message;
+      } finally {
+        button.disabled = false;
+        button.textContent = "重新识别当前截图";
+      }
+    }
+
+    async function saveAnnotation(event) {
+      event.preventDefault();
+      const item = selectedItem();
+      if (!item) return;
+      const hasIssue = elements["issue-toggle"].checked;
+      const correctState = elements["correct-state"].value.trim();
+      const note = elements["annotation-note"].value.trim();
+      if (!hasIssue) {
+        elements["save-status"].className = "save-status error";
+        elements["save-status"].textContent = "请先勾选这张截图有问题。";
+        return;
+      }
+      if (!correctState && !note) {
+        elements["save-status"].className = "save-status error";
+        elements["save-status"].textContent = "请填写正确界面或批注。";
+        return;
+      }
+      elements["save-button"].disabled = true;
+      try {
+        const payload = await request("/api/annotation", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: item.id, correct_state: correctState, note }),
+        });
+        item.annotation = payload.annotation;
+        renderQueue();
+        renderSelection();
+        elements["save-status"].className = "save-status success";
+        elements["save-status"].textContent = "标注已写入待处理文件。";
+      } catch (error) {
+        elements["save-status"].className = "save-status error";
+        elements["save-status"].textContent = error.message;
+      } finally {
+        elements["save-button"].disabled = false;
+      }
+    }
+
+    async function removeAnnotation() {
+      const item = selectedItem();
+      if (!item?.annotation) return;
+      elements["remove-button"].disabled = true;
+      try {
+        await request(`/api/annotation?id=${encodeURIComponent(item.id)}`, { method: "DELETE" });
+        item.annotation = null;
+        renderQueue();
+        renderSelection();
+        elements["save-status"].className = "save-status success";
+        elements["save-status"].textContent = "已取消这一条标注。";
+      } catch (error) {
+        elements["save-status"].className = "save-status error";
+        elements["save-status"].textContent = error.message;
+      } finally {
+        elements["remove-button"].disabled = false;
+      }
+    }
+
+    document.querySelectorAll(".filter-tab").forEach(button => {
+      button.addEventListener("click", () => {
+        state.filter = button.dataset.filter;
+        state.visibleLimit = 100;
+        document.querySelectorAll(".filter-tab").forEach(tab => tab.setAttribute("aria-selected", String(tab === button)));
+        renderQueue();
+      });
+    });
+    elements["search-input"].addEventListener("input", event => {
+      state.query = event.target.value;
+      state.visibleLimit = 100;
+      renderQueue();
+    });
+    elements["refresh-button"].addEventListener("click", () => loadCatalog(true));
+    elements["mobile-review-button"].addEventListener("click", () => elements["inspector"].classList.toggle("open"));
+    elements["inspector-close"].addEventListener("click", () => elements["inspector"].classList.remove("open"));
+    elements["classify-button"].addEventListener("click", classifySelected);
+    elements["annotation-form"].addEventListener("submit", saveAnnotation);
+    elements["remove-button"].addEventListener("click", removeAnnotation);
+    elements["issue-toggle"].addEventListener("change", () => {
+      if (!elements["issue-toggle"].checked && !selectedItem()?.annotation) {
+        elements["save-status"].textContent = "";
+      }
+    });
+
+    loadCatalog(false);
+  </script>
+</body>
+</html>
