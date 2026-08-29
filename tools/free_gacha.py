@@ -1200,7 +1200,7 @@ def click_with_fixed_retry(
             if current_state in UNBOUNDED_LOADING_STATES:
                 deadline = time.monotonic() + verify_timeout
                 continue
-            if current_state == "unknown" and wait_on_unknown_transition:
+            if current_state in {"unknown", "ambiguous_home"} and wait_on_unknown_transition:
                 logger.event(
                     action="wait_unknown_transition",
                     key=key,

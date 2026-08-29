@@ -142,6 +142,7 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         description="enter battlefield from home",
         dry_run=dry_run,
         logger=logger,
+        wait_on_unknown_transition=True,
     )
     if ok and next_state == "arena_cartridge_collection":
         ok, next_state, _next_image, reason = leave_cartridge_collection(

@@ -546,7 +546,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     @patch("free_gacha.time.sleep")
     @patch("free_gacha.safe_capture_client")
     @patch("free_gacha.classify_state")
-    def test_click_verification_waits_through_unknown_transition_without_reclicking(
+    def test_click_verification_waits_through_unknown_and_ambiguous_transitions(
         self,
         classify_state: MagicMock,
         safe_capture_client: MagicMock,
@@ -557,6 +557,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         classify_state.side_effect = [
             ("plaza", {}),
             ("unknown", {}),
+            ("ambiguous_home", {}),
             ("real_home", {}),
         ]
         safe_capture_client.return_value = image
@@ -577,7 +578,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(state, "real_home")
-        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [1, 2, 3])
         click_ratio.assert_called_once()
 
     @patch("free_gacha._click_ratio")
@@ -1017,6 +1018,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(reason, "returned to plaza")
         verify = click_with_retry.call_args.kwargs["verify"]
         self.assertTrue(verify("arena_cartridge_collection", collection_image))
+        self.assertTrue(click_with_retry.call_args.kwargs["wait_on_unknown_transition"])
         leave_collection.assert_called_once()
 
     @patch("builtins.print")
