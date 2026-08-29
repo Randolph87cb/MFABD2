@@ -43,6 +43,7 @@ from game_text_recognition import (
     LabelRecognitionSession,
     recognize_arena_cartridge_bar_labels,
     recognize_arena_cartridge_labels,
+    recognize_arena_rank_change_labels,
     recognize_entry_status,
     recognize_gacha_target_labels,
     recognize_plaza_labels,
@@ -50,6 +51,7 @@ from game_text_recognition import (
 )
 from daily_arena import (
     ARENA_DIALOGUE_STATES,
+    enter_arena_from_plaza,
     enter_battlefield,
     enter_battle_prep,
     is_gameplay_tab_selected,
@@ -81,6 +83,29 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_arena_rank_drop_text_is_a_rank_change_confirmation(self) -> None:
+        session = MagicMock()
+
+        def recognize(groups: dict[str, object]):
+            self.assertIn("段位下滑", groups["rank"]["labels"])
+            return (
+                {
+                    "rank": ["白金III", "胜利分 1618", "段位下滑。"],
+                    "button": ["确认"],
+                },
+                {"rank": ["段位下滑"], "button": ["确认"]},
+                None,
+            )
+
+        session.recognize.side_effect = recognize
+
+        matched, _details = recognize_arena_rank_change_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+
     def test_loading_cartridge_collection_uses_multiple_card_names_without_title(self) -> None:
         session = MagicMock()
         session.recognize.return_value = (
@@ -977,6 +1002,51 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertIs(image, ready_image)
         self.assertEqual(reason, "cartridge collection finished loading")
         capture_client.assert_called_once_with(123, logger=logger)
+
+    @patch("daily_arena.time.sleep")
+    @patch("daily_arena._click_ratio")
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.classify_state")
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_cartridge_route_confirms_rank_drop_before_entering_lobby(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        classify: MagicMock,
+        click_with_retry: MagicMock,
+        click_ratio: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        plaza_image = Image.new("RGB", (80, 45), color=(10, 10, 10))
+        bar_image = Image.new("RGB", (80, 45), color=(20, 20, 20))
+        gameplay_image = Image.new("RGB", (80, 45), color=(30, 30, 30))
+        rank_image = Image.new("RGB", (80, 45), color=(40, 40, 40))
+        lobby_image = Image.new("RGB", (80, 45), color=(50, 50, 50))
+        capture_client.side_effect = [plaza_image, rank_image, lobby_image]
+        classify.side_effect = [
+            ("plaza", {}),
+            ("arena_rank_change", {}),
+            ("arena_lobby", {}),
+        ]
+        click_with_retry.side_effect = [
+            (True, "arena_cartridge_bar", bar_image, "opened cartridge bar"),
+            (True, "arena_cartridge_bar", gameplay_image, "selected gameplay tab"),
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_arena_from_plaza(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertIn("arena lobby reached", reason)
+        click_names = [call.args[2] for call in click_ratio.call_args_list]
+        self.assertEqual(
+            click_names,
+            ["cartridge_first_gameplay", "arena_rank_confirm"],
+        )
 
     @patch("daily_arena.leave_cartridge_collection")
     @patch("daily_arena.click_with_fixed_retry")

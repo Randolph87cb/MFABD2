@@ -263,6 +263,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
         logger=logger,
     )
     dialogue_clicks = 0
+    rank_confirm_clicks = 0
     card_attempts = 1
     stall_timeout = 150.0
     last_progress_at = time.monotonic()
@@ -305,6 +306,22 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
             reason = f"arena lobby reached; dialogue_clicks={dialogue_clicks}"
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
+        if current_state == "arena_rank_change":
+            if rank_confirm_clicks >= 2:
+                reason = "arena rank-change confirmation did not close after 2 clicks"
+                logger.failure(reason)
+                return False, reason
+            rank_confirm_clicks += 1
+            _click_ratio(
+                hwnd,
+                current,
+                "arena_rank_confirm",
+                dry_run=False,
+                logger=logger,
+                attempt=rank_confirm_clicks,
+            )
+            poll.reset()
+            continue
         if current_state == "loading":
             last_progress_at = time.monotonic()
             continue

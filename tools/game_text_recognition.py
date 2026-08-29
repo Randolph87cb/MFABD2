@@ -176,7 +176,14 @@ ARENA_VICTORY_RESULT_LABEL_GROUPS = {
 ARENA_RANK_CHANGE_LABEL_GROUPS = {
     "rank": {
         "region": (0.33, 0.22, 0.34, 0.56),
-        "labels": ("胜利分", "恭喜晋级", "晋级", "降级"),
+        "labels": (
+            "胜利分",
+            "恭喜晋级",
+            "晋级",
+            "降级",
+            "段位上升",
+            "段位下滑",
+        ),
     },
     "button": {
         "region": (0.42, 0.86, 0.16, 0.12),
