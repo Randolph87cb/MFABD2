@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 from PIL import Image
 
-from free_gacha import classify_state, detect_selected_gacha_target
+from free_gacha import STATE_NAMES, classify_state, detect_selected_gacha_target
 from quick_hunt import detect_selected_quick_hunt_category, is_quick_hunt_count_at_max
 
 
@@ -27,6 +27,26 @@ PAGE_PATH = Path(__file__).resolve().with_name("recognition_review.html")
 ANNOTATION_FILENAME = "recognition_feedback.json"
 MAX_FAILED_RUNS = 30
 MAX_SCREENSHOTS_PER_RUN = 12
+STATE_LABELS = {
+    **STATE_NAMES,
+    "arena_repeat_battle_result": "竞技场连续战斗结果",
+}
+GACHA_TARGET_LABELS = {
+    "costume": "人物抽卡",
+    "gear": "装备抽卡",
+}
+QUICK_HUNT_CATEGORY_LABELS = {
+    "hunting_ground": "狩猎场",
+    "gold": "哥布林遗迹",
+    "slime": "史莱姆王国",
+    "crystal_cave": "圣石洞穴",
+}
+
+
+def _state_label(state: str | None) -> str | None:
+    if not state:
+        return None
+    return STATE_LABELS.get(state, "其他界面")
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -72,7 +92,9 @@ class ReviewItem:
             "path": _display_path(self.path, root),
             "image_url": f"/api/image?id={self.id}",
             "expected_state": self.expected_state,
+            "expected_state_label": _state_label(self.expected_state),
             "recorded_state": self.recorded_state,
+            "recorded_state_label": _state_label(self.recorded_state),
             "reason": self.reason,
             "run_started_at": self.run_started_at,
             "expected_target": self.expected_target,
@@ -215,6 +237,10 @@ class ReviewStore:
                 if item.path.is_file()
             ],
             "known_states": known_states,
+            "state_labels": {
+                state: _state_label(state)
+                for state in known_states
+            },
             "annotation_count": len(annotations),
             "annotation_file": _display_path(self.annotation_path, self.project_root),
             "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
@@ -243,8 +269,11 @@ class ReviewStore:
                 "name": item.name,
                 "group": item.group,
                 "expected_state": item.expected_state,
+                "expected_state_label": _state_label(item.expected_state),
                 "recorded_state": item.recorded_state,
+                "recorded_state_label": _state_label(item.recorded_state),
                 "correct_state": correct_state,
+                "correct_state_label": _state_label(correct_state),
                 "note": note,
                 "run_started_at": item.run_started_at,
                 "failure_reason": item.reason if item.source == "daily" else "",
@@ -287,8 +316,15 @@ class ReviewStore:
             quick_hunt_max = is_quick_hunt_count_at_max(image)[0]
         return {
             "state": state,
+            "state_label": _state_label(state),
             "target": target,
+            "target_label": GACHA_TARGET_LABELS.get(target) if target else None,
             "quick_hunt_category": quick_hunt_category,
+            "quick_hunt_category_label": (
+                QUICK_HUNT_CATEGORY_LABELS.get(quick_hunt_category)
+                if quick_hunt_category
+                else None
+            ),
             "quick_hunt_max": quick_hunt_max,
         }
 

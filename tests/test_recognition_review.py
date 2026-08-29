@@ -76,7 +76,11 @@ class RecognitionReviewTests(unittest.TestCase):
         test_item = next(item for item in catalog["items"] if item["source"] == "test")
         daily_item = next(item for item in catalog["items"] if item["source"] == "daily")
         self.assertEqual(test_item["expected_state"], "real_home")
+        self.assertEqual(test_item["expected_state_label"], "主页")
         self.assertEqual(daily_item["recorded_state"], "home_overlay")
+        self.assertEqual(daily_item["recorded_state_label"], "弹窗页面")
+        self.assertEqual(catalog["state_labels"]["real_home"], "主页")
+        self.assertEqual(catalog["state_labels"]["home_overlay"], "弹窗页面")
         self.assertIn("quick-hunt entry", daily_item["reason"])
 
     def test_annotation_is_written_for_the_selected_item_only(self) -> None:
@@ -92,6 +96,7 @@ class RecognitionReviewTests(unittest.TestCase):
         self.assertEqual(len(payload["items"]), 1)
         self.assertEqual(payload["items"][0]["id"], item.id)
         self.assertEqual(annotation["correct_state"], "quick_hunt_map")
+        self.assertEqual(annotation["correct_state_label"], "快速狩猎地图")
         self.assertEqual(annotation["note"], "左侧显示快速狩猎分类")
 
     def test_single_annotation_can_be_cancelled_without_a_clear_all_action(self) -> None:

@@ -45,10 +45,10 @@
       -moz-osx-font-smoothing: grayscale;
     }
 
-    button, input, textarea { font: inherit; }
+    button, input, select, textarea { font: inherit; }
     button { touch-action: manipulation; }
     button:active { transform: scale(0.96); }
-    button:focus-visible, input:focus-visible, textarea:focus-visible {
+    button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
@@ -154,6 +154,7 @@
     }
     .search-input { height: 42px; padding: 0 12px 0 34px; }
     .text-input { height: 42px; padding: 0 11px; }
+    select.text-input option { color: var(--text); background: var(--surface); }
     .note-input { min-height: 132px; padding: 10px 11px; resize: vertical; line-height: 1.65; }
     .search-input::placeholder, .text-input::placeholder, .note-input::placeholder { color: var(--text-faint); }
 
@@ -423,8 +424,9 @@
             </label>
             <label>
               <span class="field-label">正确界面</span>
-              <input class="text-input" id="correct-state" list="known-states" placeholder="例如 quick_hunt_map" disabled>
-              <datalist id="known-states"></datalist>
+              <select class="text-input" id="correct-state" disabled>
+                <option value="">请选择正确界面</option>
+              </select>
             </label>
             <label>
               <span class="field-label">我的批注</span>
@@ -450,6 +452,7 @@
       query: "",
       visibleLimit: 100,
       annotationFile: "state\\recognition_feedback.json",
+      stateLabels: {},
       currentResults: new Map(),
     };
 
@@ -457,7 +460,7 @@
       "file-status", "refresh-button", "mobile-review-button", "inspector-close", "search-input", "queue-count",
       "marked-count", "queue-list", "item-name", "item-path", "state-strip", "image-stage",
       "inspector", "source-badge", "item-reason", "classify-button", "classify-status",
-      "annotation-form", "issue-toggle", "correct-state", "known-states", "annotation-note",
+      "annotation-form", "issue-toggle", "correct-state", "annotation-note",
       "save-button", "remove-button", "save-status"
     ].map(id => [id, document.getElementById(id)]));
 
@@ -468,7 +471,8 @@
     function searchableText(item) {
       const annotation = item.annotation || {};
       return [item.name, item.path, item.group, item.expected_state, item.recorded_state,
-        item.reason, annotation.correct_state, annotation.note].filter(Boolean).join(" ").toLowerCase();
+        stateName(item.expected_state), stateName(item.recorded_state), item.reason,
+        stateName(annotation.correct_state), annotation.note].filter(Boolean).join(" ").toLowerCase();
     }
 
     function visibleItems() {
@@ -481,7 +485,25 @@
     }
 
     function stateLabel(item) {
-      return item.expected_state || item.recorded_state || "未记录";
+      return stateName(item.expected_state || item.recorded_state);
+    }
+
+    function stateName(value) {
+      if (!value) return "未记录";
+      return state.stateLabels[value] || "其他界面";
+    }
+
+    function gachaTargetName(value) {
+      return ({ costume: "人物抽卡", gear: "装备抽卡" })[value] || "其他抽卡分类";
+    }
+
+    function quickHuntCategoryName(value) {
+      return ({
+        hunting_ground: "狩猎场",
+        gold: "哥布林遗迹",
+        slime: "史莱姆王国",
+        crystal_cave: "圣石洞穴",
+      })[value] || "其他狩猎分类";
     }
 
     function updateAnnotationSummary() {
@@ -585,10 +607,18 @@
       elements["source-badge"].textContent = item.source === "test" ? "测试截图" : `每日错误 · ${item.group}`;
       elements["item-reason"].textContent = item.reason || "没有记录说明。";
       elements["state-strip"].replaceChildren();
-      addChip("期望", item.expected_state);
-      addChip("运行记录", item.recorded_state);
+      if (item.expected_state) {
+        addChip("期望", item.expected_state_label || stateName(item.expected_state));
+      }
+      if (item.recorded_state) {
+        addChip("运行记录", item.recorded_state_label || stateName(item.recorded_state));
+      }
+      if (item.expected_target) addChip("期望抽卡", gachaTargetName(item.expected_target));
+      if (item.expected_quick_hunt_category) {
+        addChip("期望狩猎", quickHuntCategoryName(item.expected_quick_hunt_category));
+      }
       const current = state.currentResults.get(item.id);
-      if (current) addChip("当前脚本", current.state, true);
+      if (current) addChip("当前脚本", current.state_label || stateName(current.state), true);
 
       const image = document.createElement("img");
       image.className = "main-image";
@@ -608,11 +638,13 @@
     }
 
     function describeCurrentResult(result) {
-      const details = [];
-      if (result.target) details.push(`抽卡分类 ${result.target}`);
-      if (result.quick_hunt_category) details.push(`狩猎分类 ${result.quick_hunt_category}`);
-      if (result.quick_hunt_max === true) details.push("次数已 MAX");
-      return details.length ? details.join("，") : `当前识别为 ${result.state}`;
+      const details = [`当前界面：${result.state_label || stateName(result.state)}`];
+      if (result.target) details.push(`抽卡分类：${result.target_label || gachaTargetName(result.target)}`);
+      if (result.quick_hunt_category) {
+        details.push(`狩猎分类：${result.quick_hunt_category_label || quickHuntCategoryName(result.quick_hunt_category)}`);
+      }
+      if (result.quick_hunt_max === true) details.push("次数已最大");
+      return details.join("，");
     }
 
     function selectItem(id) {
@@ -638,9 +670,14 @@
         state.items = payload.items;
         state.selectedId = state.items.some(item => item.id === previousId) ? previousId : state.items[0]?.id || null;
         state.annotationFile = payload.annotation_file;
-        elements["known-states"].replaceChildren(...payload.known_states.map(value => {
+        state.stateLabels = payload.state_labels || {};
+        const emptyOption = document.createElement("option");
+        emptyOption.value = "";
+        emptyOption.textContent = "请选择正确界面";
+        elements["correct-state"].replaceChildren(emptyOption, ...payload.known_states.map(value => {
           const option = document.createElement("option");
           option.value = value;
+          option.textContent = stateName(value);
           return option;
         }));
         renderQueue();
