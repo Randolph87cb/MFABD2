@@ -42,12 +42,19 @@ from daily_automation import (
 from game_text_recognition import (
     LabelRecognitionSession,
     recognize_arena_cartridge_bar_labels,
+    recognize_arena_cartridge_labels,
     recognize_entry_status,
     recognize_gacha_target_labels,
     recognize_plaza_labels,
     recognize_return_home_control,
 )
-from daily_arena import ARENA_DIALOGUE_STATES, enter_battle_prep, is_gameplay_tab_selected
+from daily_arena import (
+    ARENA_DIALOGUE_STATES,
+    enter_battlefield,
+    enter_battle_prep,
+    is_gameplay_tab_selected,
+    wait_for_cartridge_collection_ready,
+)
 from business_management import detect_regular_customer_note_notification
 from enter_game import TOUCH_CLICK
 from free_gacha import (
@@ -74,6 +81,29 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_loading_cartridge_collection_uses_multiple_card_names_without_title(self) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {
+                "title": [],
+                "gameplay_cards": ["冒险航线", "末日之书", "黄金竞技场"],
+            },
+            {
+                "title": [],
+                "gameplay_cards": ["冒险航线", "末日之书", "黄金竞技场"],
+            },
+            None,
+        )
+
+        matched, details = recognize_arena_cartridge_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertTrue(details["loading"])
+        self.assertFalse(details["ready"])
+
     def test_single_character_ocr_noise_is_not_meaningful_ui_text(self) -> None:
         session = LabelRecognitionSession(Image.new("RGB", (80, 45)))
         with patch.object(
@@ -917,6 +947,77 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertAlmostEqual(lobby_point[0], 0.422, delta=0.02)
         self.assertAlmostEqual(lobby_point[1], 0.595, delta=0.02)
         self.assertIsNone(battle_prep_point)
+
+    @patch("daily_arena.time.sleep")
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.recognize_arena_cartridge_labels")
+    def test_cartridge_collection_waits_for_title_before_returning(
+        self,
+        recognize_cartridge: MagicMock,
+        capture_client: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        loading_image = Image.new("RGB", (80, 45), color=(10, 10, 10))
+        ready_image = Image.new("RGB", (80, 45), color=(20, 20, 20))
+        recognize_cartridge.side_effect = [
+            (True, {"loading": True, "ready": False}),
+            (True, {"loading": False, "ready": True}),
+        ]
+        capture_client.return_value = ready_image
+        logger = MagicMock()
+
+        ready, image, reason = wait_for_cartridge_collection_ready(
+            123,
+            loading_image,
+            logger,
+        )
+
+        self.assertTrue(ready)
+        self.assertIs(image, ready_image)
+        self.assertEqual(reason, "cartridge collection finished loading")
+        capture_client.assert_called_once_with(123, logger=logger)
+
+    @patch("daily_arena.leave_cartridge_collection")
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.classify_state", return_value=("real_home", {}))
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_battlefield_entry_continues_from_cartridge_collection(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify: MagicMock,
+        click_with_retry: MagicMock,
+        leave_collection: MagicMock,
+    ) -> None:
+        home_image = Image.new("RGB", (80, 45), color=(10, 10, 10))
+        collection_image = Image.new("RGB", (80, 45), color=(20, 20, 20))
+        plaza_image = Image.new("RGB", (80, 45), color=(30, 30, 30))
+        capture_client.return_value = home_image
+        click_with_retry.return_value = (
+            True,
+            "arena_cartridge_collection",
+            collection_image,
+            "opened cartridge collection",
+        )
+        leave_collection.return_value = (
+            True,
+            "plaza",
+            plaza_image,
+            "returned to plaza",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_battlefield(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to plaza")
+        verify = click_with_retry.call_args.kwargs["verify"]
+        self.assertTrue(verify("arena_cartridge_collection", collection_image))
+        leave_collection.assert_called_once()
 
     @patch("builtins.print")
     def test_arena_pool_loading_transition_waits_for_battle_prep(

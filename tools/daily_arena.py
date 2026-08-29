@@ -23,17 +23,78 @@ from free_gacha import (
     safe_capture_client,
     wait_for_state,
 )
-from game_text_recognition import recognize_arena_auto_battle_labels
+from game_text_recognition import (
+    recognize_arena_auto_battle_labels,
+    recognize_arena_cartridge_labels,
+)
 from open_game import find_game_window
 
 
 ARENA_DIALOGUE_STATES = {"unknown", "home_overlay", "blocking_ad_overlay"}
+ARENA_ENTRY_DESTINATIONS = {"plaza", "arena_lobby"}
 
 
 def is_gameplay_tab_selected(image: Image.Image) -> bool:
     frame = np.asarray(image.convert("RGB"))
     selected = _stats(_roi(frame, (0.46, 0.77, 0.13, 0.10)))
     return selected["edge_ratio"] > 0.045 and selected["bright_ratio"] > 0.025
+
+
+def wait_for_cartridge_collection_ready(
+    hwnd: int,
+    image: Image.Image,
+    logger: RunLogger,
+    *,
+    timeout: float = 60.0,
+) -> tuple[bool, Image.Image, str]:
+    current = image
+    deadline = time.monotonic() + timeout
+    poll = AdaptivePoll()
+    sample = 0
+    while True:
+        sample += 1
+        matched, details = recognize_arena_cartridge_labels(current)
+        logger.event(
+            action="wait_cartridge_collection_ready",
+            sample=sample,
+            matched=matched,
+            ready=details.get("ready", False),
+            details=details,
+        )
+        if matched and details.get("ready"):
+            return True, current, "cartridge collection finished loading"
+        now = time.monotonic()
+        if now >= deadline:
+            return False, current, "cartridge collection did not finish loading"
+        time.sleep(poll.next_delay(remaining=deadline - now))
+        current = safe_capture_client(hwnd, logger=logger)
+
+
+def leave_cartridge_collection(
+    hwnd: int,
+    image: Image.Image,
+    logger: RunLogger,
+    *,
+    dry_run: bool,
+) -> tuple[bool, str, Image.Image, str]:
+    ready_image = image
+    if not dry_run:
+        ready, ready_image, reason = wait_for_cartridge_collection_ready(
+            hwnd,
+            image,
+            logger,
+        )
+        if not ready:
+            return False, "arena_cartridge_collection", ready_image, reason
+    return click_with_fixed_retry(
+        hwnd,
+        ready_image,
+        "result_back",
+        verify=lambda candidate, _image: candidate in ARENA_ENTRY_DESTINATIONS,
+        description="leave cartridge collection for battlefield",
+        dry_run=dry_run,
+        logger=logger,
+    )
 
 
 def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
@@ -53,20 +114,42 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         reason = "already in arena lobby"
         logger.event(action="stop", result="success", state=state, reason=reason)
         return True, reason
+    if state == "arena_cartridge_collection":
+        ok, next_state, _next_image, reason = leave_cartridge_collection(
+            hwnd,
+            image,
+            logger,
+            dry_run=dry_run,
+        )
+        result = "success" if ok else "error"
+        logger.event(action="stop", result=result, state=next_state, reason=reason)
+        if not ok:
+            logger.failure(reason)
+        return ok, reason
     if state != "real_home":
         reason = f"return-battlefield entry requires real_home; current state={state}"
         logger.failure(reason)
         return False, reason
 
-    ok, next_state, _next_image, reason = click_with_fixed_retry(
+    ok, next_state, next_image, reason = click_with_fixed_retry(
         hwnd,
         image,
         "home_return_battlefield",
-        verify=lambda candidate, _image: candidate in {"plaza", "arena_lobby"},
+        verify=lambda candidate, _image: candidate in {
+            *ARENA_ENTRY_DESTINATIONS,
+            "arena_cartridge_collection",
+        },
         description="enter battlefield from home",
         dry_run=dry_run,
         logger=logger,
     )
+    if ok and next_state == "arena_cartridge_collection":
+        ok, next_state, _next_image, reason = leave_cartridge_collection(
+            hwnd,
+            next_image,
+            logger,
+            dry_run=dry_run,
+        )
     result = "success" if ok else "error"
     logger.event(action="stop", result=result, state=next_state, reason=reason)
     if not ok:

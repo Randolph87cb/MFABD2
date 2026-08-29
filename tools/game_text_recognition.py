@@ -103,7 +103,15 @@ ARENA_CARTRIDGE_LABEL_GROUPS = {
     },
     "gameplay_cards": {
         "region": (0.04, 0.34, 0.84, 0.36),
-        "labels": ("玩法游戏卡", "黄金竞技场", "奇幻广场"),
+        "labels": (
+            "玩法游戏卡",
+            "恶魔城",
+            "冒险航线",
+            "末日之书",
+            "黄金竞技场",
+            "魂之盘",
+            "奇幻广场",
+        ),
     },
 }
 
@@ -798,12 +806,21 @@ def recognize_arena_cartridge_labels(
     )
     if error is not None:
         return False, error
-    is_collection = bool(matches["title"]) and bool(matches["gameplay_cards"])
+    title_visible = bool(matches["title"])
+    gameplay_match_count = len(matches["gameplay_cards"])
+    is_collection = (
+        title_visible and gameplay_match_count >= 1
+    ) or gameplay_match_count >= 3
     return is_collection, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,
-        "requirements": {"title": 1, "gameplay_cards": 1},
+        "ready": title_visible,
+        "loading": is_collection and not title_visible,
+        "requirements": {
+            "ready": {"title": 1, "gameplay_cards": 1},
+            "loading": {"gameplay_cards": 3},
+        },
     }
 
 
