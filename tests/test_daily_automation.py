@@ -30,6 +30,7 @@ from daily_automation import (
     ensure_home,
     game_day_key,
     mute_game_audio,
+    open_failure_review,
     overlay_transition_succeeded,
     recognize_daily_entry_state,
     return_home_transition_succeeded,
@@ -191,6 +192,53 @@ class OpenGameTests(unittest.TestCase):
 
 
 class DailyAutomationStateTests(unittest.TestCase):
+    @patch("daily_automation.subprocess.Popen")
+    @patch("daily_automation.webbrowser.open")
+    @patch("daily_automation.urllib.request.urlopen")
+    def test_failure_review_reuses_running_server(
+        self,
+        urlopen: MagicMock,
+        browser_open: MagicMock,
+        popen: MagicMock,
+    ) -> None:
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"items": []}'
+        urlopen.return_value = response
+
+        result = open_failure_review(Path("D:/project"))
+
+        self.assertEqual(result, "reused")
+        browser_open.assert_called_once_with("http://127.0.0.1:8787/?filter=daily")
+        popen.assert_not_called()
+
+    @patch("daily_automation.subprocess.Popen")
+    @patch("daily_automation.time.sleep")
+    @patch("daily_automation.webbrowser.open")
+    @patch("daily_automation.urllib.request.urlopen", side_effect=OSError("not running"))
+    def test_failure_review_starts_server_when_needed(
+        self,
+        _urlopen: MagicMock,
+        browser_open: MagicMock,
+        sleep: MagicMock,
+        popen: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            script = root / "tools" / "recognition_review.py"
+            script.parent.mkdir()
+            script.touch()
+
+            result = open_failure_review(root)
+
+        self.assertEqual(result, "started")
+        command = popen.call_args.args[0]
+        self.assertEqual(command[0], sys.executable)
+        self.assertEqual(Path(command[1]).name, "recognition_review.py")
+        self.assertIn("--no-browser", command)
+        self.assertEqual(popen.call_args.kwargs["cwd"], str(root))
+        sleep.assert_called_once_with(0.4)
+        browser_open.assert_called_once_with("http://127.0.0.1:8787/?filter=daily")
+
     def test_adaptive_poll_uses_fibonacci_like_delays_and_caps_at_eight(self) -> None:
         poll = AdaptivePoll()
 

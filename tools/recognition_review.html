@@ -445,10 +445,12 @@
   </main>
 
   <script>
+    const requestedFilter = new URLSearchParams(window.location.search).get("filter");
+    const initialFilter = ["all", "test", "daily", "marked"].includes(requestedFilter) ? requestedFilter : "all";
     const state = {
       items: [],
       selectedId: null,
-      filter: "all",
+      filter: initialFilter,
       query: "",
       visibleLimit: 100,
       annotationFile: "state\\recognition_feedback.json",
@@ -668,7 +670,8 @@
         const payload = await request("/api/catalog");
         const previousId = preserveSelection ? state.selectedId : null;
         state.items = payload.items;
-        state.selectedId = state.items.some(item => item.id === previousId) ? previousId : state.items[0]?.id || null;
+        const previousVisible = visibleItems().some(item => item.id === previousId);
+        state.selectedId = previousVisible ? previousId : visibleItems()[0]?.id || null;
         state.annotationFile = payload.annotation_file;
         state.stateLabels = payload.state_labels || {};
         const emptyOption = document.createElement("option");
@@ -772,6 +775,7 @@
     }
 
     document.querySelectorAll(".filter-tab").forEach(button => {
+      button.setAttribute("aria-selected", String(button.dataset.filter === state.filter));
       button.addEventListener("click", () => {
         state.filter = button.dataset.filter;
         state.visibleLimit = 100;

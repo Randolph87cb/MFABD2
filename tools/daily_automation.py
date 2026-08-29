@@ -6,11 +6,13 @@ import argparse
 import ctypes
 import json
 import os
+import subprocess
 import sys
 import time
 import traceback
 import urllib.error
 import urllib.request
+import webbrowser
 from ctypes import wintypes
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -81,6 +83,8 @@ ENTRY_WAITING_STATES = {
 }
 MAX_UNKNOWN_ENTRY_FRAMES = 3
 DAILY_RESET_HOUR = 8
+FAILURE_REVIEW_URL = "http://127.0.0.1:8787/?filter=daily"
+FAILURE_REVIEW_CATALOG_URL = "http://127.0.0.1:8787/api/catalog"
 
 MASTER_STAGE_NAMES = {
     "daily": "每日任务",
@@ -178,6 +182,47 @@ class MasterLogger:
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
+
+
+def open_failure_review(project_root: Path) -> str:
+    """Open the daily-error review page, starting its local server when needed."""
+    try:
+        with urllib.request.urlopen(FAILURE_REVIEW_CATALOG_URL, timeout=1.0) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        server_ready = isinstance(payload, dict) and isinstance(payload.get("items"), list)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        server_ready = False
+
+    if server_ready:
+        webbrowser.open(FAILURE_REVIEW_URL)
+        return "reused"
+
+    review_script = project_root / "tools" / "recognition_review.py"
+    if not review_script.is_file():
+        raise DailyRunError(f"找不到界面标注工具：{review_script}")
+    subprocess.Popen(
+        [sys.executable, str(review_script), "--no-browser"],
+        cwd=str(project_root),
+        creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+    )
+    time.sleep(0.4)
+    webbrowser.open(FAILURE_REVIEW_URL)
+    return "started"
+
+
+def present_failure_review(project_root: Path) -> None:
+    """Explain the failure handoff in Chinese without hiding the original error."""
+    print("", flush=True)
+    print("[每日任务失败] 中文运行日志已保留在上方。", flush=True)
+    try:
+        disposition = open_failure_review(project_root)
+    except Exception as exc:  # noqa: BLE001 - review failure must not replace the task error.
+        print(f"[每日任务失败] 标注网站未能自动打开：{exc}", file=sys.stderr, flush=True)
+        print("[每日任务失败] 可手动运行 review_recognition.cmd。", flush=True)
+        return
+    action = "已打开现有标注网站" if disposition == "reused" else "已启动标注网站"
+    print(f"[每日任务失败] {action}：{FAILURE_REVIEW_URL}", flush=True)
+    print("[每日任务失败] 请在“每日错误”中选择有问题的截图并填写批注。", flush=True)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -1120,8 +1165,11 @@ def main() -> None:
                 network_timeout=args.network_timeout,
             )
     except DailyRunError as exc:
-        print(f"daily_automation_error={exc}", file=sys.stderr)
+        print(f"[每日任务失败] 无法继续运行：{exc}", file=sys.stderr, flush=True)
+        present_failure_review(project_root)
         raise SystemExit(2) from exc
+    if result != 0:
+        present_failure_review(project_root)
     raise SystemExit(result)
 
 
