@@ -27,6 +27,7 @@ if str(TOOLS_DIR) not in sys.path:
 from enter_game import TOUCH_CLICK, recognize_entry_state  # noqa: E402
 from adaptive_wait import AdaptivePoll  # noqa: E402
 from free_gacha import (  # noqa: E402
+    CLICK_POINTS,
     RunLogger,
     _click_ratio,
     _mean_region_difference,
@@ -619,6 +620,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     mute_attempt = 0
     next_mute_attempt = 0.0
     unknown_entry_frames = 0
+    terms_agreement_attempts = 0
     poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
         if not audio_muted and time.monotonic() >= next_mute_attempt:
@@ -694,6 +696,46 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                 screenshot=str(path),
             )
             time.sleep(poll.next_delay())
+            continue
+        if state == "terms_agreement":
+            terms_agreement_attempts += 1
+            if terms_agreement_attempts > 2:
+                reason = "game terms agreement did not close after 2 attempts"
+                logger.failure(reason)
+                return False, reason
+            _click_logged_ratio(
+                hwnd,
+                image,
+                CLICK_POINTS["terms_all_agree"],
+                key="terms_all_agree",
+                logger=logger,
+                attempt=terms_agreement_attempts,
+            )
+            time.sleep(poll.next_delay())
+            ok, next_state, _next_image, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "terms_start",
+                verify=lambda candidate, _image: candidate != "terms_agreement",
+                description="accept game terms and start",
+                dry_run=False,
+                logger=logger,
+                attempts=1,
+                wait_on_unknown_transition=True,
+            )
+            if ok:
+                touch_screen_seen = True
+                last_progress_at = time.monotonic()
+                poll.reset()
+                logger.event(
+                    action="progress",
+                    reason="game_terms_accepted",
+                    next_state=next_state,
+                    stall_timeout=timeout,
+                )
+            elif terms_agreement_attempts >= 2:
+                logger.failure(reason)
+                return False, reason
             continue
         if state == "loading":
             last_progress_at = time.monotonic()

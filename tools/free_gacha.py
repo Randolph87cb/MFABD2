@@ -47,6 +47,7 @@ from game_text_recognition import (
     recognize_quick_hunt_setup_labels,
     recognize_regular_customer_notes_labels,
     recognize_restaurant_state,
+    recognize_terms_agreement_labels,
 )
 from open_game import find_game_window
 from win32_windowpos_click import click_client
@@ -100,6 +101,8 @@ CLICK_POINTS = {
     "all_free": (0.178, 0.895),
     "confirm": (0.548, 0.598),
     "startup_promotion": (0.74, 0.70),
+    "terms_all_agree": (0.388, 0.417),
+    "terms_start": (0.500, 0.655),
     "skip_animation": (0.930, 0.055),
     "result_back": (0.090, 0.045),
 }
@@ -150,6 +153,7 @@ FLOW_NAMES = {
 STATE_NAMES = {
     "unknown": "无法识别",
     "loading": "加载中",
+    "terms_agreement": "游戏使用条款",
     "entry_screen": "游戏开始界面",
     "touch_ready": "点击开始界面",
     "download_waiting": "正在下载",
@@ -194,6 +198,8 @@ CLICK_NAMES = {
     "all_free": "免费抽卡",
     "confirm": "确认抽卡",
     "startup_promotion": "继续新卡展示",
+    "terms_all_agree": "全部同意游戏条款",
+    "terms_start": "开始游戏",
     "skip_animation": "跳过抽卡动画",
     "result_back": "返回",
     "quick_hunt": "快速狩猎",
@@ -582,6 +588,15 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         return "loading", details
 
     text_session = LabelRecognitionSession(image)
+
+    terms_match, terms_text = recognize_terms_agreement_labels(
+        image,
+        session=text_session,
+    )
+    details["terms_agreement_text"] = terms_text
+    if terms_match:
+        details["classification_rule"] = "terms_agreement_text"
+        return "terms_agreement", details
 
     game_loading_match, game_loading_text = recognize_game_loading_labels(
         image,

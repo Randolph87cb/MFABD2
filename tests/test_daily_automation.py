@@ -49,6 +49,7 @@ from game_text_recognition import (
     recognize_game_loading_labels,
     recognize_plaza_labels,
     recognize_return_home_control,
+    recognize_terms_agreement_labels,
 )
 from daily_arena import (
     ARENA_DIALOGUE_STATES,
@@ -84,6 +85,29 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_terms_dialog_requires_all_three_positioned_labels(self) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {
+                "header": ["同意《棕色尘埃2》使用条款"],
+                "agreement": ["全部同意"],
+                "start_button": ["开始游戏"],
+            },
+            {
+                "header": ["使用条款"],
+                "agreement": ["全部同意"],
+                "start_button": ["开始游戏"],
+            },
+            None,
+        )
+
+        matched, _details = recognize_terms_agreement_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+
     def test_mirror_wars_title_and_percentage_are_a_loading_screen(self) -> None:
         session = MagicMock()
 
@@ -1496,6 +1520,46 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(reason, "game is ready at state=arena_lobby")
+
+    @patch("builtins.print")
+    def test_enter_game_accepts_terms_before_continuing(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        contexts = iter(
+            (
+                ("terms_agreement", {}, "unknown", {}),
+                ("real_home", {}, "unknown", {}),
+            )
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_automation.find_game_window", return_value=123),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_daily_entry_context",
+                side_effect=lambda _image: next(contexts),
+            ),
+            patch("daily_automation._click_logged_ratio") as click_logged,
+            patch(
+                "daily_automation.click_with_fixed_retry",
+                return_value=(True, "loading", image, "accepted terms"),
+            ) as click_with_retry,
+        ):
+            ok, reason = enter_game_logged(
+                timeout=30.0,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "game is ready at state=real_home")
+        self.assertEqual(click_logged.call_args.kwargs["key"], "terms_all_agree")
+        self.assertEqual(click_with_retry.call_args.args[2], "terms_start")
 
     @patch("builtins.print")
     def test_enter_game_timeout_tracks_progress_not_total_duration(

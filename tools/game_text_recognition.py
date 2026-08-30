@@ -202,6 +202,21 @@ GAME_LOADING_LABEL_GROUPS = {
     },
 }
 
+TERMS_AGREEMENT_LABEL_GROUPS = {
+    "header": {
+        "region": (0.28, 0.27, 0.44, 0.18),
+        "labels": ("使用条款",),
+    },
+    "agreement": {
+        "region": (0.28, 0.36, 0.44, 0.18),
+        "labels": ("全部同意",),
+    },
+    "start_button": {
+        "region": (0.36, 0.58, 0.28, 0.14),
+        "labels": ("开始游戏",),
+    },
+}
+
 QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
@@ -1044,6 +1059,36 @@ def recognize_game_loading_labels(
         "requirements": {
             "title": ["镜中之战", "or MIRROR + WARS"],
             "progress": "N%",
+        },
+    }
+
+
+def recognize_terms_agreement_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Recognize the first-launch terms dialog by its fixed Chinese controls."""
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        TERMS_AGREEMENT_LABEL_GROUPS,
+        session,
+    )
+    if error is not None:
+        return False, error
+    is_terms = (
+        "使用条款" in matches["header"]
+        and "全部同意" in matches["agreement"]
+        and "开始游戏" in matches["start_button"]
+    )
+    return is_terms, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {
+            "header": ["使用条款"],
+            "agreement": ["全部同意"],
+            "start_button": ["开始游戏"],
         },
     }
 
