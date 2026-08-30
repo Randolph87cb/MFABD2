@@ -191,6 +191,17 @@ ARENA_RANK_CHANGE_LABEL_GROUPS = {
     },
 }
 
+GAME_LOADING_LABEL_GROUPS = {
+    "title": {
+        "region": (0.28, 0.28, 0.44, 0.38),
+        "labels": ("MIRROR", "WARS", "镜中之战"),
+    },
+    "progress": {
+        "region": (0.88, 0.82, 0.11, 0.17),
+        "labels": (),
+    },
+}
+
 QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
@@ -1004,6 +1015,36 @@ def recognize_arena_rank_change_labels(
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"rank": 1, "button": ["确认"]},
+    }
+
+
+def recognize_game_loading_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Recognize the Mirror Wars loading page by title and percentage text."""
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        GAME_LOADING_LABEL_GROUPS,
+        session,
+    )
+    if error is not None:
+        return False, error
+
+    title_matches = set(matches["title"])
+    has_title = "镜中之战" in title_matches or {"MIRROR", "WARS"} <= title_matches
+    normalized_progress = [_normalize_text(text) for text in grouped_texts["progress"]]
+    has_progress = any(re.fullmatch(r"\d{1,3}", text) for text in normalized_progress)
+    return has_title and has_progress, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "has_progress": has_progress,
+        "requirements": {
+            "title": ["镜中之战", "or MIRROR + WARS"],
+            "progress": "N%",
+        },
     }
 
 

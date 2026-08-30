@@ -717,6 +717,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                 attempts=1,
             )
             if ok:
+                touch_screen_seen = True
                 last_progress_at = time.monotonic()
                 logger.event(
                     action="progress",

@@ -46,6 +46,7 @@ from game_text_recognition import (
     recognize_arena_rank_change_labels,
     recognize_entry_status,
     recognize_gacha_target_labels,
+    recognize_game_loading_labels,
     recognize_plaza_labels,
     recognize_return_home_control,
 )
@@ -83,6 +84,27 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_mirror_wars_title_and_percentage_are_a_loading_screen(self) -> None:
+        session = MagicMock()
+
+        def recognize(groups: dict[str, object]):
+            self.assertEqual(groups["title"]["labels"], ("MIRROR", "WARS", "镜中之战"))
+            return (
+                {"title": ["MIRROR", "WARS", "镜中之战"], "progress": ["0%"]},
+                {"title": ["MIRROR", "WARS", "镜中之战"], "progress": []},
+                None,
+            )
+
+        session.recognize.side_effect = recognize
+
+        matched, details = recognize_game_loading_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertTrue(details["has_progress"])
+
     def test_arena_rank_drop_text_is_a_rank_change_confirmation(self) -> None:
         session = MagicMock()
 
@@ -1437,6 +1459,43 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                 for call in click_with_fixed_retry.call_args_list
             )
         )
+
+    @patch("builtins.print")
+    def test_cold_launch_promotion_can_resume_directly_in_arena_lobby(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        contexts = iter(
+            (
+                ("entry_screen", {}, "startup_promotion", {}),
+                ("arena_lobby", {}, "unknown", {}),
+            )
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_automation.find_game_window", return_value=0),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_daily_entry_context",
+                side_effect=lambda _image: next(contexts),
+            ),
+            patch(
+                "daily_automation.click_with_fixed_retry",
+                return_value=(True, "loading", image, "advanced promotion"),
+            ),
+        ):
+            ok, reason = enter_game_logged(
+                timeout=30.0,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "game is ready at state=arena_lobby")
 
     @patch("builtins.print")
     def test_enter_game_timeout_tracks_progress_not_total_duration(

@@ -39,6 +39,7 @@ from game_text_recognition import (
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
     recognize_gacha_target_labels,
+    recognize_game_loading_labels,
     recognize_home_labels,
     recognize_plaza_labels,
     recognize_quick_hunt_map_labels,
@@ -581,6 +582,15 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         return "loading", details
 
     text_session = LabelRecognitionSession(image)
+
+    game_loading_match, game_loading_text = recognize_game_loading_labels(
+        image,
+        session=text_session,
+    )
+    details["game_loading_text"] = game_loading_text
+    if game_loading_match:
+        details["classification_rule"] = "game_loading_text"
+        return "loading", details
 
     reward_overlay_match, reward_overlay_text = recognize_reward_overlay_labels(
         image,
