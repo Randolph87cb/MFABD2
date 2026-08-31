@@ -1309,6 +1309,9 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "returned to real_home")
         self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_home")
+        self.assertTrue(
+            click_with_fixed_retry.call_args.kwargs["wait_on_unknown_transition"]
+        )
 
     @patch("daily_automation.click_with_fixed_retry")
     @patch("daily_automation.classify_state")
