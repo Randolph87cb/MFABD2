@@ -49,6 +49,7 @@ from game_text_recognition import (
     recognize_game_loading_labels,
     recognize_plaza_labels,
     recognize_return_home_control,
+    recognize_reward_overlay_labels,
     recognize_terms_agreement_labels,
 )
 from daily_arena import (
@@ -85,6 +86,37 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_season_reward_and_return_hint_form_an_actionable_overlay(self) -> None:
+        session = MagicMock()
+
+        def recognize(groups: dict[str, object]):
+            header_x, header_y, header_width, header_height = groups["header"]["region"]
+            footer_x, footer_y, footer_width, footer_height = groups["footer"]["region"]
+            self.assertTrue(header_x <= 0.666 <= header_x + header_width)
+            self.assertTrue(header_y <= 0.236 <= header_y + header_height)
+            self.assertTrue(footer_x <= 0.664 <= footer_x + footer_width)
+            self.assertTrue(footer_y <= 0.777 <= footer_y + footer_height)
+            return (
+                {
+                    "header": ["赛季奖励"],
+                    "footer": ["点击画面即可返回。"],
+                },
+                {
+                    "header": ["赛季奖励"],
+                    "footer": ["点击画面即可返回"],
+                },
+                None,
+            )
+
+        session.recognize.side_effect = recognize
+
+        matched, _details = recognize_reward_overlay_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+
     def test_terms_dialog_requires_all_three_positioned_labels(self) -> None:
         session = MagicMock()
         session.recognize.return_value = (
@@ -1750,7 +1782,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                     state, _details = classify_state(image)
                 self.assertEqual(state, expected)
 
-    def test_season_reward_overlay_uses_the_unified_blocking_state(self) -> None:
+    def test_season_reward_without_return_hint_remains_a_blocking_overlay(self) -> None:
         with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:
             overlay_state, _details = classify_state(overlay)
         with Image.open(FIXTURES / "arena-lobby-2567x1446.png") as lobby:

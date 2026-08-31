@@ -245,11 +245,11 @@ QUICK_HUNT_SETUP_LABEL_GROUPS = {
 
 REWARD_OVERLAY_LABEL_GROUPS = {
     "header": {
-        "region": (0.40, 0.28, 0.20, 0.11),
-        "labels": ("REWARD",),
+        "region": (0.38, 0.16, 0.38, 0.26),
+        "labels": ("REWARD", "赛季奖励"),
     },
     "footer": {
-        "region": (0.38, 0.88, 0.25, 0.08),
+        "region": (0.38, 0.72, 0.38, 0.24),
         "labels": ("点击画面即可返回",),
     },
 }
@@ -1246,10 +1246,7 @@ def recognize_reward_overlay_labels(
     )
     if error is not None:
         return False, error
-    is_reward_overlay = (
-        "REWARD" in matches["header"]
-        and "点击画面即可返回" in matches["footer"]
-    )
+    is_reward_overlay = bool(matches["header"]) and "点击画面即可返回" in matches["footer"]
     return is_reward_overlay, {
         "available": True,
         "texts": grouped_texts,
