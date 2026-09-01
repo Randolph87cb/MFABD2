@@ -45,6 +45,7 @@ from game_text_recognition import (
     recognize_arena_cartridge_labels,
     recognize_arena_rank_change_labels,
     recognize_entry_status,
+    recognize_gacha_animation_labels,
     recognize_gacha_target_labels,
     recognize_game_loading_labels,
     recognize_plaza_labels,
@@ -86,6 +87,37 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_equipment_reveal_uses_positioned_detail_labels(self) -> None:
+        session = MagicMock()
+
+        def recognize(groups: dict[str, object]):
+            x, y, width, height = groups["equipment_details"]["region"]
+            self.assertLessEqual(x, 0.07)
+            self.assertLessEqual(y, 0.15)
+            self.assertGreaterEqual(x + width, 0.25)
+            self.assertGreaterEqual(y + height, 0.40)
+            return (
+                {
+                    "equipment_details": [
+                        "EQUIPMENT TYPE",
+                        "WEAPON",
+                        "威格 专用装备",
+                    ]
+                },
+                {"equipment_details": ["EQUIPMENT TYPE", "WEAPON", "专用装备"]},
+                None,
+            )
+
+        session.recognize.side_effect = recognize
+
+        matched, details = recognize_gacha_animation_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertEqual(len(details["matches"]["equipment_details"]), 3)
+
     def test_season_reward_and_return_hint_form_an_actionable_overlay(self) -> None:
         session = MagicMock()
 
@@ -853,6 +885,38 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                 },
             )
         )
+
+    @patch("free_gacha.recognize_gacha_animation_labels")
+    @patch("game_text_recognition._ocr_engine")
+    def test_equipment_reveal_text_and_skip_control_override_background_brightness(
+        self,
+        ocr_engine: MagicMock,
+        recognize_animation: MagicMock,
+    ) -> None:
+        ocr_result = MagicMock(boxes=None, txts=None, scores=None)
+        ocr_engine.return_value = MagicMock(return_value=ocr_result)
+        recognize_animation.return_value = (
+            True,
+            {
+                "available": True,
+                "matches": {
+                    "equipment_details": ["EQUIPMENT TYPE", "WEAPON", "专用装备"]
+                },
+            },
+        )
+        image = Image.new("RGB", (2000, 1000), (180, 180, 180))
+        draw = ImageDraw.Draw(image)
+        draw.line((1840, 30, 1880, 55, 1840, 80), fill="white", width=10)
+        draw.line((1880, 30, 1920, 55, 1880, 80), fill="white", width=10)
+
+        state, details = classify_state(image)
+
+        self.assertEqual(state, "gacha_animation")
+        self.assertEqual(
+            details["classification_rule"],
+            "gacha_animation_text_and_skip_control",
+        )
+        self.assertGreater(details["animation_skip_control"]["edge_ratio"], 0.010)
 
     def test_unknown_startup_pages_stop_after_three_confirming_frames(self) -> None:
         self.assertEqual(MAX_UNKNOWN_ENTRY_FRAMES, 3)

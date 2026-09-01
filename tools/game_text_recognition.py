@@ -89,6 +89,13 @@ FREE_GACHA_CONFIRM_LABEL_GROUPS = {
     },
 }
 
+GACHA_ANIMATION_LABEL_GROUPS = {
+    "equipment_details": {
+        "region": (0.04, 0.10, 0.28, 0.36),
+        "labels": ("EQUIPMENT TYPE", "WEAPON", "ARMOR", "专用装备"),
+    },
+}
+
 GACHA_ITEM_DETAIL_LABEL_GROUPS = {
     "detail": {
         "region": (0.23, 0.24, 0.55, 0.52),
@@ -711,6 +718,28 @@ def recognize_gacha_item_detail_labels(
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {"detail": 2},
+    }
+
+
+def recognize_gacha_animation_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Recognize an equipment reveal from its fixed left-side detail labels."""
+    grouped_texts, matches, error = _recognize_with_session(
+        image,
+        GACHA_ANIMATION_LABEL_GROUPS,
+        session,
+    )
+    if error is not None:
+        return False, error
+    is_animation = len(matches["equipment_details"]) >= 2
+    return is_animation, {
+        "available": True,
+        "texts": grouped_texts,
+        "matches": matches,
+        "requirements": {"equipment_details": 2},
     }
 
 

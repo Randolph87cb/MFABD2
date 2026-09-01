@@ -36,6 +36,7 @@ from game_text_recognition import (
     recognize_all_free_gacha_button,
     recognize_business_management_state,
     recognize_free_gacha_confirmation_labels,
+    recognize_gacha_animation_labels,
     recognize_gacha_item_detail_labels,
     recognize_gacha_page_labels,
     recognize_gacha_target_labels,
@@ -556,6 +557,7 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     plaza_top_right = _stats(_roi(frame, (0.84, 0.02, 0.14, 0.10)))
     animation_left_margin = _stats(_roi(frame, (0.00, 0.00, 0.23, 1.00)))
     animation_top_right = _stats(_roi(frame, (0.82, 0.01, 0.15, 0.12)))
+    animation_skip_control = _stats(_roi(frame, (0.91, 0.02, 0.05, 0.07)))
     animation_bottom_reveal = _stats(_roi(frame, (0.40, 0.84, 0.20, 0.14)))
 
     details: dict[str, Any] = {
@@ -575,6 +577,7 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         "plaza_top_right": plaza_top_right,
         "animation_left_margin": animation_left_margin,
         "animation_top_right": animation_top_right,
+        "animation_skip_control": animation_skip_control,
         "animation_bottom_reveal": animation_bottom_reveal,
     }
 
@@ -678,6 +681,15 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     details["gacha_item_detail_text"] = item_detail_text
     if item_detail_match:
         return "gacha_item_overlay", details
+
+    animation_text_match, animation_text = recognize_gacha_animation_labels(
+        image,
+        session=text_session,
+    )
+    details["gacha_animation_text"] = animation_text
+    if animation_text_match and animation_skip_control["edge_ratio"] > 0.010:
+        details["classification_rule"] = "gacha_animation_text_and_skip_control"
+        return "gacha_animation", details
 
     arena_rank_match, arena_rank_text = recognize_arena_rank_change_labels(
         image,
