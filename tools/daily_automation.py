@@ -974,7 +974,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             logger=logger,
             verify_timeout=timeout if state == "plaza" else 20.0,
             attempts=1 if state == "plaza" else 2,
-            wait_on_unknown_transition=state in {"plaza", "arena_lobby"},
+            wait_on_unknown_transition=True,
         )
         if not ok:
             logger.failure(reason)
