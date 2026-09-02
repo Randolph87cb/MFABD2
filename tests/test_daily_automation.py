@@ -49,6 +49,7 @@ from game_text_recognition import (
     recognize_gacha_target_labels,
     recognize_game_loading_labels,
     recognize_plaza_labels,
+    recognize_quick_hunt_setup_labels,
     recognize_return_home_control,
     recognize_reward_overlay_labels,
     recognize_terms_agreement_labels,
@@ -63,6 +64,7 @@ from daily_arena import (
 )
 from business_management import detect_regular_customer_note_notification
 from enter_game import TOUCH_CLICK
+from quick_hunt import _select_max_quick_hunt_count
 from free_gacha import (
     ActionResult,
     CLICK_POINTS,
@@ -87,6 +89,59 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_fixed_reward_quick_hunt_setup_accepts_any_hunt_count(self) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {
+                "header": ["快速狩猎", "仅使用免费火把", "水之洞穴极难"],
+                "body": ["狩猎20次", "将进行100次一般怪物／20次首领怪物战斗。", "固定奖励"],
+                "buttons": ["取消", "狩猎120"],
+            },
+            {"header": ["快速狩猎"], "body": [], "buttons": ["取消"]},
+            None,
+        )
+
+        matched, details = recognize_quick_hunt_setup_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertEqual(details["requirements"]["body"], "狩猎N次")
+
+    @patch("quick_hunt.time.sleep")
+    @patch("quick_hunt.time.monotonic", side_effect=[0.0, 0.0, 0.0])
+    @patch("quick_hunt.is_quick_hunt_count_at_max", return_value=(True, {}))
+    @patch("quick_hunt._quick_hunt_count", return_value=None)
+    @patch("quick_hunt.classify_state", return_value=("quick_hunt_setup", {}))
+    @patch("quick_hunt.safe_capture_client")
+    @patch("quick_hunt._click_ratio")
+    def test_quick_hunt_max_uses_the_full_slider_not_the_count_text(
+        self,
+        _click_ratio: MagicMock,
+        safe_capture_client: MagicMock,
+        _classify_state: MagicMock,
+        _quick_hunt_count: MagicMock,
+        _at_max: MagicMock,
+        _monotonic: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.return_value = image
+        logger = MagicMock()
+        logger.save_image.return_value = Path("max.png")
+
+        ok, _reason, _image, count = _select_max_quick_hunt_count(
+            123,
+            image,
+            1,
+            dry_run=False,
+            logger=logger,
+        )
+
+        self.assertTrue(ok)
+        self.assertIsNone(count)
+
     def test_equipment_reveal_uses_positioned_detail_labels(self) -> None:
         session = MagicMock()
 

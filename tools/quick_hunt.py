@@ -87,7 +87,7 @@ def is_quick_hunt_count_at_max(image: Image.Image) -> tuple[bool, dict[str, floa
 def _select_max_quick_hunt_count(
     hwnd: int,
     before: Image.Image,
-    initial_count: int,
+    initial_count: int | None,
     *,
     dry_run: bool,
     logger: RunLogger,
@@ -116,8 +116,6 @@ def _select_max_quick_hunt_count(
             )
             succeeded = (
                 state == "quick_hunt_setup"
-                and count is not None
-                and count > initial_count
                 and at_max
             )
             logger.event(
@@ -326,16 +324,16 @@ def maximize_and_confirm_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[b
         screenshot=str(before_path),
         details=before_details,
     )
-    if before_state != "quick_hunt_setup" or initial_count is None:
+    if before_state != "quick_hunt_setup":
         reason = (
-            "quick-hunt MAX requires a recognized setup dialog and count, "
-            f"got state={before_state}, count={initial_count}"
+            "quick-hunt MAX requires a recognized setup dialog, "
+            f"got state={before_state}"
         )
         logger.failure(reason)
         return False, reason
 
     if initially_at_max:
-        max_reason = f"maximum count already selected: {initial_count}"
+        max_reason = "maximum count already selected"
         max_image = before
         max_count = initial_count
         logger.event(action="max_already_selected", count=max_count, scores=initial_max_scores)
@@ -517,10 +515,6 @@ def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
 
     state, setup_details = classify_state(image)
     initial_count = _quick_hunt_count(setup_details)
-    if initial_count is None:
-        reason = "could not recognize crystal-cave hunt count"
-        logger.failure(reason)
-        return False, reason
     at_max, max_scores = is_quick_hunt_count_at_max(image)
     logger.event(
         action="detect_crystal_count",
@@ -531,7 +525,7 @@ def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     if at_max:
         max_image = image
         max_count = initial_count
-        max_reason = f"maximum count already selected: {max_count}"
+        max_reason = "maximum count already selected"
     else:
         max_ok, max_reason, max_image, max_count = _select_max_quick_hunt_count(
             hwnd,

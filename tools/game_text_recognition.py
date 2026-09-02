@@ -242,7 +242,7 @@ QUICK_HUNT_SETUP_LABEL_GROUPS = {
     },
     "body": {
         "region": (0.34, 0.34, 0.32, 0.30),
-        "labels": ("狩猎1次", "随机奖励"),
+        "labels": (),
     },
     "buttons": {
         "region": (0.36, 0.68, 0.28, 0.10),
@@ -1243,9 +1243,13 @@ def recognize_quick_hunt_setup_labels(
         _normalize_text(text).startswith("狩猎")
         for text in grouped_texts["buttons"]
     )
+    has_hunt_count = any(
+        re.search(r"狩猎\s*\d+\s*次", _normalize_text(text)) is not None
+        for text in grouped_texts["body"]
+    )
     is_quick_hunt_setup = (
         "快速狩猎" in matches["header"]
-        and len(matches["body"]) >= 1
+        and has_hunt_count
         and "取消" in matches["buttons"]
         and has_hunt_button
     )
@@ -1255,7 +1259,7 @@ def recognize_quick_hunt_setup_labels(
         "matches": matches,
         "requirements": {
             "header": 1,
-            "body": 1,
+            "body": "狩猎N次",
             "cancel_button": 1,
             "hunt_button_prefix": "狩猎",
         },
