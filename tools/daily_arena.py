@@ -32,6 +32,7 @@ from open_game import find_game_window
 
 ARENA_DIALOGUE_STATES = {"unknown", "home_overlay", "blocking_ad_overlay"}
 ARENA_ENTRY_DESTINATIONS = {"plaza", "arena_lobby"}
+ARENA_ENTRY_TRANSITIONS = {*ARENA_ENTRY_DESTINATIONS, "arena_cartridge_collection"}
 
 
 def is_gameplay_tab_selected(image: Image.Image) -> bool:
@@ -97,6 +98,26 @@ def leave_cartridge_collection(
     )
 
 
+def enter_battlefield_from_restaurant(
+    hwnd: int,
+    image: Image.Image,
+    logger: RunLogger,
+    *,
+    dry_run: bool,
+) -> tuple[bool, str, Image.Image, str]:
+    """Use the restaurant shortcut that opens the game-card collection."""
+    return click_with_fixed_retry(
+        hwnd,
+        image,
+        "restaurant_game_cards",
+        verify=lambda candidate, _image: candidate in ARENA_ENTRY_TRANSITIONS,
+        description="open game-card collection from restaurant",
+        dry_run=dry_run,
+        logger=logger,
+        wait_on_unknown_transition=True,
+    )
+
+
 def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     logger = RunLogger(log_root, annotate_clicks=True)
     logger.event(action="start", flow="daily_arena_enter_battlefield", dry_run=dry_run)
@@ -126,24 +147,35 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         if not ok:
             logger.failure(reason)
         return ok, reason
-    if state != "real_home":
+    if state == "restaurant_home":
+        ok, next_state, next_image, reason = enter_battlefield_from_restaurant(
+            hwnd,
+            image,
+            logger,
+            dry_run=dry_run,
+        )
+    elif state != "real_home":
         reason = f"return-battlefield entry requires real_home; current state={state}"
         logger.failure(reason)
         return False, reason
-
-    ok, next_state, next_image, reason = click_with_fixed_retry(
-        hwnd,
-        image,
-        "home_return_battlefield",
-        verify=lambda candidate, _image: candidate in {
-            *ARENA_ENTRY_DESTINATIONS,
-            "arena_cartridge_collection",
-        },
-        description="enter battlefield from home",
-        dry_run=dry_run,
-        logger=logger,
-        wait_on_unknown_transition=True,
-    )
+    else:
+        ok, next_state, next_image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "home_return_battlefield",
+            verify=lambda candidate, _image: candidate in ARENA_ENTRY_TRANSITIONS | {"restaurant_home"},
+            description="enter battlefield from home",
+            dry_run=dry_run,
+            logger=logger,
+            wait_on_unknown_transition=True,
+        )
+        if ok and next_state == "restaurant_home":
+            ok, next_state, next_image, reason = enter_battlefield_from_restaurant(
+                hwnd,
+                next_image,
+                logger,
+                dry_run=dry_run,
+            )
     if ok and next_state == "arena_cartridge_collection":
         ok, next_state, _next_image, reason = leave_cartridge_collection(
             hwnd,

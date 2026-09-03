@@ -72,6 +72,7 @@ CLICK_POINTS = {
     "restaurant_regular_customer": (0.145, 0.262),
     "restaurant_regular_customer_notes": (0.088, 0.141),
     "restaurant_notes_back": (0.090, 0.045),
+    "restaurant_game_cards": (0.195, 0.140),
     "restaurant_regular_customer_claim_all": (0.877, 0.930),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
@@ -228,6 +229,7 @@ CLICK_NAMES = {
     "restaurant_regular_customer": "常客",
     "restaurant_regular_customer_notes": "常客笔记",
     "restaurant_notes_back": "返回餐厅",
+    "restaurant_game_cards": "餐厅立即前往游戏卡",
     "restaurant_regular_customer_claim_all": "全部获得",
 }
 
