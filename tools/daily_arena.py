@@ -345,6 +345,10 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
             reason = f"arena lobby reached; dialogue_clicks={dialogue_clicks}"
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
+        if current_state == "arena_battle_prep":
+            reason = "arena battle preparation reached directly after cartridge selection"
+            logger.event(action="stop", result="success", reason=reason)
+            return True, reason
         if current_state == "arena_rank_change":
             if rank_confirm_clicks >= 2:
                 reason = "arena rank-change confirmation did not close after 2 clicks"
@@ -686,12 +690,14 @@ def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         )
         if not ok:
             return False, reason
-    elif state != "arena_lobby":
+        state, _details = classify_state(safe_capture_client(hwnd))
+    if state == "arena_lobby":
+        ok, reason = enter_battle_prep(dry_run=False, log_root=log_root / "03-pool")
+        if not ok:
+            return False, reason
+    elif state != "arena_battle_prep":
         return False, f"unexpected state after entering battlefield: {state}"
 
-    ok, reason = enter_battle_prep(dry_run=False, log_root=log_root / "03-pool")
-    if not ok:
-        return False, reason
     ok, reason = open_auto_battle(dry_run=False, log_root=log_root / "04-auto-dialog")
     if not ok:
         return False, reason
