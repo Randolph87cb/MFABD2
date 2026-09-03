@@ -32,7 +32,11 @@ from open_game import find_game_window
 
 ARENA_DIALOGUE_STATES = {"unknown", "home_overlay", "blocking_ad_overlay"}
 ARENA_ENTRY_DESTINATIONS = {"plaza", "arena_lobby"}
-ARENA_ENTRY_TRANSITIONS = {*ARENA_ENTRY_DESTINATIONS, "arena_cartridge_collection"}
+ARENA_ENTRY_TRANSITIONS = {
+    *ARENA_ENTRY_DESTINATIONS,
+    "arena_cartridge_bar",
+    "arena_cartridge_collection",
+}
 
 
 def is_gameplay_tab_selected(image: Image.Image) -> bool:
@@ -131,7 +135,7 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     state, details = classify_state(image)
     image_path = logger.save_image(image, f"step-001-before-{state}.png")
     logger.event(action="classify", state=state, details=details, screenshot=str(image_path))
-    if state == "arena_lobby":
+    if state in {"arena_lobby", "arena_cartridge_bar"}:
         reason = "already in arena lobby"
         logger.event(action="stop", result="success", state=state, reason=reason)
         return True, reason
@@ -253,24 +257,27 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     logger.event(action="classify", state=state, details=details, screenshot=str(image_path))
     if state == "arena_lobby":
         return True, "already in arena lobby"
-    if state != "plaza":
-        reason = f"arena cartridge route requires plaza; current state={state}"
+    if state not in {"plaza", "arena_cartridge_bar"}:
+        reason = f"arena cartridge route requires plaza or cartridge bar; current state={state}"
         logger.failure(reason)
         return False, reason
 
-    ok, _state, bar_image, reason = click_with_fixed_retry(
-        hwnd,
-        image,
-        "plaza_cartridge",
-        verify=lambda candidate, _image: candidate == "arena_cartridge_bar",
-        description="open battlefield cartridge bar",
-        dry_run=dry_run,
-        logger=logger,
-    )
-    if not ok or dry_run:
-        if not ok:
-            logger.failure(reason)
-        return ok, reason
+    if state == "plaza":
+        ok, _state, bar_image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "plaza_cartridge",
+            verify=lambda candidate, _image: candidate == "arena_cartridge_bar",
+            description="open battlefield cartridge bar",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not ok or dry_run:
+            if not ok:
+                logger.failure(reason)
+            return ok, reason
+    else:
+        bar_image = image
 
     ok, _state, gameplay_image, reason = click_with_fixed_retry(
         hwnd,
@@ -672,7 +679,7 @@ def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     if not hwnd:
         return False, "game window not found after entering battlefield"
     state, _details = classify_state(safe_capture_client(hwnd))
-    if state == "plaza":
+    if state in {"plaza", "arena_cartridge_bar"}:
         ok, reason = enter_arena_from_plaza(
             dry_run=False,
             log_root=log_root / "02-cartridge-route",
