@@ -355,7 +355,7 @@
       <div class="brand-mark" aria-hidden="true">UI</div>
       <div>
         <h1>界面识别审阅台</h1>
-        <div class="brand-subtitle">测试截图与每日错误，统一标注</div>
+        <div class="brand-subtitle" id="catalog-scope">最近 5 次失败，每次最多 3 张关键截图</div>
       </div>
     </div>
     <div class="top-actions">
@@ -369,9 +369,9 @@
     <aside class="queue" aria-label="截图列表">
       <div class="filters">
         <div class="filter-tabs" role="tablist" aria-label="截图来源">
-          <button class="filter-tab" type="button" role="tab" aria-selected="true" data-filter="all">全部</button>
+          <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="all">全部</button>
           <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="test">测试</button>
-          <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="daily">每日错误</button>
+          <button class="filter-tab" type="button" role="tab" aria-selected="true" data-filter="daily">每日错误</button>
           <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="marked">已标注</button>
         </div>
         <label class="search-wrap">
@@ -389,12 +389,12 @@
       <div class="workspace-head">
         <div class="item-heading">
           <p class="item-name" id="item-name">选择一张截图</p>
-          <div class="item-path" id="item-path">左侧会自动加载测试与每日失败截图</div>
+          <div class="item-path" id="item-path">默认只加载最近失败环节的关键截图，组内按从早到晚排列</div>
         </div>
         <div class="state-strip" id="state-strip"></div>
       </div>
       <div class="image-stage" id="image-stage">
-        <p class="empty-state">从左侧选择截图。测试截图显示既有期望状态，每日错误截图显示运行时记录状态。</p>
+        <p class="empty-state">从左侧选择截图。每日错误按运行时间倒序分组，每组截图按发生顺序排列。</p>
       </div>
     </section>
 
@@ -446,7 +446,7 @@
 
   <script>
     const requestedFilter = new URLSearchParams(window.location.search).get("filter");
-    const initialFilter = ["all", "test", "daily", "marked"].includes(requestedFilter) ? requestedFilter : "all";
+    const initialFilter = ["all", "test", "daily", "marked"].includes(requestedFilter) ? requestedFilter : "daily";
     const state = {
       items: [],
       selectedId: null,
@@ -459,7 +459,7 @@
     };
 
     const elements = Object.fromEntries([
-      "file-status", "refresh-button", "mobile-review-button", "inspector-close", "search-input", "queue-count",
+      "file-status", "catalog-scope", "refresh-button", "mobile-review-button", "inspector-close", "search-input", "queue-count",
       "marked-count", "queue-list", "item-name", "item-path", "state-strip", "image-stage",
       "inspector", "source-badge", "item-reason", "classify-button", "classify-status",
       "annotation-form", "issue-toggle", "correct-state", "annotation-note",
@@ -508,6 +508,15 @@
       })[value] || "其他狩猎分类";
     }
 
+    function timeText(value) {
+      if (!value) return "时间未记录";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value.replace("T", " ");
+      return new Intl.DateTimeFormat("zh-CN", {
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+      }).format(date);
+    }
+
     function updateAnnotationSummary() {
       const count = state.items.filter(item => item.annotation).length;
       elements["marked-count"].textContent = `${count} 条标注`;
@@ -548,11 +557,13 @@
         copy.className = "queue-copy";
         const name = document.createElement("span");
         name.className = "queue-name";
-        name.textContent = item.name;
+        name.textContent = item.source === "daily"
+          ? `第 ${item.sequence_index || 1} 张，共 ${item.sequence_total || 1} 张`
+          : item.name;
         const meta = document.createElement("span");
         meta.className = "queue-meta";
         const source = document.createElement("span");
-        source.textContent = item.source === "test" ? "测试" : "日志";
+        source.textContent = item.source === "test" ? "测试截图" : timeText(item.captured_at);
         const label = document.createElement("span");
         label.className = "queue-label";
         label.textContent = stateLabel(item);
@@ -604,7 +615,9 @@
       elements["save-button"].disabled = disabled;
       if (!item) return;
 
-      elements["item-name"].textContent = item.name;
+      elements["item-name"].textContent = item.source === "daily"
+        ? `${item.stage_label || "失败环节"} · 第 ${item.sequence_index || 1} 张，共 ${item.sequence_total || 1} 张`
+        : item.name;
       elements["item-path"].textContent = item.path;
       elements["source-badge"].textContent = item.source === "test" ? "测试截图" : `每日错误 · ${item.group}`;
       elements["item-reason"].textContent = item.reason || "没有记录说明。";
@@ -674,6 +687,8 @@
         state.selectedId = previousVisible ? previousId : visibleItems()[0]?.id || null;
         state.annotationFile = payload.annotation_file;
         state.stateLabels = payload.state_labels || {};
+        const limits = payload.daily_limits || {};
+        elements["catalog-scope"].textContent = `最近 ${limits.failed_runs || 5} 次失败，每次最多 ${limits.screenshots_per_run || 3} 张关键截图，组内从早到晚`;
         const emptyOption = document.createElement("option");
         emptyOption.value = "";
         emptyOption.textContent = "请选择正确界面";

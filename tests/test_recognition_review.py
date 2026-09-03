@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -13,7 +14,8 @@ TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-from recognition_review import ReviewStore
+from recognition_review import ReviewStore, _failure_reason_label
+from game_text_recognition import _partial_similarity
 
 
 class RecognitionReviewTests(unittest.TestCase):
@@ -69,6 +71,20 @@ class RecognitionReviewTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+        (run_root / "events.jsonl").write_text(
+            json.dumps(
+                {
+                    "time": "2026-08-29T10:50:00",
+                    "stage": "quick_hunt_entry",
+                    "status": "error",
+                    "message": "执行失败",
+                    "log_root": str(step_root),
+                },
+                ensure_ascii=False,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
 
         catalog = self.store.catalog()
 
@@ -81,7 +97,64 @@ class RecognitionReviewTests(unittest.TestCase):
         self.assertEqual(daily_item["recorded_state_label"], "弹窗页面")
         self.assertEqual(catalog["state_labels"]["real_home"], "主页")
         self.assertEqual(catalog["state_labels"]["home_overlay"], "弹窗页面")
-        self.assertIn("quick-hunt entry", daily_item["reason"])
+        self.assertEqual(
+            daily_item["reason"],
+            "进入快速狩猎失败：进入快速狩猎前需要处于主页，实际识别为弹窗页面。",
+        )
+        self.assertEqual(daily_item["stage_label"], "进入快速狩猎")
+        self.assertEqual(daily_item["sequence_index"], 1)
+        self.assertEqual(daily_item["sequence_total"], 1)
+
+    def test_daily_catalog_only_keeps_last_three_screenshots_from_failure_stage(self) -> None:
+        run_root = self.root / "logs" / "daily" / "2026-09-03" / "204745"
+        earlier_step = run_root / "04-return-home"
+        failure_step = run_root / "05-quick-hunt-entry"
+        earlier_step.mkdir(parents=True)
+        failure_step.mkdir(parents=True)
+        Image.new("RGB", (80, 45)).save(earlier_step / "unrelated.png")
+        for index in range(4):
+            path = failure_step / f"step-{index + 1}.png"
+            Image.new("RGB", (80, 45), color=(index, index, index)).save(path)
+            timestamp = 1_700_000_000 + index
+            os.utime(path, (timestamp, timestamp))
+        (run_root / "summary.json").write_text(
+            json.dumps(
+                {
+                    "result": "failed",
+                    "reason": "quick_hunt_entry: quick-hunt entry requires real_home, got unknown",
+                    "started_at": "2026-09-03T20:47:45",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_root / "events.jsonl").write_text(
+            json.dumps(
+                {
+                    "stage": "quick_hunt_entry",
+                    "status": "error",
+                    "log_root": str(failure_step),
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        items = [item for item in self.store.catalog()["items"] if item["source"] == "daily"]
+
+        self.assertEqual([item["name"] for item in items], ["step-2.png", "step-3.png", "step-4.png"])
+        self.assertEqual([item["sequence_index"] for item in items], [1, 2, 3])
+        self.assertTrue(all("unrelated" not in item["name"] for item in items))
+
+    def test_joined_ocr_text_counts_as_a_complete_expected_label(self) -> None:
+        self.assertEqual(_partial_similarity("快速狩猎", "通行证快速狩猎"), 1.0)
+
+    def test_failure_reason_is_presented_in_chinese(self) -> None:
+        self.assertEqual(
+            _failure_reason_label(
+                "crystal_cave_cycle: MAX changed to unexpected state blocking_ad_overlay; retry cancelled"
+            ),
+            "执行圣石洞穴失败：点击最大次数后出现了非预期的广告弹窗，已停止重试。",
+        )
 
     def test_annotation_is_written_for_the_selected_item_only(self) -> None:
         item = self.store.items()[0]

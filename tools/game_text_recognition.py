@@ -380,8 +380,12 @@ def _partial_similarity(expected: str, actual: str) -> float:
     actual = _normalize_text(actual)
     if not expected or not actual:
         return 0.0
-    if expected in actual or actual in expected:
-        return min(len(expected), len(actual)) / max(len(expected), len(actual))
+    if expected in actual:
+        # OCR often joins adjacent labels, for example "通行证快速狩猎".
+        # A complete expected label inside that joined text is still an exact hit.
+        return 1.0
+    if actual in expected:
+        return len(actual) / len(expected)
 
     sizes = range(max(1, len(expected) - 1), min(len(actual), len(expected) + 1) + 1)
     candidates = (

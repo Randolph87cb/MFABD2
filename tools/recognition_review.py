@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import mimetypes
+import re
 import threading
 import webbrowser
 from dataclasses import dataclass
@@ -25,8 +26,8 @@ from quick_hunt import detect_selected_quick_hunt_category, is_quick_hunt_count_
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PAGE_PATH = Path(__file__).resolve().with_name("recognition_review.html")
 ANNOTATION_FILENAME = "recognition_feedback.json"
-MAX_FAILED_RUNS = 30
-MAX_SCREENSHOTS_PER_RUN = 12
+MAX_FAILED_RUNS = 5
+MAX_SCREENSHOTS_PER_RUN = 3
 STATE_LABELS = {
     **STATE_NAMES,
     "arena_repeat_battle_result": "竞技场连续战斗结果",
@@ -41,12 +42,101 @@ QUICK_HUNT_CATEGORY_LABELS = {
     "slime": "史莱姆王国",
     "crystal_cave": "圣石洞穴",
 }
+STAGE_LABELS = {
+    "daily": "每日任务",
+    "network": "网络检查",
+    "enter_game": "进入游戏",
+    "prepare_home": "返回主页",
+    "free_gacha": "免费抽卡",
+    "return_home": "抽卡后返回主页",
+    "quick_hunt_entry": "进入快速狩猎",
+    "hunting_ground_setup": "设置狩猎场",
+    "hunting_ground_confirm": "执行狩猎场",
+    "crystal_cave_cycle": "执行圣石洞穴",
+    "daily_arena": "每日竞技场",
+    "business_management_home": "经营管理前返回主页",
+    "business_management": "经营管理收益",
+}
+ACTION_LABELS = {
+    "quick-hunt entry": "进入快速狩猎",
+    "arena cartridge selection": "选择竞技场卡带",
+    "open game-card collection from restaurant": "从餐厅打开卡带栏",
+    "enter battlefield from home": "从主页进入战场",
+    "return home from restaurant": "从餐厅返回主页",
+    "MAX": "点击最大次数",
+}
 
 
 def _state_label(state: str | None) -> str | None:
     if not state:
         return None
     return STATE_LABELS.get(state, "其他界面")
+
+
+def _failure_reason_label(reason: str) -> str:
+    """Turn common internal failure messages into concise Chinese review copy."""
+    raw = reason.strip()
+    stage_label = "任务"
+    detail = raw
+    if ":" in raw:
+        stage, candidate = raw.split(":", 1)
+        if stage in STAGE_LABELS:
+            stage_label = STAGE_LABELS[stage]
+            detail = candidate.strip()
+
+    match = re.fullmatch(r"(.+) requires ([a-z0-9_]+), got ([a-z0-9_]+)", detail)
+    if match:
+        action, expected, actual = match.groups()
+        return (
+            f"{stage_label}失败：{ACTION_LABELS.get(action, stage_label)}前需要处于"
+            f"{_state_label(expected)}，实际识别为{_state_label(actual)}。"
+        )
+
+    match = re.fullmatch(r"unsupported state after (.+): ([a-z0-9_]+)", detail)
+    if match:
+        action, actual = match.groups()
+        return (
+            f"{stage_label}失败：{ACTION_LABELS.get(action, '上一步操作')}后出现了"
+            f"尚未支持的{_state_label(actual)}。"
+        )
+
+    match = re.fullmatch(
+        r"(.+) changed from ([a-z0-9_]+) to unexpected state ([a-z0-9_]+); retry cancelled",
+        detail,
+    )
+    if match:
+        action, before, after = match.groups()
+        return (
+            f"{stage_label}失败：{ACTION_LABELS.get(action, '操作')}时，界面从"
+            f"{_state_label(before)}变成了非预期的{_state_label(after)}，已停止重试。"
+        )
+
+    match = re.fullmatch(
+        r"(.+) changed to unexpected state ([a-z0-9_]+); retry cancelled",
+        detail,
+    )
+    if match:
+        action, after = match.groups()
+        return (
+            f"{stage_label}失败：{ACTION_LABELS.get(action, '操作')}后出现了非预期的"
+            f"{_state_label(after)}，已停止重试。"
+        )
+
+    match = re.fullmatch(r"(.+) did not take effect after (\d+) clicks", detail)
+    if match:
+        action, count = match.groups()
+        return f"{stage_label}失败：{ACTION_LABELS.get(action, '操作')}点击 {count} 次后仍未生效。"
+
+    match = re.fullmatch(r"unknown or unsupported state: ([a-z0-9_]+)", detail)
+    if match:
+        return f"{stage_label}失败：当前界面是{_state_label(match.group(1))}，暂时无法继续。"
+
+    match = re.fullmatch(r"(.+) timed out after (\d+(?:\.\d+)?) seconds", detail)
+    if match:
+        action, seconds = match.groups()
+        return f"{stage_label}失败：{ACTION_LABELS.get(action, '当前操作')}等待 {seconds} 秒后超时。"
+
+    return f"{stage_label}失败：暂时没有更具体的中文说明，请结合截图标注。"
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -79,6 +169,10 @@ class ReviewItem:
     recorded_state: str | None = None
     reason: str = ""
     run_started_at: str | None = None
+    captured_at: str | None = None
+    stage_label: str | None = None
+    sequence_index: int | None = None
+    sequence_total: int | None = None
     expected_target: str | None = None
     expected_quick_hunt_category: str | None = None
     expected_quick_hunt_max: bool | None = None
@@ -97,6 +191,10 @@ class ReviewItem:
             "recorded_state_label": _state_label(self.recorded_state),
             "reason": self.reason,
             "run_started_at": self.run_started_at,
+            "captured_at": self.captured_at,
+            "stage_label": self.stage_label,
+            "sequence_index": self.sequence_index,
+            "sequence_total": self.sequence_total,
             "expected_target": self.expected_target,
             "expected_quick_hunt_category": self.expected_quick_hunt_category,
             "expected_quick_hunt_max": self.expected_quick_hunt_max,
@@ -157,6 +255,39 @@ class ReviewStore:
                     states[Path(screenshot).resolve()] = str(state)
         return states
 
+    @staticmethod
+    def _failure_event(run_root: Path) -> dict[str, Any]:
+        events_path = run_root / "events.jsonl"
+        try:
+            lines = events_path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = ()
+        events: list[dict[str, Any]] = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if (
+                isinstance(event, dict)
+                and event.get("status") == "error"
+                and event.get("stage") != "daily"
+            ):
+                events.append(event)
+        return events[-1] if events else {}
+
+    @staticmethod
+    def _failure_screenshot_root(run_root: Path, event: dict[str, Any]) -> Path:
+        raw_root = event.get("log_root")
+        if not raw_root:
+            return run_root
+        candidate = Path(str(raw_root)).resolve()
+        try:
+            candidate.relative_to(run_root)
+        except ValueError:
+            return run_root
+        return candidate if candidate.is_dir() else run_root
+
     def _daily_items(self) -> list[ReviewItem]:
         summaries = sorted(
             self.logs_root.rglob("summary.json") if self.logs_root.is_dir() else (),
@@ -175,24 +306,35 @@ class ReviewStore:
             run_root = summary_path.parent.resolve()
             states = self._states_by_screenshot(run_root)
             started_at = str(summary.get("started_at", ""))
-            group_time = started_at.replace("T", " ")[:16] or run_root.name
-            reason = str(summary.get("reason", ""))
+            group_time = started_at.replace("T", " ")[:19] or run_root.name
+            failure_event = self._failure_event(run_root)
+            stage = str(failure_event.get("stage", "daily"))
+            stage_label = STAGE_LABELS.get(stage, "未命名环节")
+            reason_source = str(summary.get("reason", ""))
+            if stage in STAGE_LABELS and not reason_source.startswith(f"{stage}:"):
+                reason_source = f"{stage}: {reason_source}"
+            reason = _failure_reason_label(reason_source)
+            screenshot_root = self._failure_screenshot_root(run_root, failure_event)
             screenshots = sorted(
-                run_root.rglob("*.png"),
+                screenshot_root.rglob("*.png"),
                 key=lambda item: item.stat().st_mtime,
             )[-MAX_SCREENSHOTS_PER_RUN:]
-            for path in screenshots:
-                step_name = path.parent.name if path.parent != run_root else "run"
+            for index, path in enumerate(screenshots, start=1):
+                captured_at = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
                 items.append(
                     ReviewItem(
                         id=_stable_id("daily", path.resolve()),
                         source="daily",
                         path=path.resolve(),
                         name=path.name,
-                        group=f"{group_time} · {step_name}",
+                        group=f"{group_time} · {stage_label}",
                         recorded_state=states.get(path.resolve()),
                         reason=reason,
                         run_started_at=started_at or None,
+                        captured_at=captured_at.isoformat(timespec="seconds"),
+                        stage_label=stage_label,
+                        sequence_index=index,
+                        sequence_total=len(screenshots),
                     )
                 )
         return items
@@ -243,6 +385,10 @@ class ReviewStore:
             },
             "annotation_count": len(annotations),
             "annotation_file": _display_path(self.annotation_path, self.project_root),
+            "daily_limits": {
+                "failed_runs": MAX_FAILED_RUNS,
+                "screenshots_per_run": MAX_SCREENSHOTS_PER_RUN,
+            },
             "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }
 
