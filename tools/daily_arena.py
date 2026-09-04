@@ -37,6 +37,9 @@ ARENA_ENTRY_TRANSITIONS = {
     "arena_cartridge_bar",
     "arena_cartridge_collection",
 }
+ARENA_STABLE_EXIT_STATES = {"arena_lobby", "plaza", "real_home", "arena_cartridge_collection"}
+ARENA_POST_BATTLE_STATES = {"arena_victory_result", "arena_rank_change"}
+ARENA_FREE_ONLY_TOGGLE_ROI = (0.655, 0.365, 0.050, 0.045)
 
 
 def is_gameplay_tab_selected(image: Image.Image) -> bool:
@@ -451,6 +454,63 @@ def _auto_battle_count(image: Image.Image) -> int | None:
     return None
 
 
+def _free_only_toggle_enabled(image: Image.Image) -> bool:
+    """Read the free-only switch from the fixed position of its white knob."""
+    frame = np.asarray(image.convert("RGB"))
+    toggle = _roi(frame, ARENA_FREE_ONLY_TOGGLE_ROI)
+    if toggle.size == 0:
+        return False
+    bright_knob = np.all(toggle >= 160, axis=2)
+    _ys, xs = np.where(bright_knob)
+    if xs.size < 20:
+        return False
+    return float(np.median(xs)) >= toggle.shape[1] * 0.50
+
+
+def _ensure_free_only(
+    hwnd: int,
+    image: Image.Image,
+    logger: RunLogger,
+    *,
+    dry_run: bool,
+    timeout: float = 8.0,
+) -> tuple[bool, Image.Image, str]:
+    if _free_only_toggle_enabled(image):
+        return True, image, "arena free-only mode already enabled"
+
+    _click_ratio(
+        hwnd,
+        image,
+        "arena_free_only",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if dry_run:
+        return True, image, "dry-run planned arena free-only toggle"
+
+    deadline = time.monotonic() + timeout
+    poll = AdaptivePoll()
+    sample = 0
+    current = image
+    while time.monotonic() < deadline:
+        sample += 1
+        time.sleep(poll.next_delay(remaining=deadline - time.monotonic()))
+        current = safe_capture_client(hwnd, logger=logger)
+        state, details = classify_state(current)
+        enabled = state == "arena_auto_battle_dialog" and _free_only_toggle_enabled(current)
+        logger.event(
+            action="verify_arena_free_only",
+            sample=sample,
+            state=state,
+            enabled=enabled,
+            details=details,
+        )
+        if enabled:
+            return True, current, "arena free-only mode enabled"
+
+    return False, current, "arena free-only mode could not be enabled safely"
+
+
 def maximize_and_start_auto_battle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     logger = RunLogger(log_root, annotate_clicks=True)
     logger.event(action="start", flow="daily_arena_maximize_and_start", dry_run=dry_run)
@@ -469,27 +529,34 @@ def maximize_and_start_auto_battle(*, dry_run: bool, log_root: Path) -> tuple[bo
         logger.failure(reason)
         return False, reason
 
-    ok, _next_state, max_image, reason = click_with_fixed_retry(
+    selected_count = _auto_battle_count(image)
+    if selected_count != 1:
+        reason = f"unsafe arena auto-battle count: {selected_count}; expected exactly 1"
+        logger.failure(reason)
+        logger.event(action="stop", result="error", reason=reason)
+        return False, reason
+
+    ok, safe_image, reason = _ensure_free_only(
         hwnd,
         image,
-        "arena_auto_max",
-        verify=lambda candidate, candidate_image: (
-            candidate == "arena_auto_battle_dialog"
-            and (_auto_battle_count(candidate_image) or 0) > 1
-        ),
-        description="maximize arena auto-battle count",
+        logger,
         dry_run=dry_run,
-        logger=logger,
     )
     if not ok:
         logger.failure(reason)
         logger.event(action="stop", result="error", reason=reason)
         return False, reason
 
-    selected_count = _auto_battle_count(max_image)
+    selected_count = _auto_battle_count(safe_image)
+    if selected_count != 1:
+        reason = f"unsafe arena auto-battle count after free-only toggle: {selected_count}"
+        logger.failure(reason)
+        logger.event(action="stop", result="error", reason=reason)
+        return False, reason
+
     ok, next_state, _next_image, reason = click_with_fixed_retry(
         hwnd,
-        max_image,
+        safe_image,
         "arena_auto_start",
         verify=lambda candidate, _image: candidate != "arena_auto_battle_dialog",
         description="start 10x arena auto battle",
@@ -534,6 +601,14 @@ def wait_and_close_repeat_result(
             details=details,
             screenshot=str(image_path),
         )
+        if state in ARENA_STABLE_EXIT_STATES:
+            reason = f"manual arena exit reached {state}"
+            logger.event(action="stop", result="success", state=state, reason=reason)
+            return True, reason
+        if state in ARENA_POST_BATTLE_STATES:
+            reason = f"arena post-battle handoff reached {state}"
+            logger.event(action="stop", result="success", state=state, reason=reason)
+            return True, reason
         if state != "arena_repeat_battle_result":
             time.sleep(poll.next_delay(remaining=deadline - time.monotonic()))
             continue
@@ -589,6 +664,14 @@ def leave_arena_victory(
             details=details,
             screenshot=str(image_path),
         )
+        if state in ARENA_STABLE_EXIT_STATES:
+            reason = f"arena victory already left; reached {state}"
+            logger.event(action="stop", result="success", state=state, reason=reason)
+            return True, reason
+        if state == "arena_rank_change":
+            reason = "arena victory already left; reached arena_rank_change"
+            logger.event(action="stop", result="success", state=state, reason=reason)
+            return True, reason
         if state != "arena_victory_result":
             time.sleep(poll.next_delay(remaining=deadline - time.monotonic()))
             continue
