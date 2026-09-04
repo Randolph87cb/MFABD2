@@ -120,9 +120,14 @@
       background: var(--sidebar);
       overflow: hidden;
     }
-    .queue { border-right: 1px solid var(--line); }
+    .queue {
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      border-right: 1px solid var(--line);
+    }
     .inspector { border-left: 1px solid var(--line); }
     .panel-scroll { height: 100%; overflow: auto; overscroll-behavior: contain; }
+    .queue > .panel-scroll { min-height: 0; height: auto; }
     .panel-pad { padding: 14px; }
 
     .filters { display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
