@@ -28,6 +28,7 @@ PAGE_PATH = Path(__file__).resolve().with_name("recognition_review.html")
 ANNOTATION_FILENAME = "recognition_feedback.json"
 MAX_FAILED_RUNS = 5
 MAX_SCREENSHOTS_PER_RUN = 3
+MAX_LATEST_SCREENSHOTS_PER_STAGE = 5
 STATE_LABELS = {
     **STATE_NAMES,
     "arena_repeat_battle_result": "竞技场连续战斗结果",
@@ -288,6 +289,93 @@ class ReviewStore:
             return run_root
         return candidate if candidate.is_dir() else run_root
 
+    @staticmethod
+    def _master_events(run_root: Path) -> list[dict[str, Any]]:
+        try:
+            lines = (run_root / "events.jsonl").read_text(encoding="utf-8").splitlines()
+        except OSError:
+            return []
+        events: list[dict[str, Any]] = []
+        for line in lines:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(event, dict):
+                events.append(event)
+        return events
+
+    @staticmethod
+    def _sample_stage_screenshots(stage_root: Path) -> list[Path]:
+        screenshots = sorted(stage_root.rglob("*.png"), key=lambda path: path.stat().st_mtime)
+        if len(screenshots) <= MAX_LATEST_SCREENSHOTS_PER_STAGE:
+            return screenshots
+
+        preferred = [screenshots[0]]
+        preferred.extend(
+            path
+            for path in screenshots[1:-1]
+            if path.name.startswith(("before-", "after-", "click-"))
+        )
+        preferred.append(screenshots[-1])
+        preferred = list(dict.fromkeys(preferred))
+        candidates = preferred if len(preferred) >= 3 else screenshots
+        last_index = len(candidates) - 1
+        sample_indexes = {
+            round(index * last_index / (MAX_LATEST_SCREENSHOTS_PER_STAGE - 1))
+            for index in range(MAX_LATEST_SCREENSHOTS_PER_STAGE)
+        }
+        return [path for index, path in enumerate(candidates) if index in sample_indexes]
+
+    def _latest_completed_items(self) -> list[ReviewItem]:
+        summaries = sorted(
+            self.logs_root.rglob("summary.json") if self.logs_root.is_dir() else (),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        if not summaries:
+            return []
+        summary = _read_json(summaries[0], {})
+        if not isinstance(summary, dict) or summary.get("result") not in {"completed", "success"}:
+            return []
+
+        run_root = summaries[0].parent.resolve()
+        states = self._states_by_screenshot(run_root)
+        started_at = str(summary.get("started_at", ""))
+        items: list[ReviewItem] = []
+        seen_roots: set[Path] = set()
+        for event in self._master_events(run_root):
+            if event.get("status") != "start" or not event.get("log_root"):
+                continue
+            stage = str(event.get("stage", ""))
+            stage_root = self._failure_screenshot_root(run_root, event)
+            if stage_root == run_root or stage_root in seen_roots:
+                continue
+            seen_roots.add(stage_root)
+            screenshots = self._sample_stage_screenshots(stage_root)
+            stage_label = STAGE_LABELS.get(stage, "未命名环节")
+            event_time = str(event.get("time", started_at))
+            group_time = event_time.replace("T", " ")[:19] or run_root.name
+            for index, path in enumerate(screenshots, start=1):
+                captured_at = datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+                items.append(
+                    ReviewItem(
+                        id=_stable_id("latest", path.resolve()),
+                        source="latest",
+                        path=path.resolve(),
+                        name=path.name,
+                        group=f"{group_time} · {stage_label}",
+                        recorded_state=states.get(path.resolve()),
+                        reason="本次运行被记录为已完成，请标记实际不正确的界面或操作。",
+                        run_started_at=started_at or None,
+                        captured_at=captured_at.isoformat(timespec="seconds"),
+                        stage_label=stage_label,
+                        sequence_index=index,
+                        sequence_total=len(screenshots),
+                    )
+                )
+        return items
+
     def _daily_items(self) -> list[ReviewItem]:
         summaries = sorted(
             self.logs_root.rglob("summary.json") if self.logs_root.is_dir() else (),
@@ -298,7 +386,7 @@ class ReviewStore:
         failed_runs = 0
         for summary_path in summaries:
             summary = _read_json(summary_path, {})
-            if not isinstance(summary, dict) or summary.get("result") == "success":
+            if not isinstance(summary, dict) or summary.get("result") not in {"failed", "error"}:
                 continue
             failed_runs += 1
             if failed_runs > MAX_FAILED_RUNS:
@@ -340,7 +428,7 @@ class ReviewStore:
         return items
 
     def items(self) -> list[ReviewItem]:
-        return self._test_items() + self._daily_items()
+        return self._latest_completed_items() + self._test_items() + self._daily_items()
 
     def item_map(self) -> dict[str, ReviewItem]:
         return {item.id: item for item in self.items()}
@@ -388,6 +476,9 @@ class ReviewStore:
             "daily_limits": {
                 "failed_runs": MAX_FAILED_RUNS,
                 "screenshots_per_run": MAX_SCREENSHOTS_PER_RUN,
+            },
+            "latest_limits": {
+                "screenshots_per_stage": MAX_LATEST_SCREENSHOTS_PER_STAGE,
             },
             "generated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         }

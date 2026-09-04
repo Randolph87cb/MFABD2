@@ -126,7 +126,7 @@
     .panel-pad { padding: 14px; }
 
     .filters { display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--line); }
-    .filter-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+    .filter-tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
     .filter-tab, .quiet-button, .primary-button, .danger-button {
       min-height: 40px;
       border: 0;
@@ -137,10 +137,11 @@
       transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
     }
     .filter-tab {
-      padding: 0 6px;
+      padding: 0 2px;
       color: var(--text-muted);
       background: transparent;
-      font-size: 12px;
+      font-size: 11px;
+      white-space: nowrap;
     }
     .filter-tab[aria-selected="true"] { color: var(--text); background: var(--surface-strong); }
     .search-wrap { position: relative; }
@@ -370,6 +371,7 @@
       <div class="filters">
         <div class="filter-tabs" role="tablist" aria-label="截图来源">
           <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="all">全部</button>
+          <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="latest">本次运行</button>
           <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="test">测试</button>
           <button class="filter-tab" type="button" role="tab" aria-selected="true" data-filter="daily">每日错误</button>
           <button class="filter-tab" type="button" role="tab" aria-selected="false" data-filter="marked">已标注</button>
@@ -446,7 +448,7 @@
 
   <script>
     const requestedFilter = new URLSearchParams(window.location.search).get("filter");
-    const initialFilter = ["all", "test", "daily", "marked"].includes(requestedFilter) ? requestedFilter : "daily";
+    const initialFilter = ["all", "latest", "test", "daily", "marked"].includes(requestedFilter) ? requestedFilter : "daily";
     const state = {
       items: [],
       selectedId: null,
@@ -455,6 +457,8 @@
       visibleLimit: 100,
       annotationFile: "state\\recognition_feedback.json",
       stateLabels: {},
+      dailyLimits: {},
+      latestLimits: {},
       currentResults: new Map(),
     };
 
@@ -526,6 +530,9 @@
     function renderQueue() {
       const allItems = visibleItems();
       const items = allItems.slice(0, state.visibleLimit);
+      elements["catalog-scope"].textContent = state.filter === "latest"
+        ? `本次运行按环节排列，每个环节最多 ${state.latestLimits.screenshots_per_stage || 5} 张关键截图`
+        : `最近 ${state.dailyLimits.failed_runs || 5} 次失败，每次最多 ${state.dailyLimits.screenshots_per_run || 3} 张关键截图，组内从早到晚`;
       elements["queue-count"].textContent = `${allItems.length} 张截图`;
       updateAnnotationSummary();
       elements["queue-list"].replaceChildren();
@@ -557,7 +564,7 @@
         copy.className = "queue-copy";
         const name = document.createElement("span");
         name.className = "queue-name";
-        name.textContent = item.source === "daily"
+        name.textContent = item.source !== "test"
           ? `第 ${item.sequence_index || 1} 张，共 ${item.sequence_total || 1} 张`
           : item.name;
         const meta = document.createElement("span");
@@ -615,11 +622,13 @@
       elements["save-button"].disabled = disabled;
       if (!item) return;
 
-      elements["item-name"].textContent = item.source === "daily"
+      elements["item-name"].textContent = item.source !== "test"
         ? `${item.stage_label || "失败环节"} · 第 ${item.sequence_index || 1} 张，共 ${item.sequence_total || 1} 张`
         : item.name;
       elements["item-path"].textContent = item.path;
-      elements["source-badge"].textContent = item.source === "test" ? "测试截图" : `每日错误 · ${item.group}`;
+      elements["source-badge"].textContent = item.source === "test"
+        ? "测试截图"
+        : `${item.source === "latest" ? "本次运行" : "每日错误"} · ${item.group}`;
       elements["item-reason"].textContent = item.reason || "没有记录说明。";
       elements["state-strip"].replaceChildren();
       if (item.expected_state) {
@@ -687,8 +696,8 @@
         state.selectedId = previousVisible ? previousId : visibleItems()[0]?.id || null;
         state.annotationFile = payload.annotation_file;
         state.stateLabels = payload.state_labels || {};
-        const limits = payload.daily_limits || {};
-        elements["catalog-scope"].textContent = `最近 ${limits.failed_runs || 5} 次失败，每次最多 ${limits.screenshots_per_run || 3} 张关键截图，组内从早到晚`;
+        state.dailyLimits = payload.daily_limits || {};
+        state.latestLimits = payload.latest_limits || {};
         const emptyOption = document.createElement("option");
         emptyOption.value = "";
         emptyOption.textContent = "请选择正确界面";

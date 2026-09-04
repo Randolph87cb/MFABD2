@@ -156,6 +156,61 @@ class RecognitionReviewTests(unittest.TestCase):
             "执行圣石洞穴失败：点击最大次数后出现了非预期的广告弹窗，已停止重试。",
         )
 
+    def test_latest_completed_run_is_available_by_stage_without_loading_every_frame(self) -> None:
+        run_root = self.root / "logs" / "daily" / "2026-09-04" / "193811"
+        stage_root = run_root / "03-free-gacha"
+        stage_root.mkdir(parents=True)
+        screenshots = []
+        for index in range(8):
+            prefix = "click" if index in {2, 4, 6} else "wait"
+            path = stage_root / f"{prefix}-{index + 1:03d}-real_home.png"
+            Image.new("RGB", (80, 45), color=(index, index, index)).save(path)
+            timestamp = 1_800_000_000 + index
+            os.utime(path, (timestamp, timestamp))
+            screenshots.append(path)
+        (run_root / "summary.json").write_text(
+            json.dumps(
+                {
+                    "result": "completed",
+                    "started_at": "2026-09-04T19:38:11",
+                }
+            ),
+            encoding="utf-8",
+        )
+        (run_root / "events.jsonl").write_text(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "time": "2026-09-04T19:44:37",
+                            "stage": "free_gacha",
+                            "status": "start",
+                            "log_root": str(stage_root),
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "time": "2026-09-04T20:09:21",
+                            "stage": "daily",
+                            "status": "success",
+                        }
+                    ),
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        latest_items = [
+            item for item in self.store.catalog()["items"] if item["source"] == "latest"
+        ]
+
+        self.assertEqual(len(latest_items), 5)
+        self.assertEqual(latest_items[0]["stage_label"], "免费抽卡")
+        self.assertEqual(latest_items[0]["sequence_index"], 1)
+        self.assertEqual(latest_items[-1]["sequence_index"], 5)
+        self.assertTrue(all(item["sequence_total"] == 5 for item in latest_items))
+
     def test_annotation_is_written_for_the_selected_item_only(self) -> None:
         item = self.store.items()[0]
 
