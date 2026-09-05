@@ -23,6 +23,10 @@ from daily_arena import (
     run_daily_arena,
     wait_and_close_repeat_result,
 )
+from game_text_recognition import (
+    ARENA_VICTORY_RESULT_LABEL_GROUPS,
+    recognize_arena_victory_result_labels,
+)
 
 
 class BattlefieldRestaurantRouteTests(unittest.TestCase):
@@ -271,6 +275,74 @@ class ArenaAutoBattleSafetyTests(unittest.TestCase):
 
 
 class ArenaManualExitTests(unittest.TestCase):
+    def test_centered_defeat_result_is_in_victory_recognition_regions(self) -> None:
+        summary_x, _summary_y, summary_width, _summary_height = (
+            ARENA_VICTORY_RESULT_LABEL_GROUPS["summary"]["region"]
+        )
+        controls_x, _controls_y, controls_width, _controls_height = (
+            ARENA_VICTORY_RESULT_LABEL_GROUPS["controls"]["region"]
+        )
+
+        self.assertLessEqual(summary_x, 0.30)
+        self.assertGreaterEqual(summary_x + summary_width, 0.98)
+        self.assertLessEqual(controls_x, 0.30)
+        self.assertGreaterEqual(controls_x + controls_width, 0.98)
+
+    def test_defeat_label_is_accepted_as_an_arena_result(self) -> None:
+        session = MagicMock()
+
+        def recognize(groups: dict[str, dict[str, object]]):
+            texts = {"summary": ["DEFEAT"], "controls": ["REWARD", "离开"]}
+            matches = {
+                name: [
+                    label
+                    for label in group["labels"]
+                    if any(str(label) in text for text in texts[name])
+                ]
+                for name, group in groups.items()
+            }
+            return texts, matches, None
+
+        session.recognize.side_effect = recognize
+
+        matched, details = recognize_arena_victory_result_labels(
+            Image.new("RGB", (2000, 1000)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertIn("DEFEAT", details["matches"]["summary"])
+
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch(
+        "daily_arena.classify_state",
+        return_value=(
+            "arena_victory_result",
+            {"arena_victory_text": {"matches": {"summary": ["DEFEAT"]}}},
+        ),
+    )
+    @patch("daily_arena.safe_capture_client", return_value=Image.new("RGB", (2000, 1000)))
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_defeat_result_uses_centered_leave_button(
+        self,
+        _find_window: MagicMock,
+        _capture_client: MagicMock,
+        _classify: MagicMock,
+        click_with_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        click_with_retry.return_value = (True, "arena_lobby", image, "left defeat result")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, _reason = leave_arena_victory(
+                dry_run=False,
+                log_root=Path(temporary),
+                timeout=1.0,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(click_with_retry.call_args.args[2], "arena_defeat_leave")
+
     @patch("daily_arena.click_with_fixed_retry")
     @patch("daily_arena.classify_state", return_value=("arena_lobby", {}))
     @patch("daily_arena.safe_capture_client", return_value=Image.new("RGB", (2000, 1000)))

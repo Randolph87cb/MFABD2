@@ -171,11 +171,11 @@ ARENA_REPEAT_RESULT_LABEL_GROUPS = {
 
 ARENA_VICTORY_RESULT_LABEL_GROUPS = {
     "summary": {
-        "region": (0.68, 0.02, 0.30, 0.72),
-        "labels": ("VICTORY", "胜利分", "获胜"),
+        "region": (0.30, 0.02, 0.68, 0.72),
+        "labels": ("VICTORY", "DEFEAT", "胜利分", "获胜", "战败"),
     },
     "controls": {
-        "region": (0.66, 0.78, 0.32, 0.21),
+        "region": (0.30, 0.70, 0.68, 0.29),
         "labels": ("REWARD", "战斗", "离开"),
     },
 }
@@ -1020,7 +1020,7 @@ def recognize_arena_victory_result_labels(
     *,
     session: LabelRecognitionSession | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Recognize the arena victory page shown after closing repeated-battle results."""
+    """Recognize the arena victory or defeat page after repeated-battle results."""
     grouped_texts, matches, error = _recognize_with_session(
         image,
         ARENA_VICTORY_RESULT_LABEL_GROUPS,

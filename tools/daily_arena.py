@@ -676,10 +676,20 @@ def leave_arena_victory(
             time.sleep(poll.next_delay(remaining=deadline - time.monotonic()))
             continue
 
+        summary_matches = (
+            details.get("arena_victory_text", {})
+            .get("matches", {})
+            .get("summary", [])
+        )
+        leave_key = (
+            "arena_defeat_leave"
+            if any(label in summary_matches for label in ("DEFEAT", "战败"))
+            else "arena_victory_leave"
+        )
         ok, next_state, _next_image, reason = click_with_fixed_retry(
             hwnd,
             image,
-            "arena_victory_leave",
+            leave_key,
             verify=lambda candidate, _image: candidate != "arena_victory_result",
             description="leave arena victory result",
             dry_run=dry_run,
