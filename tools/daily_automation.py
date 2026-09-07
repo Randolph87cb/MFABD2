@@ -951,6 +951,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "arena_home"
             description = "return home from arena lobby"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
+        elif state == "arena_rank_change":
+            key = "arena_rank_confirm"
+            description = "confirm leftover arena rank change before returning home"
+            expected = {"arena_lobby", "plaza", "real_home", "loading"}
         else:
             reason = f"cannot safely return home from state={state}"
             logger.failure(reason)

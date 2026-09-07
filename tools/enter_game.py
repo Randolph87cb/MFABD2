@@ -161,6 +161,11 @@ def recognize_pack_field_screen(image: Image.Image) -> tuple[bool, dict[str, dic
     }
 
 
+def recognize_home_screen(image: Image.Image) -> tuple[bool, dict[str, dict[str, float]]]:
+    """Compatibility name used by the home-screen automation modules."""
+    return recognize_pack_field_screen(image)
+
+
 def wait_until_pack_field(hwnd: int, timeout: float) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

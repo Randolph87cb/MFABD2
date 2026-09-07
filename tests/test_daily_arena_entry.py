@@ -23,6 +23,7 @@ from daily_arena import (
     run_daily_arena,
     wait_and_close_repeat_result,
 )
+from daily_automation import ensure_home
 from game_text_recognition import (
     ARENA_VICTORY_RESULT_LABEL_GROUPS,
     recognize_arena_victory_result_labels,
@@ -342,6 +343,35 @@ class ArenaManualExitTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(click_with_retry.call_args.args[2], "arena_defeat_leave")
+
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    def test_prepare_home_confirms_leftover_arena_rank_change(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        classify: MagicMock,
+        click_with_retry: MagicMock,
+    ) -> None:
+        rank_image = Image.new("RGB", (2000, 1000))
+        home_image = Image.new("RGB", (2000, 1000))
+        capture_client.side_effect = [rank_image, home_image]
+        classify.side_effect = [("arena_rank_change", {}), ("real_home", {})]
+        click_with_retry.return_value = (
+            True,
+            "arena_lobby",
+            rank_image,
+            "confirmed leftover rank change",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(click_with_retry.call_args.args[2], "arena_rank_confirm")
 
     @patch("daily_arena.click_with_fixed_retry")
     @patch("daily_arena.classify_state", return_value=("arena_lobby", {}))
