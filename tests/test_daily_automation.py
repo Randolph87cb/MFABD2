@@ -1704,6 +1704,44 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(reason, "game is ready at state=arena_lobby")
 
     @patch("builtins.print")
+    def test_enter_game_confirms_leftover_arena_rank_change(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        contexts = iter(
+            (
+                ("arena_rank_change", {}, "unknown", {}),
+                ("real_home", {}, "unknown", {}),
+            )
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_automation.find_game_window", return_value=123),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_daily_entry_context",
+                side_effect=lambda _image: next(contexts),
+            ),
+            patch(
+                "daily_automation.click_with_fixed_retry",
+                return_value=(True, "arena_lobby", image, "confirmed rank change"),
+            ) as click_with_fixed_retry,
+        ):
+            ok, reason = enter_game_logged(
+                timeout=30.0,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "game is ready at state=real_home")
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_rank_confirm")
+
+    @patch("builtins.print")
     def test_enter_game_accepts_terms_before_continuing(
         self,
         _print: MagicMock,

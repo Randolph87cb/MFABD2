@@ -741,6 +741,32 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             last_progress_at = time.monotonic()
             time.sleep(poll.next_delay())
             continue
+        if state == "arena_rank_change":
+            accepted = {"arena_lobby", "plaza", "real_home", "loading"}
+            ok, next_state, _next_image, reason = click_with_fixed_retry(
+                hwnd,
+                image,
+                "arena_rank_confirm",
+                verify=lambda candidate, _image: candidate in accepted,
+                description="confirm leftover arena rank change during game entry",
+                dry_run=False,
+                logger=logger,
+                wait_on_unknown_transition=True,
+            )
+            if not ok:
+                logger.failure(reason)
+                return False, reason
+            touch_screen_seen = True
+            last_progress_at = time.monotonic()
+            poll.reset()
+            logger.event(
+                action="progress",
+                reason="verified_rank_change_confirmation",
+                state=next_state,
+                click="arena_rank_confirm",
+                stall_timeout=timeout,
+            )
+            continue
         if entry_state == "startup_promotion":
             promotion_clicks += 1
             promotion_before = image.copy()
