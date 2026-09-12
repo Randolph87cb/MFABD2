@@ -410,6 +410,43 @@ class OpenGameTests(unittest.TestCase):
             ):
                 open_game_module.open_game(timeout=5.0)
 
+    def test_stalled_starter_is_closed_and_retried_once(self) -> None:
+        clock = [0.0]
+        launches = [0]
+        starter = MagicMock()
+        starter.exists.return_value = True
+        starter.__str__.return_value = "starter.exe"
+        starter.parent = "."
+        first_process = MagicMock()
+        first_process.poll.return_value = None
+        second_process = MagicMock()
+
+        def popen(*_args: object, **_kwargs: object) -> MagicMock:
+            launches[0] += 1
+            return first_process if launches[0] == 1 else second_process
+
+        def find_window() -> int:
+            return 123 if launches[0] >= 2 else 0
+
+        def sleep(seconds: float) -> None:
+            clock[0] += seconds * 3
+
+        with (
+            patch("open_game.STARTER", starter),
+            patch("open_game.subprocess.Popen", side_effect=popen) as start_process,
+            patch("open_game.find_game_window", side_effect=find_window),
+            patch("open_game._starter_log_activity", return_value=()),
+            patch("open_game.time.monotonic", side_effect=lambda: clock[0]),
+            patch("open_game.time.sleep", side_effect=sleep),
+        ):
+            hwnd = open_game_module.open_game(timeout=5.0)
+
+        self.assertEqual(hwnd, 123)
+        self.assertEqual(start_process.call_count, 2)
+        first_process.terminate.assert_called_once_with()
+        first_process.wait.assert_called_once_with(timeout=5.0)
+        second_process.terminate.assert_not_called()
+
 
 class DailyAutomationStateTests(unittest.TestCase):
     @patch("daily_automation.subprocess.Popen")

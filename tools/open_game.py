@@ -20,6 +20,7 @@ STARTER_LOG_DIR = STARTER.parent / "Log"
 PROTOCOL_ARG = "browndust2:games/10000001?usn=0"
 WINDOW_CLASS = "UnityWndClass"
 WINDOW_TITLE = "BrownDust II"
+STARTER_ATTEMPTS = 2
 
 user32 = ctypes.windll.user32
 EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
@@ -70,6 +71,21 @@ def _starter_log_activity() -> tuple[tuple[str, int, int], ...]:
         return ()
 
 
+def _stop_stalled_starter(process: subprocess.Popen[bytes]) -> None:
+    """Stop only the starter process launched by this automation attempt."""
+    try:
+        if process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=5.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5.0)
+    except OSError:
+        return
+
+
 def open_game(timeout: float = 90.0) -> int:
     hwnd = find_game_window()
     if hwnd:
@@ -78,30 +94,34 @@ def open_game(timeout: float = 90.0) -> int:
     if not STARTER.exists():
         raise FileNotFoundError(f"starter not found: {STARTER}")
 
-    subprocess.Popen(
-        [str(STARTER), PROTOCOL_ARG],
-        cwd=str(STARTER.parent),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    for _attempt in range(1, STARTER_ATTEMPTS + 1):
+        process = subprocess.Popen(
+            [str(STARTER), PROTOCOL_ARG],
+            cwd=str(STARTER.parent),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
-    last_activity = time.monotonic()
-    log_activity = _starter_log_activity()
-    while True:
-        hwnd = find_game_window()
-        if hwnd:
-            return hwnd
+        last_activity = time.monotonic()
+        log_activity = _starter_log_activity()
+        while True:
+            hwnd = find_game_window()
+            if hwnd:
+                return hwnd
 
-        current_log_activity = _starter_log_activity()
-        if current_log_activity != log_activity:
-            log_activity = current_log_activity
-            last_activity = time.monotonic()
-        elif time.monotonic() - last_activity >= timeout:
-            break
-        time.sleep(1)
+            current_log_activity = _starter_log_activity()
+            if current_log_activity != log_activity:
+                log_activity = current_log_activity
+                last_activity = time.monotonic()
+            elif time.monotonic() - last_activity >= timeout:
+                break
+            time.sleep(1)
+
+        _stop_stalled_starter(process)
 
     raise TimeoutError(
-        f"game window not found; starter made no progress for {timeout:.0f}s"
+        "game window not found; starter made no progress for "
+        f"{timeout:.0f}s on {STARTER_ATTEMPTS} attempts"
     )
 
 
