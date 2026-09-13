@@ -2139,6 +2139,47 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(is_free_gacha_confirm_transition("gacha_animation"))
         self.assertFalse(is_free_gacha_confirm_transition("confirm_free_gacha"))
 
+    @patch("builtins.print")
+    def test_free_gacha_confirmation_waits_through_unknown_transition(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        states = iter(("confirm_free_gacha", "gacha_result", "gacha_page"))
+        click_results = iter(
+            (
+                (True, "gacha_animation", image, "confirmed free gacha"),
+                (True, "gacha_page", image, "returned from result"),
+            )
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("free_gacha.find_game_window", return_value=123),
+            patch("free_gacha.safe_capture_client", return_value=image),
+            patch(
+                "free_gacha.classify_state",
+                side_effect=lambda _image: (next(states), {}),
+            ),
+            patch(
+                "free_gacha.click_with_fixed_retry",
+                side_effect=lambda *_args, **_kwargs: next(click_results),
+            ) as click_with_fixed_retry,
+        ):
+            result = run_free_gacha(
+                targets=["costume"],
+                timeout=5.0,
+                interval=0.0,
+                dry_run=False,
+                test_mode=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertEqual(result.reason, "all requested free gacha targets completed")
+        confirm_call = click_with_fixed_retry.call_args_list[0]
+        self.assertEqual(confirm_call.args[2], "confirm")
+        self.assertTrue(confirm_call.kwargs["wait_on_unknown_transition"])
+
 
 class CaptureRecoveryTests(unittest.TestCase):
     @patch("free_gacha.time.sleep")

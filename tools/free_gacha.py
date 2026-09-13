@@ -1565,6 +1565,7 @@ def run_free_gacha(
                 description="confirm free gacha",
                 dry_run=dry_run,
                 logger=logger,
+                wait_on_unknown_transition=True,
             )
             if not ok:
                 logger.failure(reason)
