@@ -20,12 +20,14 @@ from free_gacha import (
     _stats,
     classify_state,
     click_with_fixed_retry,
+    post_quick_cartridge_key,
     safe_capture_client,
     wait_for_state,
 )
 from game_text_recognition import (
     recognize_arena_auto_battle_labels,
     recognize_arena_cartridge_labels,
+    recognize_return_home_control,
 )
 from open_game import find_game_window
 
@@ -40,6 +42,13 @@ ARENA_ENTRY_TRANSITIONS = {
 ARENA_STABLE_EXIT_STATES = {"arena_lobby", "plaza", "real_home", "arena_cartridge_collection"}
 ARENA_POST_BATTLE_STATES = {"arena_victory_result", "arena_rank_change"}
 ARENA_FREE_ONLY_TOGGLE_ROI = (0.655, 0.365, 0.050, 0.045)
+
+
+def is_returnable_battlefield(state: str, image: Image.Image) -> bool:
+    if state != "unknown":
+        return False
+    returnable, _details = recognize_return_home_control(image)
+    return returnable
 
 
 def is_gameplay_tab_selected(image: Image.Image) -> bool:
@@ -170,7 +179,10 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
             hwnd,
             image,
             "home_return_battlefield",
-            verify=lambda candidate, _image: candidate in ARENA_ENTRY_TRANSITIONS | {"restaurant_home"},
+            verify=lambda candidate, candidate_image: (
+                candidate in ARENA_ENTRY_TRANSITIONS | {"restaurant_home"}
+                or is_returnable_battlefield(candidate, candidate_image)
+            ),
             description="enter battlefield from home",
             dry_run=dry_run,
             logger=logger,
@@ -182,6 +194,13 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
                 next_image,
                 logger,
                 dry_run=dry_run,
+            )
+        elif ok and is_returnable_battlefield(next_state, next_image):
+            next_state = "returnable_scene"
+            logger.event(
+                action="classify_fallback",
+                state=next_state,
+                reason="fixed-position H control recognized after entering battlefield",
             )
     if ok and next_state == "arena_cartridge_collection":
         ok, next_state, _next_image, reason = leave_cartridge_collection(
@@ -260,12 +279,42 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     logger.event(action="classify", state=state, details=details, screenshot=str(image_path))
     if state == "arena_lobby":
         return True, "already in arena lobby"
-    if state not in {"plaza", "arena_cartridge_bar"}:
-        reason = f"arena cartridge route requires plaza or cartridge bar; current state={state}"
+    if is_returnable_battlefield(state, image):
+        state = "returnable_scene"
+        logger.event(
+            action="classify_fallback",
+            state=state,
+            reason="fixed-position H control recognized before opening quick cartridge",
+        )
+    if state not in {"plaza", "returnable_scene", "arena_cartridge_bar"}:
+        reason = f"arena cartridge route requires battlefield, plaza, or cartridge bar; current state={state}"
         logger.failure(reason)
         return False, reason
 
-    if state == "plaza":
+    if state == "returnable_scene":
+        ok = False
+        reason = "battlefield quick cartridge did not open after 2 key presses"
+        bar_image = image
+        for attempt in range(1, 3):
+            post_quick_cartridge_key(hwnd, dry_run=dry_run, logger=logger)
+            if dry_run:
+                return True, "dry-run planned battlefield quick-cartridge shortcut"
+            next_state, bar_image = wait_for_state(
+                hwnd,
+                logger,
+                expected={"arena_cartridge_bar"},
+                timeout=20.0,
+                interval=1.0,
+                label=f"battlefield-quick-cartridge-attempt-{attempt}",
+            )
+            if next_state == "arena_cartridge_bar":
+                ok = True
+                reason = f"opened battlefield quick cartridge on attempt {attempt}"
+                break
+        if not ok:
+            logger.failure(reason)
+            return False, reason
+    elif state == "plaza":
         ok, _state, bar_image, reason = click_with_fixed_retry(
             hwnd,
             image,

@@ -59,6 +59,7 @@ user32 = ctypes.windll.user32
 WM_KEYDOWN = 0x0100
 WM_KEYUP = 0x0101
 VK_H = 0x48
+VK_P = 0x50
 SW_SHOWNOACTIVATE = 4
 UNBOUNDED_LOADING_STATES = {"loading", "restaurant_loading"}
 
@@ -1013,6 +1014,15 @@ def post_home_key(hwnd: int, *, dry_run: bool, logger: RunLogger) -> None:
     user32.PostMessageW(hwnd, WM_KEYDOWN, VK_H, 0)
     time.sleep(0.08)
     user32.PostMessageW(hwnd, WM_KEYUP, VK_H, 0)
+
+
+def post_quick_cartridge_key(hwnd: int, *, dry_run: bool, logger: RunLogger) -> None:
+    logger.event(action="post_key", key="P", vk=VK_P, dry_run=dry_run)
+    if dry_run:
+        return
+    user32.PostMessageW(hwnd, WM_KEYDOWN, VK_P, 0)
+    time.sleep(0.08)
+    user32.PostMessageW(hwnd, WM_KEYUP, VK_P, 0)
 
 
 def wait_for_state(
