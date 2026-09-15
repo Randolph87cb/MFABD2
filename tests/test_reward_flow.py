@@ -73,6 +73,61 @@ class RewardFlowTests(unittest.TestCase):
 
     @patch("reward_flow.wait_for_recognition")
     @patch("reward_flow.click_ratio_logged")
+    @patch("reward_flow.recognize_home_labels", return_value=(True, {"available": True}))
+    @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
+    def test_return_home_prioritizes_source_when_home_text_is_also_visible(
+        self,
+        _capture: MagicMock,
+        recognize_home: MagicMock,
+        click: MagicMock,
+        wait: MagicMock,
+    ) -> None:
+        wait.return_value = (True, Image.new("RGB", (1000, 600)), {})
+        source = MagicMock(return_value=(True, {"available": True}))
+
+        ok, reason = return_to_home(
+            123,
+            logger=MagicMock(),
+            recognize_source=source,
+            source_name="通行证页面",
+        )
+
+        self.assertTrue(ok)
+        self.assertIn("已从通行证页面返回主页", reason)
+        source.assert_called_once()
+        recognize_home.assert_not_called()
+        click.assert_called_once()
+        wait.assert_called_once()
+
+    @patch("reward_flow.wait_for_recognition")
+    @patch("reward_flow.click_ratio_logged")
+    @patch("reward_flow.recognize_home_labels", return_value=(True, {"available": True}))
+    @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
+    def test_return_home_accepts_home_only_after_source_is_absent(
+        self,
+        _capture: MagicMock,
+        recognize_home: MagicMock,
+        click: MagicMock,
+        wait: MagicMock,
+    ) -> None:
+        source = MagicMock(return_value=(False, {"available": True}))
+
+        ok, reason = return_to_home(
+            123,
+            logger=MagicMock(),
+            recognize_source=source,
+            source_name="活动页面",
+        )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "already on home page")
+        source.assert_called_once()
+        recognize_home.assert_called_once()
+        click.assert_not_called()
+        wait.assert_not_called()
+
+    @patch("reward_flow.wait_for_recognition")
+    @patch("reward_flow.click_ratio_logged")
     @patch("reward_flow.recognize_home_labels", return_value=(False, {}))
     @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
     def test_return_home_clicks_once_from_a_verified_source_page(

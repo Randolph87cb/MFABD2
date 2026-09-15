@@ -188,13 +188,8 @@ def return_to_home(
     recognize_source: Recognition,
     source_name: str,
 ) -> tuple[bool, str]:
-    """Return once from a verified reward page and require fixed home OCR."""
+    """Prefer the verified source page, then return once and require fixed home OCR."""
     image = safe_capture_client(hwnd, logger=logger)
-    is_home, home_details = recognize_home_labels(image)
-    logger.event(action="recognize_home", found=is_home, details=home_details)
-    if is_home:
-        return True, "already on home page"
-
     is_source, source_details = recognize_source(image)
     logger.event(
         action="recognize_reward_return_source",
@@ -203,6 +198,10 @@ def return_to_home(
         details=source_details,
     )
     if not is_source:
+        is_home, home_details = recognize_home_labels(image)
+        logger.event(action="recognize_home", found=is_home, details=home_details)
+        if is_home:
+            return True, "already on home page"
         return False, f"未识别到{source_name}，为避免误点未执行返回"
 
     click_ratio_logged(
