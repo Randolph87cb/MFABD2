@@ -65,7 +65,14 @@ from daily_arena import (
 )
 from business_management import detect_regular_customer_note_notification
 from enter_game import TOUCH_CLICK
-from quick_hunt import _select_max_quick_hunt_count
+from quick_hunt import _select_max_quick_hunt_count, enter_quick_hunt
+from home_notifications import (
+    detect_home_reward_notification,
+    detect_notification_badge,
+    detect_red_exclamation_badge,
+    find_red_exclamation_badges,
+)
+from pass_rewards import _has_pass_item_popup_close, enter_pass_rewards
 from free_gacha import (
     ActionResult,
     CLICK_POINTS,
@@ -90,6 +97,140 @@ FIXTURES = Path(__file__).resolve().parent / "fixtures" / "recognition"
 
 
 class PositionedTextRecognitionTests(unittest.TestCase):
+    def test_home_notification_badges_detect_only_the_expected_icon_corner(self) -> None:
+        image = Image.new("RGB", (2570, 1506))
+        draw = ImageDraw.Draw(image)
+        draw.polygon(((2253, 303), (2263, 313), (2253, 323), (2243, 313)), fill=(220, 25, 45))
+        draw.line((2253, 308, 2253, 313), fill="white")
+        draw.point((2253, 317), fill="white")
+
+        pass_found, pass_details = detect_home_reward_notification(image, "pass")
+        gacha_found, _gacha_details = detect_home_reward_notification(image, "gacha")
+
+        self.assertTrue(pass_found)
+        self.assertFalse(gacha_found)
+        self.assertGreaterEqual(pass_details["red_pixels"], 100)
+
+    def test_notification_badge_rejects_a_large_red_background_area(self) -> None:
+        image = Image.new("RGB", (1000, 600))
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((865, 130, 895, 160), fill=(220, 25, 45))
+
+        found, details = detect_notification_badge(image, (0.868, 0.200, 0.020, 0.030))
+
+        self.assertFalse(found)
+        self.assertGreater(details["largest_component_pixels"], details["maximum_component_pixels"])
+
+    @patch("pass_rewards.recognize_text_at")
+    def test_pass_item_popup_uses_fixed_position_text(
+        self,
+        recognize_text_at: MagicMock,
+    ) -> None:
+        recognize_text_at.return_value = (True, {"available": True})
+
+        self.assertTrue(_has_pass_item_popup_close(Image.new("RGB", (1000, 600))))
+        recognize_text_at.assert_called_once_with(
+            unittest.mock.ANY,
+            unittest.mock.ANY,
+            ("拥有", "使用处", "查看获取途径"),
+        )
+
+    def test_red_exclamation_badge_requires_white_mark_inside_red_diamond(self) -> None:
+        image = Image.new("RGB", (1000, 600))
+        draw = ImageDraw.Draw(image)
+        draw.polygon(((210, 190), (220, 180), (230, 190), (220, 200)), fill=(220, 25, 45))
+        draw.line((220, 185, 220, 193), fill="white", width=3)
+        draw.ellipse((219, 196, 221, 198), fill="white")
+        draw.rectangle((210, 260, 230, 270), fill=(220, 25, 45))
+
+        badges = find_red_exclamation_badges(image, (0.200, 0.175, 0.035, 0.430))
+
+        self.assertEqual(len(badges), 1)
+        self.assertGreaterEqual(badges[0]["red_pixels"], 100)
+
+    def test_fixed_red_exclamation_region_requires_diamond_and_mark(self) -> None:
+        image = Image.new("RGB", (1000, 600))
+        draw = ImageDraw.Draw(image)
+        draw.polygon(((220, 190), (230, 180), (240, 190), (230, 200)), fill=(220, 25, 45))
+        draw.line((230, 185, 230, 193), fill="white", width=2)
+        draw.ellipse((229, 196, 231, 198), fill="white")
+
+        found, details = detect_red_exclamation_badge(image, (0.200, 0.275, 0.050, 0.080))
+
+        self.assertTrue(found)
+        self.assertGreater(details["red_pixels"], 100)
+        self.assertGreaterEqual(details["exclamation_pixels"], 4)
+
+    @patch("free_gacha.click_with_fixed_retry")
+    @patch("free_gacha.detect_home_reward_notification", return_value=(False, {}))
+    @patch("free_gacha.classify_state", return_value=("real_home", {}))
+    @patch("free_gacha.safe_capture_client", return_value=Image.new("RGB", (2000, 1000)))
+    @patch("free_gacha.find_game_window", return_value=123)
+    def test_free_gacha_does_not_open_without_a_home_badge(
+        self,
+        _find_game_window: MagicMock,
+        _safe_capture_client: MagicMock,
+        _classify_state: MagicMock,
+        _detect_notification: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            result = run_free_gacha(
+                targets=["costume"],
+                timeout=5.0,
+                interval=0.0,
+                dry_run=False,
+                test_mode=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertEqual(result.reason, "gacha has no home reward notification")
+        click_with_fixed_retry.assert_not_called()
+
+    @patch("quick_hunt.click_with_fixed_retry")
+    @patch("quick_hunt.detect_home_reward_notification", return_value=(False, {}))
+    @patch("quick_hunt.classify_state", return_value=("real_home", {}))
+    @patch("quick_hunt.safe_capture_client", return_value=Image.new("RGB", (2000, 1000)))
+    @patch("quick_hunt.find_game_window", return_value=123)
+    def test_quick_hunt_does_not_open_without_a_home_badge(
+        self,
+        _find_game_window: MagicMock,
+        _safe_capture_client: MagicMock,
+        _classify_state: MagicMock,
+        _detect_notification: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_quick_hunt(dry_run=False, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "quick_hunt has no home reward notification")
+        click_with_fixed_retry.assert_not_called()
+
+    @patch("pass_rewards._capture_until")
+    @patch("pass_rewards.click_ratio_logged")
+    @patch("pass_rewards.detect_home_reward_notification", return_value=(True, {}))
+    @patch("pass_rewards.recognize_home_labels", return_value=(True, {}))
+    @patch("pass_rewards.safe_capture_client")
+    @patch("pass_rewards.find_game_window", return_value=123)
+    def test_pass_entry_clicks_only_after_a_confirmed_notification(
+        self,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        _recognize_home: MagicMock,
+        _detect_notification: MagicMock,
+        click_ratio_logged: MagicMock,
+        capture_until: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.return_value = image
+        capture_until.return_value = (True, image, {"available": True})
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, _reason = enter_pass_rewards(dry_run=False, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(click_ratio_logged.call_args.kwargs["key"], "home_pass")
+
     def test_fixed_reward_quick_hunt_setup_accepts_any_hunt_count(self) -> None:
         session = MagicMock()
         session.recognize.return_value = (
@@ -2034,6 +2175,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             patch("free_gacha.time.monotonic", side_effect=lambda: clock[0]),
             patch("free_gacha.safe_capture_client", side_effect=capture_client),
             patch("free_gacha.classify_state", side_effect=lambda _image: (next(states), {})),
+            patch("free_gacha.detect_home_reward_notification", return_value=(True, {})),
             patch("free_gacha.detect_selected_gacha_target", return_value="costume"),
             patch("free_gacha.detect_all_free_gacha_availability", return_value=("available", {})),
             patch("free_gacha.click_with_fixed_retry", side_effect=click_success),

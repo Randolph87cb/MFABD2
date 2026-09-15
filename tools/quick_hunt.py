@@ -22,6 +22,7 @@ from free_gacha import (
     click_with_fixed_retry,
     safe_capture_client,
 )
+from home_notifications import detect_home_reward_notification
 from open_game import find_game_window
 
 
@@ -173,6 +174,18 @@ def enter_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         reason = f"quick-hunt entry requires real_home, got {before_state}"
         logger.failure(reason)
         return False, reason
+
+    has_notification, notification_details = detect_home_reward_notification(before, "quick_hunt")
+    logger.event(
+        action="detect_notification",
+        target="quick_hunt",
+        found=has_notification,
+        details=notification_details,
+    )
+    if not has_notification:
+        reason = "quick_hunt has no home reward notification"
+        logger.event(action="stop", result="success", state=before_state, reason=reason)
+        return True, reason
 
     ok, state, after, reason = click_with_fixed_retry(
         hwnd,

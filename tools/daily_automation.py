@@ -1153,7 +1153,9 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             test_mode=True,
             log_root=gacha_root,
         )
-        if gacha.reason != "all requested free gacha targets completed":
+        if gacha.reason == "gacha has no home reward notification":
+            master.event("free_gacha", "skipped", "抽抽乐没有红点，跳过免费抽卡")
+        elif gacha.reason != "all requested free gacha targets completed":
             master.event(
                 "free_gacha",
                 "error",
@@ -1161,7 +1163,8 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
                 state=gacha.state,
             )
             raise DailyRunError(f"free_gacha: {gacha.reason}")
-        master.event("free_gacha", "success", "人物和装备免费抽卡均已完成", state=gacha.state)
+        else:
+            master.event("free_gacha", "success", "人物和装备免费抽卡均已完成", state=gacha.state)
 
         _require_phase(
             master,
@@ -1169,33 +1172,37 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
             log_root=run_root / "04-return-home",
         )
-        _require_phase(
+        quick_hunt_reason = _require_phase(
             master,
             "quick_hunt_entry",
             lambda *, log_root: enter_quick_hunt(dry_run=False, log_root=log_root),
             log_root=run_root / "05-quick-hunt-entry",
         )
-        _require_phase(
-            master,
-            "hunting_ground_setup",
-            lambda *, log_root: start_selected_quick_hunt(dry_run=False, log_root=log_root),
-            log_root=run_root / "06-hunting-ground-setup",
-        )
-        _require_phase(
-            master,
-            "hunting_ground_confirm",
-            lambda *, log_root: maximize_and_confirm_quick_hunt(
-                dry_run=False,
-                log_root=log_root,
-            ),
-            log_root=run_root / "07-hunting-ground-confirm",
-        )
-        _require_phase(
-            master,
-            "crystal_cave_cycle",
-            lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
-            log_root=run_root / "08-crystal-cave-cycle",
-        )
+        if quick_hunt_reason == "quick_hunt has no home reward notification":
+            for stage in ("hunting_ground_setup", "hunting_ground_confirm", "crystal_cave_cycle"):
+                master.event(stage, "skipped", "快速狩猎没有红点，跳过")
+        else:
+            _require_phase(
+                master,
+                "hunting_ground_setup",
+                lambda *, log_root: start_selected_quick_hunt(dry_run=False, log_root=log_root),
+                log_root=run_root / "06-hunting-ground-setup",
+            )
+            _require_phase(
+                master,
+                "hunting_ground_confirm",
+                lambda *, log_root: maximize_and_confirm_quick_hunt(
+                    dry_run=False,
+                    log_root=log_root,
+                ),
+                log_root=run_root / "07-hunting-ground-confirm",
+            )
+            _require_phase(
+                master,
+                "crystal_cave_cycle",
+                lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
+                log_root=run_root / "08-crystal-cave-cycle",
+            )
         _require_phase(
             master,
             "daily_arena",

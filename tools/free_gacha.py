@@ -23,6 +23,7 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from adaptive_wait import AdaptivePoll
 from enter_game import capture_client, recognize_home_screen
+from home_notifications import detect_home_reward_notification
 from game_text_recognition import (
     LabelRecognitionSession,
     recognize_arena_auto_battle_labels,
@@ -1499,6 +1500,20 @@ def run_free_gacha(
             continue
 
         if state == "real_home":
+            has_notification, notification_details = detect_home_reward_notification(
+                image,
+                "gacha",
+            )
+            logger.event(
+                action="detect_notification",
+                target="gacha",
+                found=has_notification,
+                details=notification_details,
+            )
+            if not has_notification:
+                reason = "gacha has no home reward notification"
+                logger.event(action="stop", result="success", state=state, reason=reason)
+                return ActionResult(state, "stop", reason)
             ok, _, _, reason = click_with_fixed_retry(
                 hwnd,
                 image,
