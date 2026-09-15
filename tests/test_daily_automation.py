@@ -60,6 +60,7 @@ from daily_arena import (
     enter_battlefield,
     enter_battle_prep,
     is_gameplay_tab_selected,
+    run_daily_arena,
     wait_for_cartridge_collection_ready,
 )
 from business_management import detect_regular_customer_note_notification
@@ -1406,6 +1407,47 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         )
         self.assertEqual(click_with_retry.call_args.args[2], "cartridge_gameplay_tab")
         click_ratio.assert_called_once()
+
+    @patch("daily_arena.confirm_optional_rank_change", return_value=(True, "done"))
+    @patch("daily_arena.leave_arena_victory", return_value=(True, "left arena"))
+    @patch("daily_arena.wait_and_close_repeat_result", return_value=(True, "closed result"))
+    @patch("daily_arena.maximize_and_start_auto_battle", return_value=(True, "started battle"))
+    @patch("daily_arena.open_auto_battle", return_value=(True, "opened auto battle"))
+    @patch("daily_arena.enter_battle_prep", return_value=(True, "entered battle prep"))
+    @patch("daily_arena.enter_arena_from_plaza", return_value=(True, "entered arena"))
+    @patch("daily_arena.is_returnable_battlefield", return_value=True)
+    @patch("daily_arena.classify_state")
+    @patch("daily_arena.safe_capture_client", return_value=Image.new("RGB", (80, 45)))
+    @patch("daily_arena.find_game_window", return_value=123)
+    @patch("daily_arena.enter_battlefield", return_value=(True, "entered battlefield"))
+    def test_daily_arena_routes_a_returnable_story_scene_to_quick_cartridge(
+        self,
+        _enter_battlefield: MagicMock,
+        _find_window: MagicMock,
+        _capture_client: MagicMock,
+        classify: MagicMock,
+        is_returnable: MagicMock,
+        enter_arena: MagicMock,
+        enter_battle_prep: MagicMock,
+        _open_auto_battle: MagicMock,
+        _start_auto_battle: MagicMock,
+        _close_result: MagicMock,
+        _leave_arena: MagicMock,
+        _confirm_rank: MagicMock,
+    ) -> None:
+        classify.side_effect = [("unknown", {}), ("arena_battle_prep", {})]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = run_daily_arena(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "done")
+        is_returnable.assert_called_once()
+        enter_arena.assert_called_once()
+        enter_battle_prep.assert_not_called()
 
     @patch("builtins.print")
     def test_arena_pool_loading_transition_waits_for_battle_prep(

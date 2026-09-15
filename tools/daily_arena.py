@@ -824,8 +824,12 @@ def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     hwnd = find_game_window()
     if not hwnd:
         return False, "game window not found after entering battlefield"
-    state, _details = classify_state(safe_capture_client(hwnd))
-    if state in {"plaza", "arena_cartridge_bar"}:
+    battlefield_image = safe_capture_client(hwnd)
+    state, _details = classify_state(battlefield_image)
+    if state in {"plaza", "arena_cartridge_bar"} or is_returnable_battlefield(
+        state,
+        battlefield_image,
+    ):
         ok, reason = enter_arena_from_plaza(
             dry_run=False,
             log_root=log_root / "02-cartridge-route",
