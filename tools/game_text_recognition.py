@@ -794,12 +794,22 @@ def recognize_restaurant_state(
     if error is not None:
         return "unknown", error
 
-    is_home = (
+    has_restaurant_shell = (
         "格鲁菲餐厅" in matches["title"]
-        and len(matches["bottom_controls"]) >= 2
         and "结算" in matches["settlement"]
     )
-    is_regular_customer_mode = is_home and "查看常客" in matches["regular_customer_mode"]
+    is_home = has_restaurant_shell and len(matches["bottom_controls"]) >= 2
+    has_new_regular_customer_controls = (
+        "常客笔记" in matches["left_controls"]
+        and "格鲁TALK" in matches["left_controls"]
+    )
+    is_regular_customer_mode = (
+        is_home and "查看常客" in matches["regular_customer_mode"]
+    ) or (
+        has_restaurant_shell
+        and has_new_regular_customer_controls
+        and not is_home
+    )
     normalized_progress = [
         _normalize_text(text)
         for text in grouped_texts["loading_progress"]
@@ -824,7 +834,11 @@ def recognize_restaurant_state(
         "requirements": {
             "home": ["格鲁菲餐厅", "two bottom controls", "结算"],
             "loading": ["格鲁菲餐厅", "N%"],
-            "regular_customer_mode": ["restaurant home", "查看常客"],
+            "regular_customer_mode": [
+                "格鲁菲餐厅",
+                "结算",
+                "常客笔记 + 格鲁TALK before complete home controls, or 查看常客",
+            ],
         },
     }
 

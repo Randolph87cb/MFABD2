@@ -6,17 +6,20 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-import numpy as np
 from PIL import Image
 
 from free_gacha import (
     RunLogger,
+    _click_ratio,
     classify_state,
     click_with_fixed_retry,
     safe_capture_client,
     wait_for_state,
 )
+from game_text_recognition import recognize_home_labels
 from open_game import find_game_window
+from home_notifications import detect_notification_badge
+from reward_flow import wait_for_recognition
 
 
 def _wait_out_loading(
@@ -271,33 +274,33 @@ def return_home_from_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool,
         logger.failure(reason)
         return False, reason
 
-    expected = {"real_home", "home_overlay", "blocking_ad_overlay"}
-    ok, state, image, reason = click_with_fixed_retry(
+    _click_ratio(
         hwnd,
         image,
         "restaurant_home",
-        verify=lambda next_state, _image: next_state in expected | {"loading"},
-        description="return home from restaurant",
         dry_run=dry_run,
         logger=logger,
     )
-    if not ok or dry_run:
-        if not ok:
-            logger.failure(reason)
-        return ok, reason
-    state, image = _wait_out_loading(
+    if dry_run:
+        return True, "dry-run planned return home from restaurant"
+
+    reached_home, _home_image, home_details = wait_for_recognition(
         hwnd,
-        state,
-        image,
-        expected=expected,
         logger=logger,
+        recognize=recognize_home_labels,
+        timeout=20.0,
         label="after-restaurant-home",
     )
-    if state not in expected:
-        reason = f"restaurant return-home ended at unexpected state: {state}"
+    if not reached_home:
+        reason = "restaurant return-home did not reach fixed-position home text within 20 seconds"
         logger.failure(reason)
         return False, reason
-    logger.event(action="stop", result="success", state=state)
+    logger.event(
+        action="stop",
+        result="success",
+        state="real_home",
+        details=home_details,
+    )
     return True, "returned home from restaurant"
 
 
@@ -319,11 +322,13 @@ def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         logger.failure(reason)
         return False, reason
 
+    interactive_states = {"restaurant_home", "restaurant_regular_customer_mode"}
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
         image,
         "business_management_restaurant",
-        verify=lambda next_state, _image: next_state in {"restaurant_loading", "restaurant_home"},
+        verify=lambda next_state, _image: next_state
+        in interactive_states | {"restaurant_loading"},
         description="enter restaurant from business management",
         dry_run=dry_run,
         logger=logger,
@@ -338,12 +343,12 @@ def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         state, image = wait_for_state(
             hwnd,
             logger,
-            expected={"restaurant_home"},
+            expected=interactive_states,
             timeout=90.0,
             interval=3.0,
             label="restaurant-loading",
         )
-    if state != "restaurant_home":
+    if state not in interactive_states:
         reason = f"restaurant entry ended at unexpected state: {state}"
         logger.failure(reason)
         return False, reason
@@ -372,6 +377,14 @@ def open_regular_customer_rewards(*, dry_run: bool, log_root: Path) -> tuple[boo
     state, details = classify_state(image)
     path = logger.save_image(image, f"regular-customer-start-{state}.png")
     logger.event(action="classify", state=state, details=details, screenshot=str(path))
+    if state == "restaurant_regular_customer_mode":
+        logger.event(
+            action="stop",
+            result="success",
+            state=state,
+            reason="regular-customer mode already open",
+        )
+        return True, "regular-customer mode already open"
     if state != "restaurant_home":
         reason = f"opening regular-customer rewards requires restaurant_home, got {state}"
         logger.failure(reason)
@@ -410,30 +423,8 @@ def open_regular_customer_rewards(*, dry_run: bool, log_root: Path) -> tuple[boo
 
 def detect_regular_customer_note_notification(image: Image.Image) -> tuple[bool, dict[str, float | int]]:
     """Detect the red notification diamond on the regular-customer notebook."""
-    frame = np.asarray(image.convert("RGB"))
-    height, width = frame.shape[:2]
-    x0, x1 = int(width * 0.075), int(width * 0.115)
-    y0, y1 = int(height * 0.075), int(height * 0.155)
-    crop = frame[y0:y1, x0:x1]
-    red = crop[:, :, 0].astype(np.int16)
-    green = crop[:, :, 1].astype(np.int16)
-    blue = crop[:, :, 2].astype(np.int16)
-    red_mask = (
-        (red > 150)
-        & (red > green * 1.35)
-        & (red > blue * 1.20)
-        & ((red - green) > 45)
-    )
-    red_pixels = int(red_mask.sum())
-    red_ratio = float(red_mask.mean()) if red_mask.size else 0.0
-    return red_pixels >= 80, {
-        "red_pixels": red_pixels,
-        "red_ratio": red_ratio,
-        "x0": x0,
-        "y0": y0,
-        "x1": x1,
-        "y1": y1,
-    }
+    found, details = detect_notification_badge(image, (0.075, 0.075, 0.040, 0.080))
+    return found, details
 
 
 def open_regular_customer_note_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
