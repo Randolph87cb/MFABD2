@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
@@ -17,7 +17,31 @@ import activity_rewards
 
 
 class ActivityDispatchTests(unittest.TestCase):
-    def test_upstream_coordinates_use_1280_by_720_canvas(self) -> None:
+    def test_activity_badge_region_covers_current_list_edge(self) -> None:
+        image = Image.new("RGB", (1000, 600))
+        draw = ImageDraw.Draw(image)
+        center_x, center_y = 266, 401
+        radius = 7
+        draw.polygon(
+            (
+                (center_x, center_y - radius),
+                (center_x + radius, center_y),
+                (center_x, center_y + radius),
+                (center_x - radius, center_y),
+            ),
+            fill=(220, 25, 45),
+        )
+        draw.rectangle((center_x, center_y - 3, center_x, center_y), fill="white")
+        draw.point((center_x, center_y + 3), fill="white")
+
+        badges = activity_rewards.find_red_exclamation_badges(
+            image,
+            activity_rewards.ACTIVITY_LIST_BADGE_REGION,
+        )
+
+        self.assertEqual(len(badges), 1)
+
+    def test_fixed_coordinates_use_reference_canvas_and_calibrated_scroll(self) -> None:
         self.assertEqual(activity_rewards.HOME_ACTIVITY_POINT, (0.467, 0.925))
         self.assertEqual(
             activity_rewards.ACTIVITY_PAGE_REGION,
@@ -29,8 +53,9 @@ class ActivityDispatchTests(unittest.TestCase):
         )
         self.assertEqual(
             activity_rewards.SCROLL_BEGIN,
-            (210 / 1280, 300 / 720),
+            (0.175, 0.700),
         )
+        self.assertEqual(activity_rewards.SCROLL_END, (0.175, 0.280))
         self.assertEqual(
             activity_rewards.CLOTHING_OPEN_POINT,
             (1047 / 1280, 204 / 720),
@@ -226,6 +251,61 @@ class ActivityPaidSafetyTests(unittest.TestCase):
 
 
 class ActivitySettlementTests(unittest.TestCase):
+    @patch("activity_rewards._click_then_return")
+    @patch("activity_rewards._read_texts_at", return_value=(["21"], {"available": True}))
+    def test_roulette_uses_ten_spin_when_balance_allows_it(
+        self,
+        _read: MagicMock,
+        click_then_return: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1280, 720))
+        click_then_return.return_value = (True, image, "done")
+        ok, _image, _reason = activity_rewards._handle_token_roulette(
+            123, image, logger=MagicMock(), dry_run=False
+        )
+        self.assertTrue(ok)
+        self.assertEqual(
+            click_then_return.call_args.args[2],
+            activity_rewards.TOKEN_ROULETTE_TEN_POINT,
+        )
+
+    @patch("activity_rewards._click_then_return")
+    @patch("activity_rewards._read_texts_at", return_value=(["1"], {"available": True}))
+    def test_roulette_uses_single_spin_for_remaining_tokens(
+        self,
+        _read: MagicMock,
+        click_then_return: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1280, 720))
+        click_then_return.return_value = (True, image, "done")
+        ok, _image, _reason = activity_rewards._handle_token_roulette(
+            123, image, logger=MagicMock(), dry_run=False
+        )
+        self.assertTrue(ok)
+        self.assertEqual(
+            click_then_return.call_args.args[2],
+            activity_rewards.TOKEN_ROULETTE_POINT,
+        )
+
+    @patch("activity_rewards._click_then_return")
+    @patch("activity_rewards._read_texts_at", return_value=([], {"available": True}))
+    def test_roulette_unreadable_balance_only_attempts_single_spin(
+        self,
+        _read: MagicMock,
+        click_then_return: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1280, 720))
+        click_then_return.return_value = (True, image, "done")
+        ok, _image, _reason = activity_rewards._handle_token_roulette(
+            123, image, logger=MagicMock(), dry_run=False
+        )
+        self.assertTrue(ok)
+        self.assertEqual(
+            click_then_return.call_args.args[2],
+            activity_rewards.TOKEN_ROULETTE_POINT,
+        )
+        self.assertIn("balance_unreadable", click_then_return.call_args.kwargs["key"])
+
     @patch("activity_rewards._wait_for_image")
     @patch("activity_rewards.click_ratio_logged")
     @patch("activity_rewards.recognize_reward_overlay_labels")
@@ -323,6 +403,25 @@ class ActivityDiceTests(unittest.TestCase):
 
 
 class ActivityOcrTransitionTests(unittest.TestCase):
+    def test_known_short_roulette_identity_matches_detail_title(self) -> None:
+        self.assertTrue(
+            activity_rewards._activity_identity_matches(
+                ["转盘"],
+                ["魔防队七番组特别转盘活动"],
+            )
+        )
+
+    @patch("activity_rewards._read_texts_at", return_value=(["转盘"], {"available": True}))
+    def test_card_identity_is_read_below_top_right_badge(self, read: MagicMock) -> None:
+        badge = {"center": (0.266, 0.669)}
+        texts, _details = activity_rewards._read_activity_card_identity(
+            Image.new("RGB", (1280, 720)),
+            badge,
+        )
+        region = read.call_args.args[1]
+        self.assertEqual(texts, ["转盘"])
+        self.assertGreater(region[1], badge["center"][1])
+
     @patch("activity_rewards._read_activity_card_identity", return_value=(["EVENTNAME"], {"available": True}))
     @patch("activity_rewards._read_texts_at", return_value=(["EVENTNAME"], {"available": True}))
     @patch("activity_rewards.recognize_activity_kind", return_value=("regular", {}))
@@ -448,7 +547,34 @@ class ActivityFlowTests(unittest.TestCase):
         badge.assert_not_called()
         click.assert_not_called()
 
-    def test_no_badge_scan_uses_the_full_bounded_scroll_budget(self) -> None:
+    def test_activity_entry_retries_once_only_when_home_badge_remains(self) -> None:
+        image = Image.new("RGB", (1200, 675))
+        click = MagicMock()
+        wait = MagicMock(side_effect=[(False, image), (True, image)])
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch("activity_rewards.find_game_window", return_value=123),
+                patch("activity_rewards.safe_capture_client", return_value=image),
+                patch("activity_rewards.recognize_home_labels", return_value=(True, {})),
+                patch("activity_rewards.detect_home_reward_notification", return_value=(True, {})),
+                patch("activity_rewards._wait_for_image", wait),
+                patch("activity_rewards._is_activity_page", return_value=(True, {})),
+                patch("activity_rewards.find_red_exclamation_badges", return_value=[]),
+                patch("activity_rewards._activity_list_at_end", return_value=(True, {})),
+                patch("activity_rewards.click_ratio_logged", click),
+                patch("activity_rewards.return_to_home", return_value=(True, "returned home")),
+            ):
+                ok, reason = activity_rewards.run_activity_rewards(
+                    dry_run=False,
+                    log_root=Path(temporary),
+                )
+        self.assertTrue(ok, reason)
+        self.assertEqual(
+            [entry.kwargs["key"] for entry in click.call_args_list],
+            ["home_activity", "home_activity_retry"],
+        )
+
+    def test_unchanged_list_after_swipe_is_failure_not_success(self) -> None:
         swipe = MagicMock()
         return_home = MagicMock(return_value=(True, "returned home"))
         image = Image.new("RGB", (1200, 675))
@@ -461,6 +587,8 @@ class ActivityFlowTests(unittest.TestCase):
                 patch("activity_rewards._wait_for_image", return_value=(True, image)),
                 patch("activity_rewards._is_activity_page", return_value=(True, {})),
                 patch("activity_rewards.find_red_exclamation_badges", return_value=[]),
+                patch("activity_rewards._activity_list_at_end", return_value=(False, {})),
+                patch("activity_rewards._activity_list_identity", return_value=("EVENTA", "EVENTB")),
                 patch("activity_rewards.click_ratio_logged"),
                 patch("activity_rewards.swipe_ratio_logged", swipe),
                 patch("activity_rewards.return_to_home", return_home),
@@ -470,9 +598,36 @@ class ActivityFlowTests(unittest.TestCase):
                     dry_run=False,
                     log_root=Path(temporary),
                 )
-        self.assertTrue(ok)
+        self.assertFalse(ok)
+        self.assertIn("滑动未生效", reason)
+        self.assertEqual(swipe.call_count, 1)
+        return_home.assert_not_called()
+
+    def test_bottom_marker_finishes_scan_without_extra_swipe(self) -> None:
+        swipe = MagicMock()
+        return_home = MagicMock(return_value=(True, "returned home"))
+        image = Image.new("RGB", (1200, 675))
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch("activity_rewards.find_game_window", return_value=123),
+                patch("activity_rewards.safe_capture_client", return_value=image),
+                patch("activity_rewards.recognize_home_labels", return_value=(True, {})),
+                patch("activity_rewards.detect_home_reward_notification", return_value=(True, {})),
+                patch("activity_rewards._wait_for_image", return_value=(True, image)),
+                patch("activity_rewards._is_activity_page", return_value=(True, {})),
+                patch("activity_rewards.find_red_exclamation_badges", return_value=[]),
+                patch("activity_rewards._activity_list_at_end", return_value=(True, {"texts": ["登录活动"]})),
+                patch("activity_rewards.click_ratio_logged"),
+                patch("activity_rewards.swipe_ratio_logged", swipe),
+                patch("activity_rewards.return_to_home", return_home),
+            ):
+                ok, reason = activity_rewards.run_activity_rewards(
+                    dry_run=False,
+                    log_root=Path(temporary),
+                )
+        self.assertTrue(ok, reason)
         self.assertTrue(reason.startswith("skipped:"))
-        self.assertEqual(swipe.call_count, activity_rewards.MAX_ACTIVITY_SWIPES)
+        swipe.assert_not_called()
         return_home.assert_called_once()
 
     def test_empty_scan_fails_when_home_ocr_is_not_confirmed(self) -> None:
@@ -503,6 +658,7 @@ class ActivityFlowTests(unittest.TestCase):
                 patch("activity_rewards._wait_for_image", return_value=(True, image)),
                 patch("activity_rewards._is_activity_page", return_value=(True, {})),
                 patch("activity_rewards.find_red_exclamation_badges", side_effect=badge_results),
+                patch("activity_rewards._activity_list_at_end", return_value=(True, {})),
                 patch("activity_rewards._click_marked_activity", return_value=(True, image, "selected")),
                 patch("activity_rewards.recognize_activity_kind", return_value=("regular", {})),
                 patch("activity_rewards._handle_activity", return_value=(True, image, "claimed")),

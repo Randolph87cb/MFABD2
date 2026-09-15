@@ -20,6 +20,7 @@ MAIL_HOME_CLICK = (0.842, 0.055)
 MAIL_PAGE_REGION = (0.163, 0.021, 0.107, 0.075)
 MAIL_CLAIM_REGION = (0.822, 0.896, 0.064, 0.042)
 MAIL_CLAIM_CLICK = (0.854, 0.917)
+GENERAL_BADGE_REGION = (0.205, 0.105, 0.035, 0.055)
 PRODUCT_BADGE_REGION = (0.144, 0.203, 0.145, 0.086)
 PRODUCT_TAB_CLICK = (0.216, 0.246)
 STEP_TIMEOUT = 5.0
@@ -278,15 +279,23 @@ def run_mail_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
             logger.failure(reason)
             return False, reason
 
-        ok, image, reason = _claim_mail_once(
-            hwnd,
-            image,
-            logger=logger,
-            mailbox="general",
+        general, general_details = detect_red_exclamation_badge(image, GENERAL_BADGE_REGION)
+        logger.event(
+            action="detect_notification",
+            target="general_mail",
+            found=general,
+            details=general_details,
         )
-        if not ok:
-            logger.failure(reason)
-            return False, reason
+        if general:
+            ok, image, reason = _claim_mail_once(
+                hwnd,
+                image,
+                logger=logger,
+                mailbox="general",
+            )
+            if not ok:
+                logger.failure(reason)
+                return False, reason
 
         product, product_details = detect_red_exclamation_badge(image, PRODUCT_BADGE_REGION)
         logger.event(action="detect_notification", target="product_mail", found=product, details=product_details)
@@ -317,11 +326,16 @@ def run_mail_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
             logger=logger,
             recognize_source=_recognize_mail_page,
             source_name="邮箱页面",
+            notification_target="mail",
+            notification_name="邮件",
         )
         if not ok:
             logger.failure(reason)
             return False, reason
-        reason = f"completed: mail rewards processed; product={'yes' if product else 'no'}"
+        reason = (
+            "completed: mail rewards processed; "
+            f"general={'yes' if general else 'no'}; product={'yes' if product else 'no'}"
+        )
         logger.event(action="stop", result="success", reason=reason)
         return True, reason
     except Exception as exc:  # noqa: BLE001 - automation failures are persisted for review.

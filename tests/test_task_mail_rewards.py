@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
@@ -28,6 +28,42 @@ def named(image: Image.Image) -> str:
 
 
 class TaskRewardTests(unittest.TestCase):
+    @patch("task_rewards.recognize_text_at")
+    def test_daily_title_is_not_accepted_as_weekly(self, recognize: MagicMock) -> None:
+        recognize.return_value = (True, {"texts": ["每日任务"]})
+        weekly, _details = task_rewards._recognize_weekly_page(frame("daily"))
+        self.assertFalse(weekly)
+
+    def test_weekly_badge_region_covers_current_client_position(self) -> None:
+        image = Image.new("RGB", (1000, 600))
+        draw = ImageDraw.Draw(image)
+        center_x, center_y = 223, 116
+        radius = 7
+        draw.polygon(
+            (
+                (center_x, center_y - radius),
+                (center_x + radius, center_y),
+                (center_x, center_y + radius),
+                (center_x - radius, center_y),
+            ),
+            fill=(220, 25, 45),
+        )
+        draw.rectangle((center_x, center_y - 3, center_x, center_y), fill="white")
+        draw.point((center_x, center_y + 3), fill="white")
+
+        found, _details = task_rewards.detect_red_exclamation_badge(
+            image,
+            task_rewards.WEEKLY_BADGE_REGION,
+        )
+
+        self.assertTrue(found)
+
+        daily_found, _details = task_rewards.detect_red_exclamation_badge(
+            image,
+            task_rewards.DAILY_BADGE_REGION,
+        )
+        self.assertFalse(daily_found)
+
     @patch("task_rewards.click_ratio_logged")
     @patch("task_rewards.detect_home_reward_notification", return_value=(False, {}))
     @patch("task_rewards.recognize_home_labels", return_value=(True, {}))
@@ -51,7 +87,10 @@ class TaskRewardTests(unittest.TestCase):
         click.assert_not_called()
 
     @patch("task_rewards.click_ratio_logged")
-    @patch("task_rewards.detect_red_exclamation_badge", return_value=(True, {}))
+    @patch(
+        "task_rewards.detect_red_exclamation_badge",
+        return_value=(True, {"center": (0.223, 0.193)}),
+    )
     @patch("task_rewards.detect_home_reward_notification", return_value=(True, {}))
     @patch("task_rewards.return_to_home", return_value=(True, "returned home"))
     @patch("task_rewards.recognize_reward_overlay_labels")
@@ -211,6 +250,7 @@ class TaskRewardTests(unittest.TestCase):
     @patch("task_rewards.click_ratio_logged")
     @patch("task_rewards._claim_page_once")
     @patch("task_rewards._recognize_daily_page", return_value=(True, {}))
+    @patch("task_rewards.detect_red_exclamation_badge", return_value=(True, {}))
     @patch("task_rewards.detect_home_reward_notification", return_value=(True, {}))
     @patch("task_rewards.recognize_home_labels", return_value=(True, {}))
     @patch("task_rewards.safe_capture_client", side_effect=[frame("home"), frame("daily")])
@@ -221,6 +261,7 @@ class TaskRewardTests(unittest.TestCase):
         _capture: MagicMock,
         _home: MagicMock,
         _badge: MagicMock,
+        _tab_badge: MagicMock,
         _page: MagicMock,
         claim: MagicMock,
         _click: MagicMock,
@@ -338,7 +379,11 @@ class MailRewardTests(unittest.TestCase):
         )
         claim.side_effect = lambda image: (named(image) in {"general", "product"}, {})
         overlay.side_effect = lambda image: (named(image).startswith("overlay"), {})
-        product_badge.side_effect = [(True, {"stage": "before"}), (False, {"stage": "after"})]
+        product_badge.side_effect = [
+            (True, {"stage": "general"}),
+            (True, {"stage": "product-before"}),
+            (False, {"stage": "product-after"}),
+        ]
 
         with tempfile.TemporaryDirectory() as temporary, patch(
             "mail_rewards.CLICK_SETTLE_SECONDS", 0
@@ -459,6 +504,7 @@ class MailRewardTests(unittest.TestCase):
     @patch("mail_rewards.click_ratio_logged")
     @patch("mail_rewards._claim_mail_once")
     @patch("mail_rewards._recognize_mail_page", return_value=(True, {}))
+    @patch("mail_rewards.detect_red_exclamation_badge", return_value=(True, {}))
     @patch("mail_rewards.detect_home_reward_notification", return_value=(True, {}))
     @patch("mail_rewards.recognize_home_labels", return_value=(True, {}))
     @patch("mail_rewards.safe_capture_client", side_effect=[frame("home"), frame("mail")])
@@ -469,6 +515,7 @@ class MailRewardTests(unittest.TestCase):
         _capture: MagicMock,
         _home: MagicMock,
         _badge: MagicMock,
+        _tab_badge: MagicMock,
         _page: MagicMock,
         claim: MagicMock,
         _click: MagicMock,

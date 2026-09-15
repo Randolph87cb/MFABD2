@@ -15,7 +15,8 @@ from game_text_recognition import (
     recognize_home_labels,
     recognize_reward_overlay_labels,
 )
-from win32_windowpos_click import click_client, swipe_client
+from home_notifications import detect_home_reward_notification
+from win32_windowpos_click import click_client, swipe_client, swipe_client_foreground
 
 
 NormalizedRegion = tuple[float, float, float, float]
@@ -87,6 +88,9 @@ def swipe_ratio_logged(
     key: str,
     logger: RunLogger,
     dry_run: bool = False,
+    duration: float = 0.5,
+    end_hold: float = 0.0,
+    foreground: bool = False,
 ) -> None:
     """Swipe between normalized points while logging the source screenshot."""
     start_x, start_y = int(image.width * begin[0]), int(image.height * begin[1])
@@ -97,11 +101,57 @@ def swipe_ratio_logged(
         key=key,
         begin=(start_x, start_y),
         end=(end_x, end_y),
+        duration=duration,
+        end_hold=end_hold,
+        foreground=foreground,
         dry_run=dry_run,
         screenshot=str(path),
     )
     if not dry_run:
-        swipe_client(hwnd, start_x, start_y, end_x, end_y)
+        swipe = swipe_client_foreground if foreground else swipe_client
+        swipe(
+            hwnd,
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            duration=duration,
+            end_hold=end_hold,
+        )
+
+
+def wait_for_home_notification_clear(
+    hwnd: int,
+    *,
+    logger: RunLogger,
+    target: str,
+    target_name: str,
+    timeout: float = 6.0,
+) -> tuple[bool, str]:
+    """Require home OCR and the exact target red exclamation to be gone."""
+
+    def cleared(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+        is_home, home_details = recognize_home_labels(image)
+        if not is_home:
+            return False, {"home": False, "home_details": home_details}
+        has_badge, badge_details = detect_home_reward_notification(image, target)
+        return not has_badge, {
+            "home": True,
+            "home_details": home_details,
+            "has_notification": has_badge,
+            "notification_details": badge_details,
+        }
+
+    ok, _image, _details = wait_for_recognition(
+        hwnd,
+        logger=logger,
+        label=f"home-{target}-notification-cleared",
+        recognize=cleared,
+        timeout=timeout,
+    )
+    if ok:
+        return True, f"已确认主页{target_name}红点消失"
+    return False, f"已返回主页，但{target_name}红点仍存在，不能判定该环节完成"
 
 
 def wait_for_recognition(
@@ -187,6 +237,8 @@ def return_to_home(
     logger: RunLogger,
     recognize_source: Recognition,
     source_name: str,
+    notification_target: str | None = None,
+    notification_name: str | None = None,
 ) -> tuple[bool, str]:
     """Prefer the verified source page, then return once and require fixed home OCR."""
     image = safe_capture_client(hwnd, logger=logger)
@@ -201,7 +253,14 @@ def return_to_home(
         is_home, home_details = recognize_home_labels(image)
         logger.event(action="recognize_home", found=is_home, details=home_details)
         if is_home:
-            return True, "already on home page"
+            if notification_target is None:
+                return True, "already on home page"
+            return wait_for_home_notification_clear(
+                hwnd,
+                logger=logger,
+                target=notification_target,
+                target_name=notification_name or notification_target,
+            )
         return False, f"未识别到{source_name}，为避免误点未执行返回"
 
     click_ratio_logged(
@@ -219,5 +278,15 @@ def return_to_home(
         timeout=12.0,
     )
     if reached_home:
-        return True, f"已从{source_name}返回主页"
+        if notification_target is None:
+            return True, f"已从{source_name}返回主页"
+        cleared, clear_reason = wait_for_home_notification_clear(
+            hwnd,
+            logger=logger,
+            target=notification_target,
+            target_name=notification_name or notification_target,
+        )
+        if not cleared:
+            return False, clear_reason
+        return True, f"已从{source_name}返回主页；{clear_reason}"
     return False, f"从{source_name}点击返回后，12秒内未识别到主页文字"

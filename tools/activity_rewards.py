@@ -31,6 +31,7 @@ from reward_flow import click_ratio_logged, return_to_home, swipe_ratio_logged
 
 NormalizedRegion = tuple[float, float, float, float]
 MatchMap = dict[str, list[str]]
+SHORT_ACTIVITY_IDENTITIES = {"转盘"}
 
 
 def _region(x: int, y: int, width: int, height: int) -> NormalizedRegion:
@@ -54,7 +55,11 @@ def _offset_center(
 
 # Fixed geometry mirrored from upstream Activities.json.
 ACTIVITY_PAGE_REGION = _region(108, 110, 529, 483)
-ACTIVITY_LIST_BADGE_REGION = _region(269, 125, 30, 478)
+# Current-client calibration: list-card red exclamations sit at x≈0.266.
+# Keep the strip narrow so artwork elsewhere cannot satisfy the detector.
+ACTIVITY_LIST_BADGE_REGION = (0.255, 0.170, 0.025, 0.620)
+ACTIVITY_LIST_TEXT_REGION = _region(100, 100, 205, 516)
+ACTIVITY_LIST_END_REGION = _region(125, 335, 176, 281)
 ACTIVITY_DETAIL_IDENTITY_REGION = (0.250, 0.120, 0.660, 0.360)
 TOKEN_EXCHANGE_REGION = _region(531, 515, 114, 33)
 TOKEN_CONFIRM_REGION = _region(665, 403, 85, 29)
@@ -63,10 +68,14 @@ DICE_SWITCH_REGION = _region(1059, 517, 104, 47)
 DICE_SWITCH_CONTROL_REGION = _region(1076, 534, 11, 13)
 PUZZLE_UNLOCK_REGION = _region(1002, 514, 120, 49)
 BINGO_UNLOCK_REGION = _region(533, 518, 119, 54)
-# The upstream free-roulette node has no ROI.  Restrict it to the action area
-# instead of accepting matching text from arbitrary event artwork.
-FREE_ROULETTE_REGION = _region(850, 420, 315, 180)
-TOKEN_ROULETTE_REGION = _region(966, 493, 170, 81)
+# Current roulette layout: the single-spin control is left of the ten-spin
+# control.  The reference flow only handles tens; this project also consumes
+# a remaining 1-9 tokens through the fixed single-spin control.
+ROULETTE_SINGLE_REGION = _region(760, 493, 170, 81)
+FREE_ROULETTE_REGION = ROULETTE_SINGLE_REGION
+TOKEN_ROULETTE_REGION = ROULETTE_SINGLE_REGION
+TOKEN_ROULETTE_TEN_REGION = _region(966, 493, 170, 81)
+ROULETTE_BALANCE_REGION = (0.885, 0.020, 0.065, 0.065)
 CLOTHING_OFFER_REGION = _region(320, 145, 602, 422)
 CLOTHING_CLAIM_NOW_REGION = _region(320, 145, 843, 422)
 # Activities_FreeClothing_Ty2 searches [1060,284,86,269], then Ty2_Ck
@@ -89,6 +98,7 @@ PUZZLE_UNLOCK_POINT = _center(PUZZLE_UNLOCK_REGION)
 BINGO_UNLOCK_POINT = _center(BINGO_UNLOCK_REGION)
 FREE_ROULETTE_POINT = _center(FREE_ROULETTE_REGION)
 TOKEN_ROULETTE_POINT = _center(TOKEN_ROULETTE_REGION)
+TOKEN_ROULETTE_TEN_POINT = _center(TOKEN_ROULETTE_TEN_REGION)
 CLOTHING_OPEN_POINT = (1047 / 1280, 204 / 720)
 CLOTHING_CLAIM_NOW_POINT = _center(CLOTHING_CLAIM_NOW_REGION)
 REGULAR_CLAIM_POINT = _center(REGULAR_CLAIM_REGION)
@@ -97,8 +107,12 @@ REGULAR_CLAIM_POINT = _center(REGULAR_CLAIM_REGION)
 PAID_FREE_POINT = _offset_center(PAID_FREE_REGION, 0, -50)
 PAID_PURCHASE_POINT = _center(PAID_PURCHASE_REGION)
 ACTIVITY_BACK_POINT = (120 / 1280, 35 / 720)
-SCROLL_BEGIN = (210 / 1280, 300 / 720)
-SCROLL_END = (210 / 1280, 100 / 720)
+# The current client only scrolls reliably when the drag starts in the lower
+# half of an activity card and stays inside the list for the whole gesture.
+SCROLL_BEGIN = (0.175, 0.700)
+SCROLL_END = (0.175, 0.280)
+ACTIVITY_SCROLL_DURATION = 1.2
+ACTIVITY_SCROLL_END_HOLD = 0.3
 
 STEP_TIMEOUT = 12.0
 SETTLEMENT_TIMEOUT = 20.0
@@ -107,6 +121,7 @@ MAX_SCAN_CYCLES = 40
 MAX_ACTION_REPEATS = 10
 MAX_SETTLEMENTS = 6
 MAX_ACTIVITY_SWIPES = 6
+MAX_ACTIVITY_ENTRY_CLICKS = 2
 DICE_RUN_SETTLE_SECONDS = 15.0
 
 
@@ -126,7 +141,7 @@ CONTROL_GROUPS: dict[str, dict[str, Any]] = {
     "puzzle_unlock": {"region": PUZZLE_UNLOCK_REGION, "labels": ("全部解锁",)},
     "bingo_unlock": {"region": BINGO_UNLOCK_REGION, "labels": ("全部解锁",)},
     "free_roulette": {"region": FREE_ROULETTE_REGION, "labels": ("1次免费",)},
-    "token_roulette": {"region": TOKEN_ROULETTE_REGION, "labels": ("旋转",)},
+    "token_roulette": {"region": TOKEN_ROULETTE_REGION, "labels": ("旋转1次",)},
     "clothing_offer": {
         "region": CLOTHING_OFFER_REGION,
         "labels": ("强化免费赠送", "强化服装的机会", "+5强化"),
@@ -250,9 +265,22 @@ def _normalized_activity_identity(value: object) -> str:
     return text
 
 
+def _usable_activity_identity(value: object) -> bool:
+    normalized = _normalized_activity_identity(value)
+    return len(normalized) >= 4 or normalized in SHORT_ACTIVITY_IDENTITIES
+
+
 def _activity_identity_matches(list_texts: list[str], detail_texts: list[str]) -> bool:
-    sources = [value for text in list_texts if len(value := _normalized_activity_identity(text)) >= 4]
-    targets = [value for text in detail_texts if len(value := _normalized_activity_identity(text)) >= 4]
+    sources = [
+        _normalized_activity_identity(text)
+        for text in list_texts
+        if _usable_activity_identity(text)
+    ]
+    targets = [
+        value
+        for text in detail_texts
+        if len(value := _normalized_activity_identity(text)) >= 2
+    ]
     for source in sources:
         for target in targets:
             if source in target or target in source:
@@ -262,12 +290,51 @@ def _activity_identity_matches(list_texts: list[str], detail_texts: list[str]) -
     return False
 
 
+def _activity_list_identity(image: Image.Image) -> tuple[str, ...]:
+    """Read stable activity names from the fixed left-hand list area."""
+    texts, _details = _read_texts_at(image, ACTIVITY_LIST_TEXT_REGION)
+    values = {
+        re.sub(r"\d+", "", value)
+        for text in texts
+        if len(value := _normalized_activity_identity(text)) >= 4
+    }
+    return tuple(sorted(value for value in values if len(value) >= 4))
+
+
+def _activity_list_progressed(before: tuple[str, ...], after: tuple[str, ...]) -> bool:
+    """Require both an old item to leave and a new item to enter the OCR list."""
+    if not before or not after:
+        return False
+
+    def has_match(value: str, candidates: tuple[str, ...]) -> bool:
+        return any(
+            value in candidate
+            or candidate in value
+            or SequenceMatcher(None, value, candidate).ratio() >= 0.82
+            for candidate in candidates
+        )
+
+    old_left = any(not has_match(value, after) for value in before)
+    new_entered = any(not has_match(value, before) for value in after)
+    return old_left and new_entered
+
+
+def _activity_list_at_end(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    texts, details = _read_texts_at(image, ACTIVITY_LIST_END_REGION)
+    normalized = [_normalized_ui_text(text) for text in texts]
+    markers = ("登录加成", "登录活动")
+    found = any(marker in text for text in normalized for marker in markers)
+    return found, {**details, "markers": markers, "normalized_texts": normalized}
+
+
 def _read_activity_card_identity(
     image: Image.Image,
     badge: dict[str, Any],
 ) -> tuple[list[str], dict[str, Any]]:
     _x, center_y = badge["center"]
-    region = (0.075, max(0.100, float(center_y) - 0.055), 0.190, 0.110)
+    # The badge is at the card's top-right; its title is rendered near the
+    # bottom edge.  Reading around the badge can pick up the previous card.
+    region = (0.075, min(0.900, float(center_y) + 0.015), 0.190, 0.080)
     return _read_texts_at(image, region)
 
 
@@ -665,6 +732,59 @@ def _handle_paid_diamonds(
     )
 
 
+def _roulette_token_balance(image: Image.Image) -> tuple[int | None, dict[str, Any]]:
+    texts, details = _read_texts_at(image, ROULETTE_BALANCE_REGION)
+    values = []
+    for text in texts:
+        compact = str(text).replace(",", "").replace(" ", "")
+        if compact.isdigit():
+            values.append(int(compact))
+    balance = max(values) if values else None
+    return balance, {**details, "parsed_values": values, "balance": balance}
+
+
+def _handle_token_roulette(
+    hwnd: int,
+    image: Image.Image,
+    *,
+    logger: RunLogger,
+    dry_run: bool,
+) -> tuple[bool, Image.Image, str]:
+    balance, details = _roulette_token_balance(image)
+    logger.event(action="recognize_roulette_token_balance", balance=balance, details=details)
+    if balance is None:
+        logger.event(
+            action="roulette_balance_fallback",
+            reason="顶部单个数字未识别，仅尝试固定位置的单次按钮",
+        )
+        point = TOKEN_ROULETTE_POINT
+        key = "activity_token_roulette_1_balance_unreadable"
+        return _click_then_return(
+            hwnd,
+            image,
+            point,
+            key=key,
+            logger=logger,
+            dry_run=dry_run,
+        )
+    if balance <= 0:
+        return False, image, "活动代币为 0，未点击转盘"
+    if balance >= 10:
+        point = TOKEN_ROULETTE_TEN_POINT
+        key = "activity_token_roulette_10"
+    else:
+        point = TOKEN_ROULETTE_POINT
+        key = "activity_token_roulette_1"
+    return _click_then_return(
+        hwnd,
+        image,
+        point,
+        key=key,
+        logger=logger,
+        dry_run=dry_run,
+    )
+
+
 def _handle_activity(
     kind: str,
     hwnd: int,
@@ -686,13 +806,14 @@ def _handle_activity(
         return _handle_clothing_style_2(hwnd, image, logger=logger, dry_run=dry_run)
     if kind == "paid_diamonds":
         return _handle_paid_diamonds(hwnd, image, logger=logger, dry_run=dry_run)
+    if kind == "token_roulette":
+        return _handle_token_roulette(hwnd, image, logger=logger, dry_run=dry_run)
 
     actions = {
         "regular": (REGULAR_CLAIM_POINT, "activity_regular_claim_all", "regular_claim"),
         "puzzle": (PUZZLE_UNLOCK_POINT, "activity_puzzle_unlock_all", "puzzle_unlock"),
         "bingo": (BINGO_UNLOCK_POINT, "activity_bingo_unlock_all", "bingo_unlock"),
         "free_roulette": (FREE_ROULETTE_POINT, "activity_free_roulette", "free_roulette"),
-        "token_roulette": (TOKEN_ROULETTE_POINT, "activity_token_roulette", "token_roulette"),
         "free_clothing_style_1": (
             CLOTHING_CLAIM_NOW_POINT,
             "activity_clothing_claim_now",
@@ -727,7 +848,7 @@ def _click_marked_activity(
         texts=expected_identity,
         details=identity_details,
     )
-    if not any(len(_normalized_activity_identity(text)) >= 4 for text in expected_identity):
+    if not any(_usable_activity_identity(text) for text in expected_identity):
         return False, image, "带红色感叹号的活动名称未能在固定位置识别，未点击"
     point = (max(0.0, badge_x - 50 / 1280), min(1.0, badge_y + 10 / 720))
     click_ratio_logged(
@@ -770,6 +891,8 @@ def _finish_at_home(
         logger=logger,
         recognize_source=_is_activity_page,
         source_name="活动页面",
+        notification_target="events",
+        notification_name="活动",
     )
     if not returned:
         logger.failure(reason)
@@ -806,25 +929,46 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
     if not has_notification:
         return True, "skipped: home activity icon has no red exclamation"
 
-    click_ratio_logged(
-        hwnd,
-        image,
-        HOME_ACTIVITY_POINT,
-        key="home_activity",
-        logger=logger,
-        dry_run=dry_run,
-    )
+    click_ratio_logged(hwnd, image, HOME_ACTIVITY_POINT, key="home_activity", logger=logger, dry_run=dry_run)
     if dry_run:
         return True, "completed: dry-run planned activity entry; no purchase confirmation was clicked"
 
-    opened, image = _wait_for_image(
-        hwnd,
-        logger=logger,
-        label="activity-index-opened",
-        predicate=lambda candidate: _is_activity_page(candidate)[0],
-    )
+    opened = False
+    for attempt in range(1, MAX_ACTIVITY_ENTRY_CLICKS + 1):
+        opened, image = _wait_for_image(
+            hwnd,
+            logger=logger,
+            label=f"activity-index-opened-{attempt}",
+            predicate=lambda candidate: _is_activity_page(candidate)[0],
+        )
+        if opened:
+            break
+        still_home, retry_home_details = recognize_home_labels(image)
+        still_marked = False
+        retry_badge_details: dict[str, Any] = {"skipped": "home OCR not confirmed"}
+        if still_home:
+            still_marked, retry_badge_details = detect_home_reward_notification(image, "events")
+        logger.event(
+            action="activity_entry_retry_check",
+            attempt=attempt,
+            home=still_home,
+            home_details=retry_home_details,
+            notification=still_marked,
+            notification_details=retry_badge_details,
+        )
+        if not (still_home and still_marked and attempt < MAX_ACTIVITY_ENTRY_CLICKS):
+            break
+        click_ratio_logged(
+            hwnd,
+            image,
+            HOME_ACTIVITY_POINT,
+            key="home_activity_retry",
+            logger=logger,
+        )
     if not opened:
-        reason = "fixed-position OCR did not confirm the activity page before timeout"
+        reason = (
+            f"点击活动 {MAX_ACTIVITY_ENTRY_CLICKS} 次后，固定位置文字仍未确认活动页"
+        )
         logger.failure(reason)
         return False, reason
 
@@ -872,8 +1016,23 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             completed += 1
             continue
 
-        if swipes >= MAX_ACTIVITY_SWIPES:
+        at_end, end_details = _activity_list_at_end(image)
+        logger.event(
+            action="recognize_activity_list_end",
+            cycle=cycle,
+            found=at_end,
+            details=end_details,
+        )
+        if at_end:
             return _finish_at_home(hwnd, logger=logger, completed=completed)
+        if swipes >= MAX_ACTIVITY_SWIPES:
+            reason = (
+                f"活动列表已滑动 {MAX_ACTIVITY_SWIPES} 次，但未识别到列表底部文字，"
+                "为避免漏领未判定完成"
+            )
+            logger.failure(reason)
+            return False, reason
+        before_identity = _activity_list_identity(image)
         swipe_ratio_logged(
             hwnd,
             image,
@@ -881,6 +1040,9 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             SCROLL_END,
             key=f"activity_list_scroll_{cycle}",
             logger=logger,
+            duration=ACTIVITY_SCROLL_DURATION,
+            end_hold=ACTIVITY_SCROLL_END_HOLD,
+            foreground=True,
         )
         swipes += 1
         time.sleep(POLL_INTERVAL)
@@ -890,12 +1052,24 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             logger.failure(reason)
             return False, reason
         next_badges = find_red_exclamation_badges(image, ACTIVITY_LIST_BADGE_REGION)
+        after_identity = _activity_list_identity(image)
+        progressed = _activity_list_progressed(before_identity, after_identity)
+        at_end, end_details = _activity_list_at_end(image)
         logger.event(
             action="activity_scroll_result",
             cycle=cycle,
             swipes=swipes,
             next_badges=len(next_badges),
+            before_identity=before_identity,
+            after_identity=after_identity,
+            progressed=progressed,
+            at_end=at_end,
+            end_details=end_details,
         )
+        if not next_badges and not progressed and not at_end:
+            reason = "活动列表滑动后固定区域文字没有变化，滑动未生效，未判定完成"
+            logger.failure(reason)
+            return False, reason
 
     reason = f"activity scan exceeded hard limit {MAX_SCAN_CYCLES}"
     logger.failure(reason)

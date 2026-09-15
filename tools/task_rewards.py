@@ -20,8 +20,10 @@ TASK_HOME_CLICK = (0.356, 0.925)
 TASK_TITLE_REGION = (0.170, 0.026, 0.088, 0.061)
 TASK_CLAIM_REGION = (0.822, 0.896, 0.064, 0.042)
 TASK_CLAIM_CLICK = (0.854, 0.917)
-WEEKLY_BADGE_REGION = (0.234, 0.119, 0.052, 0.185)
-WEEKLY_TAB_CLICK = (0.260, 0.175)
+DAILY_BADGE_REGION = (0.205, 0.105, 0.035, 0.055)
+# The weekly-tab red diamond is centred near x=0.223 on the current client.
+# Keep this region narrow so only that red exclamation can satisfy the check.
+WEEKLY_BADGE_REGION = (0.205, 0.165, 0.035, 0.055)
 STEP_TIMEOUT = 5.0
 CLICK_SETTLE_SECONDS = 1.0
 MAX_REWARD_OVERLAYS = 6
@@ -30,11 +32,17 @@ PageRecognition = Callable[[Image.Image], tuple[bool, dict[str, object]]]
 
 
 def _recognize_daily_page(image: Image.Image) -> tuple[bool, dict[str, object]]:
-    return recognize_text_at(image, TASK_TITLE_REGION, ("每日任务", "每日任務"))
+    _found, details = recognize_text_at(image, TASK_TITLE_REGION, ("每日任务", "每日任務"))
+    texts = [str(text).replace(" ", "") for text in details.get("texts", [])]
+    exact = any(label in text for text in texts for label in ("每日任务", "每日任務"))
+    return exact, {**details, "exact_daily_title": exact}
 
 
 def _recognize_weekly_page(image: Image.Image) -> tuple[bool, dict[str, object]]:
-    return recognize_text_at(image, TASK_TITLE_REGION, ("每周任务", "每週任務"))
+    _found, details = recognize_text_at(image, TASK_TITLE_REGION, ("每周任务", "每週任務"))
+    texts = [str(text).replace(" ", "") for text in details.get("texts", [])]
+    exact = any(label in text for text in texts for label in ("每周任务", "每週任務"))
+    return exact, {**details, "exact_weekly_title": exact}
 
 
 def _recognize_claim_all(image: Image.Image) -> tuple[bool, dict[str, object]]:
@@ -267,24 +275,41 @@ def run_task_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
             logger.failure(reason)
             return False, reason
 
-        ok, image, reason = _claim_page_once(
-            hwnd,
-            image,
-            logger=logger,
-            page_name="daily",
-            recognize_page=_recognize_daily_page,
+        daily, daily_details = detect_red_exclamation_badge(image, DAILY_BADGE_REGION)
+        logger.event(
+            action="detect_notification",
+            target="daily_tasks",
+            found=daily,
+            details=daily_details,
         )
-        if not ok:
-            logger.failure(reason)
-            return False, reason
+        if daily:
+            ok, image, reason = _claim_page_once(
+                hwnd,
+                image,
+                logger=logger,
+                page_name="daily",
+                recognize_page=_recognize_daily_page,
+            )
+            if not ok:
+                logger.failure(reason)
+                return False, reason
 
         weekly, weekly_details = detect_red_exclamation_badge(image, WEEKLY_BADGE_REGION)
         logger.event(action="detect_notification", target="weekly_tasks", found=weekly, details=weekly_details)
         if weekly:
+            badge_center = weekly_details.get("center")
+            if not isinstance(badge_center, tuple | list) or len(badge_center) != 2:
+                reason = "已识别每周任务红点，但没有得到可验证的红点位置，未点击"
+                logger.failure(reason)
+                return False, reason
+            weekly_tab_click = (
+                max(0.0, float(badge_center[0]) - 0.087),
+                float(badge_center[1]),
+            )
             click_ratio_logged(
                 hwnd,
                 image,
-                WEEKLY_TAB_CLICK,
+                weekly_tab_click,
                 key="weekly_task_tab",
                 logger=logger,
             )
@@ -314,11 +339,16 @@ def run_task_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
             logger=logger,
             recognize_source=source_recognizer,
             source_name="任务页面",
+            notification_target="tasks",
+            notification_name="任务",
         )
         if not ok:
             logger.failure(reason)
             return False, reason
-        reason = f"completed: task rewards processed; weekly={'yes' if weekly else 'no'}"
+        reason = (
+            "completed: task rewards processed; "
+            f"daily={'yes' if daily else 'no'}; weekly={'yes' if weekly else 'no'}"
+        )
         logger.event(action="stop", result="success", reason=reason)
         return True, reason
     except Exception as exc:  # noqa: BLE001 - automation failures are persisted for review.

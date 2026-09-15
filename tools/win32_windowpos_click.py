@@ -34,6 +34,9 @@ WM_LBUTTONDOWN = 0x0201
 WM_LBUTTONUP = 0x0202
 WA_ACTIVE = 1
 MK_LBUTTON = 0x0001
+MOUSEEVENTF_LEFTDOWN = 0x0002
+MOUSEEVENTF_LEFTUP = 0x0004
+SW_RESTORE = 9
 
 SWP_NOSIZE = 0x0001
 SWP_NOZORDER = 0x0004
@@ -160,6 +163,7 @@ def swipe_client(
     end_y: int,
     *,
     duration: float = 0.5,
+    end_hold: float = 0.0,
     steps: int = 12,
     restore: bool = True,
     delay: float = 0.06,
@@ -173,6 +177,8 @@ def swipe_client(
             )
     if duration <= 0:
         raise ValueError("swipe duration must be positive")
+    if end_hold < 0:
+        raise ValueError("swipe end hold must not be negative")
     if steps < 1:
         raise ValueError("swipe steps must be at least 1")
 
@@ -208,6 +214,8 @@ def swipe_client(
             y = round(start_y + (end_y - start_y) * ratio)
             _post_message(hwnd, WM_MOUSEMOVE, MK_LBUTTON, _makelong(x, y))
             time.sleep(step_delay)
+        if end_hold:
+            time.sleep(end_hold)
         _post_message(hwnd, WM_LBUTTONUP, 0, _makelong(end_x, end_y))
         button_down = False
     finally:
@@ -216,6 +224,73 @@ def swipe_client(
         if restore:
             time.sleep(delay)
             _set_window_origin(hwnd, original_rect.left, original_rect.top)
+
+
+def swipe_client_foreground(
+    hwnd: int,
+    start_x: int,
+    start_y: int,
+    end_x: int,
+    end_y: int,
+    *,
+    duration: float = 1.0,
+    end_hold: float = 1.0,
+    steps: int = 20,
+    delay: float = 0.10,
+) -> None:
+    """Perform a real foreground drag for Unity lists that ignore posted drags."""
+    width, height = get_client_size(hwnd)
+    for x, y in ((start_x, start_y), (end_x, end_y)):
+        if not (0 <= x < width and 0 <= y < height):
+            raise ValueError(
+                f"client coordinate out of range: ({x}, {y}) not in {width}x{height}"
+            )
+    if duration <= 0:
+        raise ValueError("swipe duration must be positive")
+    if end_hold < 0:
+        raise ValueError("swipe end hold must not be negative")
+    if steps < 1:
+        raise ValueError("swipe steps must be at least 1")
+
+    original_cursor = POINT()
+    if not user32.GetCursorPos(ctypes.byref(original_cursor)):
+        raise ctypes.WinError()
+
+    button_down = False
+    try:
+        user32.ShowWindow(hwnd, SW_RESTORE)
+        start = POINT(start_x, start_y)
+        end = POINT(end_x, end_y)
+        if not user32.ClientToScreen(hwnd, ctypes.byref(start)):
+            raise ctypes.WinError()
+        if not user32.ClientToScreen(hwnd, ctypes.byref(end)):
+            raise ctypes.WinError()
+        user32.SetForegroundWindow(hwnd)
+        time.sleep(delay)
+        if user32.GetForegroundWindow() != hwnd:
+            raise RuntimeError("target game window did not become foreground before swipe")
+        if not user32.SetCursorPos(start.x, start.y):
+            raise ctypes.WinError()
+        user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        button_down = True
+        step_delay = duration / steps
+        for step in range(1, steps + 1):
+            if user32.GetForegroundWindow() != hwnd:
+                raise RuntimeError("target game window lost foreground during swipe")
+            ratio = step / steps
+            x = round(start.x + (end.x - start.x) * ratio)
+            y = round(start.y + (end.y - start.y) * ratio)
+            if not user32.SetCursorPos(x, y):
+                raise ctypes.WinError()
+            time.sleep(step_delay)
+        if end_hold:
+            time.sleep(end_hold)
+        user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        button_down = False
+    finally:
+        if button_down:
+            user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        user32.SetCursorPos(original_cursor.x, original_cursor.y)
 
 
 def main() -> None:

@@ -14,11 +14,65 @@ if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
 from free_gacha import RunLogger
-from reward_flow import click_ratio_logged, return_to_home, wait_for_recognition
-from win32_windowpos_click import MK_LBUTTON, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, swipe_client
+from reward_flow import (
+    click_ratio_logged,
+    return_to_home,
+    wait_for_home_notification_clear,
+    wait_for_recognition,
+)
+from win32_windowpos_click import (
+    MK_LBUTTON,
+    MOUSEEVENTF_LEFTDOWN,
+    MOUSEEVENTF_LEFTUP,
+    WM_LBUTTONDOWN,
+    WM_LBUTTONUP,
+    WM_MOUSEMOVE,
+    swipe_client,
+    swipe_client_foreground,
+)
 
 
 class RewardFlowTests(unittest.TestCase):
+    @patch("reward_flow.detect_home_reward_notification", return_value=(True, {}))
+    @patch("reward_flow.recognize_home_labels", return_value=(True, {}))
+    @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
+    def test_persistent_home_badge_prevents_false_completion(
+        self,
+        _capture: MagicMock,
+        _home: MagicMock,
+        _badge: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = wait_for_home_notification_clear(
+                123,
+                logger=RunLogger(Path(temporary)),
+                target="tasks",
+                target_name="任务",
+                timeout=0,
+            )
+        self.assertFalse(ok)
+        self.assertIn("任务红点仍存在", reason)
+
+    @patch("reward_flow.detect_home_reward_notification", return_value=(False, {}))
+    @patch("reward_flow.recognize_home_labels", return_value=(True, {}))
+    @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
+    def test_cleared_home_badge_confirms_completion(
+        self,
+        _capture: MagicMock,
+        _home: MagicMock,
+        _badge: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = wait_for_home_notification_clear(
+                123,
+                logger=RunLogger(Path(temporary)),
+                target="mail",
+                target_name="邮件",
+                timeout=0,
+            )
+        self.assertTrue(ok)
+        self.assertIn("邮件红点消失", reason)
+
     @patch("reward_flow.click_client")
     def test_logged_click_scales_normalized_coordinates(self, click_client: MagicMock) -> None:
         image = Image.new("RGB", (1000, 600))
@@ -155,6 +209,46 @@ class SwipeClientTests(unittest.TestCase):
     @patch("win32_windowpos_click.time.sleep")
     @patch("win32_windowpos_click.get_client_size", return_value=(1000, 600))
     @patch("win32_windowpos_click.user32")
+    def test_foreground_swipe_uses_real_mouse_drag(
+        self,
+        user32: MagicMock,
+        _get_size: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        user32.ClientToScreen.return_value = 1
+        user32.GetCursorPos.return_value = 1
+        user32.GetForegroundWindow.return_value = 123
+        user32.SetCursorPos.return_value = 1
+
+        swipe_client_foreground(123, 200, 500, 200, 100, steps=2)
+
+        flags = [entry.args[0] for entry in user32.mouse_event.call_args_list]
+        self.assertEqual(flags, [MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP])
+        self.assertGreaterEqual(user32.SetCursorPos.call_count, 4)
+
+    @patch("win32_windowpos_click.time.sleep")
+    @patch("win32_windowpos_click.get_client_size", return_value=(1000, 600))
+    @patch("win32_windowpos_click.user32")
+    def test_foreground_swipe_releases_button_if_focus_is_lost(
+        self,
+        user32: MagicMock,
+        _get_size: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        user32.ClientToScreen.return_value = 1
+        user32.GetCursorPos.return_value = 1
+        user32.GetForegroundWindow.side_effect = [123, 999]
+        user32.SetCursorPos.return_value = 1
+
+        with self.assertRaisesRegex(RuntimeError, "lost foreground"):
+            swipe_client_foreground(123, 200, 500, 200, 100, steps=2)
+
+        flags = [entry.args[0] for entry in user32.mouse_event.call_args_list]
+        self.assertEqual(flags, [MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP])
+
+    @patch("win32_windowpos_click.time.sleep")
+    @patch("win32_windowpos_click.get_client_size", return_value=(1000, 600))
+    @patch("win32_windowpos_click.user32")
     def test_swipe_posts_drag_path_inside_client(
         self,
         user32: MagicMock,
@@ -167,7 +261,7 @@ class SwipeClientTests(unittest.TestCase):
         user32.SetWindowPos.return_value = 1
         user32.PostMessageW.return_value = 1
 
-        swipe_client(123, 200, 500, 200, 100, steps=2)
+        swipe_client(123, 200, 500, 200, 100, steps=2, end_hold=0.25)
 
         message_kinds = [entry.args[1] for entry in user32.PostMessageW.call_args_list]
         self.assertIn(WM_LBUTTONDOWN, message_kinds)
@@ -178,6 +272,7 @@ class SwipeClientTests(unittest.TestCase):
             if entry.args[1] == WM_MOUSEMOVE and entry.args[2] == MK_LBUTTON
         ]
         self.assertEqual(len(move_calls), 2)
+        self.assertIn(call(0.25), _sleep.call_args_list)
 
 
 if __name__ == "__main__":
