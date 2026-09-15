@@ -60,6 +60,9 @@ HOME_PASS_POINT = (0.873, 0.255)
 PASS_TASK_LIST_POINT = (0.830, 0.629)
 PASS_CLAIM_ALL_POINT = (0.744, 0.709)
 PASS_ITEM_POPUP_CLOSE_POINT = (0.740, 0.302)
+# The red badge is only a row locator. Click the card body at a fixed X so the
+# badge itself never becomes the interaction target.
+PASS_CARD_SELECT_X = 224 / REFERENCE_WIDTH
 PASS_SWIPE_BEGIN = (216 / REFERENCE_WIDTH, 518 / REFERENCE_HEIGHT)
 PASS_SWIPE_END = (214 / REFERENCE_WIDTH, 190 / REFERENCE_HEIGHT)
 
@@ -125,6 +128,21 @@ def _confirm_claim_all(image: Image.Image) -> tuple[bool, dict[str, Any]]:
         "source": source if found else "none",
         "texts": grouped,
         "matches": matches,
+    }
+
+
+def _confirm_pass_task_page(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Distinguish the task page using only fixed-position text anchors."""
+    has_overview, overview_details = _confirm_selected_pass_panel(image)
+    has_claim, claim_details = _confirm_claim_all(image)
+    found = has_claim and not has_overview
+    return found, {
+        "available": True,
+        "overview_text_found": has_overview,
+        "claim_text_found": has_claim,
+        "overview": overview_details,
+        "claim": claim_details,
+        "requirements": "全部获得 is present while fixed LEVEL/基础 overview text is absent",
     }
 
 
@@ -257,6 +275,12 @@ def _badge_fingerprint(badge: dict[str, Any]) -> tuple[int, int]:
     return round(float(center_x) * 1000), round(float(center_y) * 1000)
 
 
+def _pass_card_click_point(badge: dict[str, Any]) -> tuple[float, float]:
+    """Use the badge's Y only; X stays safely inside the pass card."""
+    _badge_x, center_y = badge["center"]
+    return PASS_CARD_SELECT_X, float(center_y)
+
+
 def _normalized_pass_identity(value: object) -> str:
     text = re.sub(r"[^0-9A-Za-z\u3400-\u9fff]+", "", str(value)).upper()
     text = re.sub(r"D\d+", "", text)
@@ -308,15 +332,19 @@ def _wait_for_pass_selection(
     def selection_effect(candidate: Image.Image) -> tuple[bool, dict[str, Any]]:
         is_page, page_details = _confirm_pass_reward_page(candidate)
         has_panel, panel_details = _confirm_selected_pass_panel(candidate)
+        has_task_page, task_details = _confirm_pass_task_page(candidate)
         detail_texts, identity_details = _read_texts_at(candidate, PASS_DETAIL_IDENTITY_REGION)
         identity_matches = _pass_identity_matches(expected_identity, detail_texts)
-        return is_page and has_panel and identity_matches, {
+        state = "overview" if has_panel else "task_page" if has_task_page else "unknown"
+        return is_page and state != "unknown" and identity_matches, {
             "page": page_details,
             "panel": panel_details,
+            "task_page": task_details,
+            "state": state,
             "expected_identity": expected_identity,
             "detail_identity": identity_details,
             "identity_matches": identity_matches,
-            "requirements": "fixed pass/page text and matching card/detail identity text",
+            "requirements": "fixed pass/page state text and matching card/detail identity text",
         }
 
     return _capture_until(
@@ -374,7 +402,7 @@ def _collect_from_pass_page(
             _click_logged(
                 hwnd,
                 current,
-                tuple(badge["center"]),
+                _pass_card_click_point(badge),
                 key="pass_list_notification",
                 logger=logger,
             )
@@ -392,17 +420,26 @@ def _collect_from_pass_page(
                 details=selected_details,
             )
             if not selected_ok:
-                return False, "点击带红色感叹号的通行证后，详情标题未与卡片名称匹配"
+                return False, "点击通行证卡片后未切换到对应通行证，固定位置页面文字或卡片名称未确认"
 
-            _click_logged(hwnd, selected, PASS_TASK_LIST_POINT, key="pass_task_list", logger=logger)
-            claim_found, task_page, claim_details = _capture_until(
-                hwnd,
-                logger=logger,
-                label=f"pass-task-page-{step:02d}",
-                recognize=_confirm_claim_all,
-            )
-            if not claim_found:
-                return False, "点击通行证任务列表后，未在单步超时内识别到“全部获得”"
+            selected_state = selected_details.get("state")
+            if selected_state == "task_page":
+                task_page = selected
+                logger.event(action="skip_pass_task_list", step=step, reason="already on task page")
+            elif selected_state == "overview":
+                _click_logged(hwnd, selected, PASS_TASK_LIST_POINT, key="pass_task_list", logger=logger)
+                task_found, task_page, task_details = _capture_until(
+                    hwnd,
+                    logger=logger,
+                    label=f"pass-task-page-{step:02d}",
+                    recognize=_confirm_pass_task_page,
+                )
+                if not task_found:
+                    reason = "点击通行证任务标签后页面未切换，固定位置仍识别到LEVEL/基础或未识别到“全部获得”"
+                    logger.failure(reason)
+                    return False, reason
+            else:
+                return False, "通行证卡片点击后页面状态不明确，未执行任务标签点击"
 
             _click_logged(hwnd, task_page, PASS_CLAIM_ALL_POINT, key="pass_claim_all", logger=logger)
             claim_effect, outcome, effect_details = _capture_until(
@@ -596,10 +633,20 @@ def select_pass_with_notification(*, log_root: Path) -> tuple[bool, str]:
     badges = _find_pass_badges(image)
     if not badges:
         return False, "no pass-list reward notification found"
-    _click_logged(hwnd, image, tuple(badges[0]["center"]), key="pass_list_notification", logger=logger)
+    expected_identity, _identity_details = _read_pass_card_identity(image, badges[0])
+    if not any(len(_normalized_pass_identity(text)) >= 4 for text in expected_identity):
+        return False, "带红色感叹号的通行证名称未能在固定位置识别，未点击"
+    _click_logged(
+        hwnd,
+        image,
+        _pass_card_click_point(badges[0]),
+        key="pass_list_notification",
+        logger=logger,
+    )
     found, _after, _details = _wait_for_pass_selection(
         hwnd,
         badges[0],
+        expected_identity=expected_identity,
         logger=logger,
         step=1,
     )
@@ -613,16 +660,24 @@ def open_selected_pass_task_list(*, log_root: Path) -> tuple[bool, str]:
     if not hwnd:
         return False, "game window not found"
     image = safe_capture_client(hwnd, logger=logger)
-    if not _confirm_pass_reward_page(image)[0] or not _confirm_selected_pass_panel(image)[0]:
+    if not _confirm_pass_reward_page(image)[0]:
+        return False, "selected pass panel was not text-confirmed"
+    if _confirm_pass_task_page(image)[0]:
+        return True, "selected pass task list was already open"
+    if not _confirm_selected_pass_panel(image)[0]:
         return False, "selected pass panel was not text-confirmed"
     _click_logged(hwnd, image, PASS_TASK_LIST_POINT, key="pass_task_list", logger=logger)
     found, _after, _details = _capture_until(
         hwnd,
         logger=logger,
         label="pass-task-page",
-        recognize=_confirm_claim_all,
+        recognize=_confirm_pass_task_page,
     )
-    return (True, "opened selected pass task list") if found else (False, "全部获得 was not found")
+    return (
+        (True, "opened selected pass task list")
+        if found
+        else (False, "点击通行证任务标签后页面未切换，固定位置任务页文字未确认")
+    )
 
 
 def claim_selected_pass_task_rewards(*, log_root: Path) -> tuple[bool, str]:

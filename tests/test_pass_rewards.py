@@ -101,8 +101,67 @@ class PassRewardEntryTests(unittest.TestCase):
         self.assertEqual(pass_rewards.PASS_SWIPE_BEGIN, (216 / 1280, 518 / 720))
         self.assertEqual(pass_rewards.PASS_SWIPE_END, (214 / 1280, 190 / 720))
         self.assertEqual(pass_rewards.HOME_PASS_POINT, (0.873, 0.255))
+        self.assertEqual(pass_rewards.PASS_CARD_SELECT_X, 224 / 1280)
         self.assertEqual(pass_rewards.PASS_TASK_LIST_POINT, (0.830, 0.629))
         self.assertEqual(pass_rewards.PASS_CLAIM_ALL_POINT, (0.744, 0.709))
+
+    def test_red_badge_only_supplies_card_row_for_click_point(self) -> None:
+        self.assertEqual(
+            pass_rewards._pass_card_click_point({"center": (0.266, 0.463)}),
+            (pass_rewards.PASS_CARD_SELECT_X, 0.463),
+        )
+
+    def test_select_action_uses_fixed_card_x_and_passes_identity_to_confirmation(self) -> None:
+        badge = _badge(0.463)
+        click = MagicMock()
+        wait = MagicMock(return_value=(True, _image(), {"state": "task_page"}))
+        with tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
+            stack.enter_context(patch("pass_rewards.find_game_window", return_value=123))
+            stack.enter_context(patch("pass_rewards.safe_capture_client", return_value=_image()))
+            stack.enter_context(
+                patch("pass_rewards._confirm_pass_reward_page", return_value=_recognition(True))
+            )
+            stack.enter_context(patch("pass_rewards._find_pass_badges", return_value=[badge]))
+            stack.enter_context(
+                patch(
+                    "pass_rewards._read_pass_card_identity",
+                    return_value=(["Moonrise"], {"available": True}),
+                )
+            )
+            stack.enter_context(patch("pass_rewards._click_logged", click))
+            stack.enter_context(patch("pass_rewards._wait_for_pass_selection", wait))
+
+            ok, _reason = pass_rewards.select_pass_with_notification(
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(click.call_args.args[2], (pass_rewards.PASS_CARD_SELECT_X, 0.463))
+        self.assertEqual(wait.call_args.kwargs["expected_identity"], ["Moonrise"])
+
+    @patch("pass_rewards._confirm_claim_all", return_value=_recognition(True))
+    @patch("pass_rewards._confirm_selected_pass_panel", return_value=_recognition(True))
+    def test_claim_text_does_not_misclassify_overview_as_task_page(
+        self,
+        _panel: MagicMock,
+        _claim: MagicMock,
+    ) -> None:
+        found, details = pass_rewards._confirm_pass_task_page(_image())
+
+        self.assertFalse(found)
+        self.assertTrue(details["overview_text_found"])
+
+    @patch("pass_rewards._confirm_claim_all", return_value=_recognition(True))
+    @patch("pass_rewards._confirm_selected_pass_panel", return_value=_recognition(False))
+    def test_task_page_is_confirmed_by_fixed_text_without_brightness_ratio(
+        self,
+        _panel: MagicMock,
+        _claim: MagicMock,
+    ) -> None:
+        found, details = pass_rewards._confirm_pass_task_page(_image())
+
+        self.assertTrue(found)
+        self.assertTrue(details["claim_text_found"])
 
     @patch("pass_rewards._confirm_pass_reward_page", return_value=_recognition(True))
     @patch("pass_rewards._confirm_selected_pass_panel", return_value=_recognition(True))
@@ -130,6 +189,33 @@ class PassRewardEntryTests(unittest.TestCase):
 
         self.assertFalse(found)
 
+    @patch("pass_rewards._confirm_pass_reward_page", return_value=_recognition(True))
+    @patch("pass_rewards._confirm_selected_pass_panel", return_value=_recognition(False))
+    @patch("pass_rewards._confirm_pass_task_page", return_value=_recognition(True))
+    @patch("pass_rewards._read_texts_at", return_value=(["SPECIAL"], {"available": True}))
+    def test_selected_card_can_be_confirmed_while_already_on_task_page(
+        self,
+        _detail: MagicMock,
+        _task_page: MagicMock,
+        _panel: MagicMock,
+        _page: MagicMock,
+    ) -> None:
+        def evaluate(_hwnd: int, *, recognize: object, **_kwargs: object):
+            found, details = recognize(_image())  # type: ignore[operator]
+            return found, _image(), details
+
+        with patch("pass_rewards._capture_until", side_effect=evaluate):
+            found, _after, details = pass_rewards._wait_for_pass_selection(
+                123,
+                _badge(),
+                expected_identity=["特别赛季通行证", "SPECIAL"],
+                logger=MagicMock(),
+                step=1,
+            )
+
+        self.assertTrue(found)
+        self.assertEqual(details["state"], "task_page")
+
     def test_card_and_detail_identity_tolerate_small_ocr_error(self) -> None:
         self.assertTrue(
             pass_rewards._pass_identity_matches(["UNTAMED赛季通行证"], ["UNTAMEO"])
@@ -149,7 +235,9 @@ class PassRewardFlowTests(unittest.TestCase):
         captures: list[Image.Image],
         badges: list[list[dict[str, object]]],
         selected: bool = True,
+        selected_state: str = "overview",
         claim: bool = True,
+        task_page: bool | None = None,
         overlays: list[bool] | None = None,
     ) -> tuple[bool, str, MagicMock, MagicMock, MagicMock, MagicMock]:
         click = MagicMock()
@@ -174,11 +262,21 @@ class PassRewardFlowTests(unittest.TestCase):
             stack.enter_context(
                 patch(
                     "pass_rewards._wait_for_pass_selection",
-                    return_value=(selected, _image(), {"selected": selected}),
+                    return_value=(
+                        selected,
+                        _image(),
+                        {"selected": selected, "state": selected_state},
+                    ),
                 )
             )
             stack.enter_context(
                 patch("pass_rewards._confirm_claim_all", return_value=_recognition(claim))
+            )
+            stack.enter_context(
+                patch(
+                    "pass_rewards._confirm_pass_task_page",
+                    return_value=_recognition(claim if task_page is None else task_page),
+                )
             )
             stack.enter_context(patch("pass_rewards._is_reward_overlay", side_effect=overlay))
             stack.enter_context(patch("pass_rewards._has_pass_item_popup_close", return_value=False))
@@ -227,6 +325,29 @@ class PassRewardFlowTests(unittest.TestCase):
         )
         dismiss.assert_called_once()
         home.assert_called_once()
+        selection_click = next(
+            entry for entry in click.call_args_list if entry.kwargs["key"] == "pass_list_notification"
+        )
+        self.assertEqual(
+            selection_click.args[2],
+            (pass_rewards.PASS_CARD_SELECT_X, _badge()["center"][1]),
+        )
+
+    def test_already_open_task_page_skips_task_tab_click(self) -> None:
+        ok, reason, click, _swipe, dismiss, home = self._run(
+            captures=[_image()] * 20,
+            badges=[[_badge()], [], []],
+            selected_state="task_page",
+            overlays=[True, True, True],
+        )
+
+        self.assertTrue(ok)
+        self.assertIn("claimed=1", reason)
+        keys = [entry.kwargs["key"] for entry in click.call_args_list]
+        self.assertNotIn("pass_task_list", keys)
+        self.assertIn("pass_claim_all", keys)
+        dismiss.assert_called_once()
+        home.assert_called_once()
 
     def test_multiple_marked_cards_are_processed(self) -> None:
         first = _badge(0.30)
@@ -267,7 +388,7 @@ class PassRewardFlowTests(unittest.TestCase):
         )
 
         self.assertFalse(ok)
-        self.assertIn("详情标题", reason)
+        self.assertIn("未切换到对应通行证", reason)
         keys = [entry.kwargs["key"] for entry in click.call_args_list]
         self.assertEqual(keys.count("pass_list_notification"), 1)
         self.assertEqual(swipe.call_count, 0)
@@ -281,7 +402,21 @@ class PassRewardFlowTests(unittest.TestCase):
         )
 
         self.assertFalse(ok)
-        self.assertIn("未在单步超时内识别", reason)
+        self.assertIn("页面未切换", reason)
+        keys = [entry.kwargs["key"] for entry in click.call_args_list]
+        self.assertIn("pass_task_list", keys)
+        self.assertNotIn("pass_claim_all", keys)
+
+    def test_unchanged_overview_after_task_click_is_an_explicit_failure(self) -> None:
+        ok, reason, click, _swipe, _dismiss, _home = self._run(
+            captures=[_image()] * 7,
+            badges=[[_badge()]],
+            claim=True,
+            task_page=False,
+        )
+
+        self.assertFalse(ok)
+        self.assertIn("页面未切换", reason)
         keys = [entry.kwargs["key"] for entry in click.call_args_list]
         self.assertIn("pass_task_list", keys)
         self.assertNotIn("pass_claim_all", keys)
