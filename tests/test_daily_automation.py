@@ -664,7 +664,18 @@ class DailyAutomationStateTests(unittest.TestCase):
         stages = [call.args[1] for call in require_phase.call_args_list]
         self.assertEqual(result, 0)
         self.assertEqual(stages[:2], ["enter_game", "prepare_home"])
-        self.assertEqual(stages[-2:], ["business_management_home", "business_management"])
+        self.assertEqual(
+            stages[-7:],
+            [
+                "business_management_home",
+                "business_management",
+                "reward_prepare_home",
+                "task_rewards",
+                "pass_rewards",
+                "mail_rewards",
+                "activity_rewards",
+            ],
+        )
 
     def test_second_start_on_same_day_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

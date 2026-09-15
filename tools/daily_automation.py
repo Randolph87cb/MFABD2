@@ -50,6 +50,10 @@ from quick_hunt import (  # noqa: E402
 from win32_windowpos_click import click_client  # noqa: E402
 from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
+from activity_rewards import run_activity_rewards  # noqa: E402
+from mail_rewards import run_mail_rewards  # noqa: E402
+from pass_rewards import run_pass_rewards  # noqa: E402
+from task_rewards import run_task_rewards  # noqa: E402
 from mute_browndust import set_mute  # noqa: E402
 
 
@@ -101,6 +105,11 @@ MASTER_STAGE_NAMES = {
     "daily_arena": "每日竞技场",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
+    "reward_prepare_home": "领奖前返回主页",
+    "task_rewards": "每日和每周任务奖励",
+    "activity_rewards": "活动奖励",
+    "pass_rewards": "通行证奖励",
+    "mail_rewards": "邮件奖励",
     "check": "环境检查",
 }
 
@@ -1031,13 +1040,52 @@ def _require_phase(
     operation: Any,
     *,
     log_root: Path,
-) -> None:
+) -> str:
     master.event(stage, "start", "开始执行", log_root=str(log_root))
-    ok, reason = operation(log_root=log_root)
+    try:
+        ok, reason = operation(log_root=log_root)
+    except Exception as exc:
+        stage_name = MASTER_STAGE_NAMES.get(stage, stage)
+        reason = f"未处理异常：{exc!r}"
+        log_root.mkdir(parents=True, exist_ok=True)
+        failure_path = log_root / "failure.txt"
+        if not failure_path.exists():
+            failure_path.write_text(reason + "\n", encoding="utf-8")
+        master.event(
+            stage,
+            "error",
+            "执行时发生异常，已停在当前界面并保留日志",
+            technical_reason=reason,
+            log_root=str(log_root),
+        )
+        raise DailyRunError(f"{stage_name}执行异常，已保留现场") from exc
     if not ok:
-        master.event(stage, "error", f"执行失败，详细原因：{reason}", log_root=str(log_root))
-        raise DailyRunError(f"{stage}: {reason}")
-    master.event(stage, "success", "执行完成", technical_reason=reason, log_root=str(log_root))
+        stage_name = MASTER_STAGE_NAMES.get(stage, stage)
+        master.event(
+            stage,
+            "error",
+            "执行失败，已停在当前界面；请查看该步骤日志和截图",
+            technical_reason=reason,
+            log_root=str(log_root),
+        )
+        raise DailyRunError(f"{stage_name}执行失败，已保留现场")
+    if reason.startswith("skipped:"):
+        master.event(
+            stage,
+            "skipped",
+            "当前没有可领取的奖励，已跳过",
+            technical_reason=reason,
+            log_root=str(log_root),
+        )
+    else:
+        master.event(
+            stage,
+            "success",
+            "执行完成",
+            technical_reason=reason,
+            log_root=str(log_root),
+        )
+    return reason
 
 
 def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int:
@@ -1165,6 +1213,36 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             "business_management",
             lambda *, log_root: run_business_management(dry_run=False, log_root=log_root),
             log_root=run_root / "10-business-management" / "02-claim-rewards",
+        )
+        _require_phase(
+            master,
+            "reward_prepare_home",
+            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+            log_root=run_root / "11-rewards" / "00-return-home",
+        )
+        _require_phase(
+            master,
+            "task_rewards",
+            lambda *, log_root: run_task_rewards(dry_run=False, log_root=log_root),
+            log_root=run_root / "11-rewards" / "01-task",
+        )
+        _require_phase(
+            master,
+            "pass_rewards",
+            lambda *, log_root: run_pass_rewards(dry_run=False, log_root=log_root),
+            log_root=run_root / "11-rewards" / "02-pass",
+        )
+        _require_phase(
+            master,
+            "mail_rewards",
+            lambda *, log_root: run_mail_rewards(dry_run=False, log_root=log_root),
+            log_root=run_root / "11-rewards" / "03-mail",
+        )
+        _require_phase(
+            master,
+            "activity_rewards",
+            lambda *, log_root: run_activity_rewards(dry_run=False, log_root=log_root),
+            log_root=run_root / "11-rewards" / "04-activity",
         )
 
         update_daily_state(state_path, status="completed")

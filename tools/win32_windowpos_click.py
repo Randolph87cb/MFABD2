@@ -9,9 +9,8 @@ PostMessageWithWindowPos input mode:
 3. Post mouse messages to the target window.
 4. Restore the original window position.
 
-It is intentionally limited to single clicks. It does not implement the
-low-level mouse hook MaaFramework uses to keep drag gestures stable while the
-user moves the physical mouse.
+It supports clicks and short client-area swipe gestures.  The swipe path is
+posted directly to the Unity window, so it does not move the physical cursor.
 """
 
 from __future__ import annotations
@@ -39,7 +38,6 @@ MK_LBUTTON = 0x0001
 SWP_NOSIZE = 0x0001
 SWP_NOZORDER = 0x0004
 SWP_NOACTIVATE = 0x0010
-SWP_ASYNCWINDOWPOS = 0x4000
 
 
 class POINT(ctypes.Structure):
@@ -60,6 +58,17 @@ EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPAR
 
 def _makelong(low: int, high: int) -> int:
     return (high & 0xFFFF) << 16 | (low & 0xFFFF)
+
+
+def _post_message(hwnd: int, message: int, wparam: int, lparam: int) -> None:
+    if not user32.PostMessageW(hwnd, message, wparam, lparam):
+        raise ctypes.WinError()
+
+
+def _set_window_origin(hwnd: int, left: int, top: int) -> None:
+    flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE
+    if not user32.SetWindowPos(hwnd, 0, left, top, 0, 0, flags):
+        raise ctypes.WinError()
 
 
 def _get_class_name(hwnd: int) -> str:
@@ -121,31 +130,92 @@ def click_client(hwnd: int, x: int, y: int, *, restore: bool = True, delay: floa
     target_left = cursor.x - x - border_x
     target_top = cursor.y - y - border_y
 
-    flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS
-    if not user32.SetWindowPos(hwnd, 0, target_left, target_top, 0, 0, flags):
-        raise ctypes.WinError()
-
-    time.sleep(delay)
+    _set_window_origin(hwnd, target_left, target_top)
 
     lparam = _makelong(x, y)
-    user32.PostMessageW(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
-    time.sleep(0.01)
-    user32.PostMessageW(hwnd, WM_MOUSEMOVE, 0, lparam)
-    user32.PostMessageW(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
-    time.sleep(delay)
-    user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
-
-    if restore:
+    button_down = False
+    try:
         time.sleep(delay)
-        user32.SetWindowPos(
-            hwnd,
-            0,
-            original_rect.left,
-            original_rect.top,
-            0,
-            0,
-            SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS,
-        )
+        _post_message(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
+        time.sleep(0.01)
+        _post_message(hwnd, WM_MOUSEMOVE, 0, lparam)
+        _post_message(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, lparam)
+        button_down = True
+        time.sleep(delay)
+        _post_message(hwnd, WM_LBUTTONUP, 0, lparam)
+        button_down = False
+    finally:
+        if button_down:
+            user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, lparam)
+        if restore:
+            time.sleep(delay)
+            _set_window_origin(hwnd, original_rect.left, original_rect.top)
+
+
+def swipe_client(
+    hwnd: int,
+    start_x: int,
+    start_y: int,
+    end_x: int,
+    end_y: int,
+    *,
+    duration: float = 0.5,
+    steps: int = 12,
+    restore: bool = True,
+    delay: float = 0.06,
+) -> None:
+    """Post a short left-button drag entirely inside the game client."""
+    width, height = get_client_size(hwnd)
+    for x, y in ((start_x, start_y), (end_x, end_y)):
+        if not (0 <= x < width and 0 <= y < height):
+            raise ValueError(
+                f"client coordinate out of range: ({x}, {y}) not in {width}x{height}"
+            )
+    if duration <= 0:
+        raise ValueError("swipe duration must be positive")
+    if steps < 1:
+        raise ValueError("swipe steps must be at least 1")
+
+    original_rect = RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(original_rect)):
+        raise ctypes.WinError()
+
+    client_origin = POINT(0, 0)
+    if not user32.ClientToScreen(hwnd, ctypes.byref(client_origin)):
+        raise ctypes.WinError()
+
+    cursor = POINT()
+    if not user32.GetCursorPos(ctypes.byref(cursor)):
+        raise ctypes.WinError()
+
+    border_x = client_origin.x - original_rect.left
+    border_y = client_origin.y - original_rect.top
+    target_left = cursor.x - start_x - border_x
+    target_top = cursor.y - start_y - border_y
+    _set_window_origin(hwnd, target_left, target_top)
+
+    button_down = False
+    try:
+        time.sleep(delay)
+        _post_message(hwnd, WM_ACTIVATE, WA_ACTIVE, 0)
+        _post_message(hwnd, WM_MOUSEMOVE, 0, _makelong(start_x, start_y))
+        _post_message(hwnd, WM_LBUTTONDOWN, MK_LBUTTON, _makelong(start_x, start_y))
+        button_down = True
+        step_delay = duration / steps
+        for step in range(1, steps + 1):
+            ratio = step / steps
+            x = round(start_x + (end_x - start_x) * ratio)
+            y = round(start_y + (end_y - start_y) * ratio)
+            _post_message(hwnd, WM_MOUSEMOVE, MK_LBUTTON, _makelong(x, y))
+            time.sleep(step_delay)
+        _post_message(hwnd, WM_LBUTTONUP, 0, _makelong(end_x, end_y))
+        button_down = False
+    finally:
+        if button_down:
+            user32.PostMessageW(hwnd, WM_LBUTTONUP, 0, _makelong(end_x, end_y))
+        if restore:
+            time.sleep(delay)
+            _set_window_origin(hwnd, original_rect.left, original_rect.top)
 
 
 def main() -> None:

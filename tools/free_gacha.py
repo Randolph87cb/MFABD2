@@ -128,6 +128,11 @@ FLOW_NAMES = {
     "enter_game": "进入游戏",
     "ensure_home": "返回主页",
     "free_gacha": "免费抽卡",
+    "pass_rewards_entry": "进入通行证奖励",
+    "task_rewards": "领取每日和每周任务奖励",
+    "activity_rewards": "领取活动奖励",
+    "pass_rewards": "领取通行证奖励",
+    "mail_rewards": "领取邮件奖励",
     "quick_hunt_entry": "进入快速狩猎",
     "quick_hunt_start": "打开狩猎设置",
     "quick_hunt_max_and_confirm": "执行普通狩猎场",
@@ -198,6 +203,41 @@ CLICK_NAMES = {
     "plaza_home": "主页",
     "arena_home": "竞技场右上角主页",
     "home_gacha": "抽抽乐",
+    "home_pass": "通行证",
+    "pass_list_notification": "带红点的通行证",
+    "pass_task_list": "通行证任务列表",
+    "pass_claim_all": "全部获得",
+    "pass_item_popup_close": "关闭通行证奖励详情",
+    "pass_reward_overlay_dismiss": "关闭通行证奖励结算",
+    "reward_back": "返回上一层",
+    "home_tasks": "任务",
+    "task_daily_claim_all": "每日任务全部领取",
+    "weekly_task_tab": "每周任务",
+    "task_weekly_claim_all": "每周任务全部领取",
+    "task_reward_overlay_dismiss": "关闭任务奖励结算",
+    "home_mail": "邮件",
+    "mail_general_claim_all": "全部领取普通邮件",
+    "product_mail_tab": "商品邮件",
+    "mail_product_claim_all": "全部领取商品邮件",
+    "mail_reward_overlay_dismiss": "关闭邮件奖励结算",
+    "home_activity": "活动",
+    "activity_marked_list_entry": "有红色感叹号的活动",
+    "activity_regular_claim_all": "全部领取活动奖励",
+    "activity_token_exchange": "兑换活动奖励",
+    "activity_token_confirm": "确认兑换",
+    "activity_dice_auto": "骰子活动自动进行",
+    "activity_dice_switch_on": "开启骰子自动进行",
+    "activity_puzzle_unlock_all": "拼图活动全部解锁",
+    "activity_bingo_unlock_all": "宾果活动全部解锁",
+    "activity_free_roulette": "转盘活动免费一次",
+    "activity_token_roulette": "使用活动代币旋转",
+    "activity_clothing_open": "免费服装活动",
+    "activity_clothing_claim_now": "立即获得免费服装",
+    "activity_clothing_claim_button": "领取免费服装",
+    "activity_paid_free_open": "付费钻石活动的免费一次",
+    "activity_paid_free_confirm": "确认仅领取免费一次",
+    "activity_settlement_close": "关闭活动奖励结算",
+    "activity_result_back": "返回活动列表",
     "costume_tab": "人物抽卡",
     "gear_tab": "装备抽卡",
     "all_free": "免费抽卡",
@@ -270,6 +310,13 @@ def _console_event_message(payload: dict[str, Any]) -> str | None:
         attempt = payload.get("attempt")
         suffix = f"（第 {attempt} 次）" if attempt else ""
         return f"点击：{target}{suffix}"
+    if action == "swipe":
+        key = str(payload.get("key", ""))
+        if key.startswith("pass-list-up-"):
+            return "滑动：继续查找有红色感叹号的通行证"
+        if key.startswith("activity_list_scroll_"):
+            return "滑动：继续查找有红色感叹号的活动"
+        return "滑动页面"
     if action == "verify_click":
         result = "已生效" if payload.get("succeeded") else "未生效，准备重试"
         return f"检查点击结果：{result}，当前为{_state_name(payload.get('state'))}"
