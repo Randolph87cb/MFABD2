@@ -27,6 +27,7 @@ from win32_windowpos_click import (
     WM_LBUTTONDOWN,
     WM_LBUTTONUP,
     WM_MOUSEMOVE,
+    click_client,
     swipe_client,
     swipe_client_foreground,
 )
@@ -245,6 +246,24 @@ class SwipeClientTests(unittest.TestCase):
 
         flags = [entry.args[0] for entry in user32.mouse_event.call_args_list]
         self.assertEqual(flags, [MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP])
+
+    @patch("win32_windowpos_click.ctypes.WinError", return_value=PermissionError(5, "拒绝访问"))
+    @patch("win32_windowpos_click.get_client_size", return_value=(1000, 600))
+    @patch("win32_windowpos_click.user32")
+    def test_click_explains_when_windows_blocks_cursor_access(
+        self,
+        user32: MagicMock,
+        _get_size: MagicMock,
+        _win_error: MagicMock,
+    ) -> None:
+        user32.GetWindowRect.return_value = 1
+        user32.ClientToScreen.return_value = 1
+        user32.GetCursorPos.return_value = 0
+
+        with self.assertRaisesRegex(RuntimeError, "屏幕保护程序或锁屏界面"):
+            click_client(123, 10, 10)
+
+        user32.SetWindowPos.assert_not_called()
 
     @patch("win32_windowpos_click.time.sleep")
     @patch("win32_windowpos_click.get_client_size", return_value=(1000, 600))

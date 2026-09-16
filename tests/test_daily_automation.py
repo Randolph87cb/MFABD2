@@ -20,6 +20,7 @@ import open_game as open_game_module
 from adaptive_wait import AdaptivePoll
 from daily_automation import (
     DAILY_READY_STATES,
+    DesktopActivityGuard,
     DOWNLOAD_CONFIRM_CLICK,
     MAX_UNKNOWN_ENTRY_FRAMES,
     MasterLogger,
@@ -591,6 +592,34 @@ class OpenGameTests(unittest.TestCase):
 
 
 class DailyAutomationStateTests(unittest.TestCase):
+    @patch("daily_automation._pulse_desktop_activity")
+    @patch("daily_automation.threading.Thread")
+    def test_desktop_activity_guard_pulses_immediately_and_stops_cleanly(
+        self,
+        thread_type: MagicMock,
+        pulse: MagicMock,
+    ) -> None:
+        thread = thread_type.return_value
+        guard = DesktopActivityGuard(interval=30.0)
+
+        with guard:
+            pulse.assert_called_once_with()
+            thread.start.assert_called_once_with()
+
+        self.assertTrue(guard._stop.is_set())
+        thread.join.assert_called_once_with(timeout=1.0)
+
+    @patch("daily_automation._pulse_desktop_activity")
+    def test_desktop_activity_guard_repeats_until_stopped(self, pulse: MagicMock) -> None:
+        guard = DesktopActivityGuard(interval=30.0)
+        guard._stop = MagicMock()
+        guard._stop.wait.side_effect = [False, True]
+
+        guard._run()
+
+        guard._stop.wait.assert_has_calls([unittest.mock.call(30.0), unittest.mock.call(30.0)])
+        pulse.assert_called_once_with()
+
     @patch("daily_automation.subprocess.Popen")
     @patch("daily_automation.webbrowser.open")
     @patch("daily_automation.urllib.request.urlopen")
@@ -776,6 +805,7 @@ class DailyAutomationStateTests(unittest.TestCase):
     @patch("daily_automation.os.chdir")
     @patch("daily_automation.claim_daily_run", return_value=(True, {}))
     @patch("daily_automation.wait_for_network", return_value=True)
+    @patch("daily_automation.DesktopActivityGuard")
     @patch("daily_automation._require_phase")
     @patch("daily_automation.run_free_gacha")
     @patch("daily_automation.update_daily_state")
@@ -786,6 +816,7 @@ class DailyAutomationStateTests(unittest.TestCase):
         _update_daily_state: MagicMock,
         run_free_gacha: MagicMock,
         require_phase: MagicMock,
+        desktop_guard_type: MagicMock,
         _wait_for_network: MagicMock,
         _claim_daily_run: MagicMock,
         _chdir: MagicMock,
@@ -804,6 +835,8 @@ class DailyAutomationStateTests(unittest.TestCase):
 
         stages = [call.args[1] for call in require_phase.call_args_list]
         self.assertEqual(result, 0)
+        desktop_guard_type.return_value.start.assert_called_once_with()
+        desktop_guard_type.return_value.stop.assert_called_once_with()
         self.assertEqual(stages[:2], ["enter_game", "prepare_home"])
         self.assertEqual(
             stages[-7:],
@@ -817,6 +850,52 @@ class DailyAutomationStateTests(unittest.TestCase):
                 "activity_rewards",
             ],
         )
+
+    @patch("daily_automation.os.chdir")
+    @patch("daily_automation.DesktopActivityGuard")
+    @patch("daily_automation.claim_daily_run", return_value=(False, {"status": "completed"}))
+    @patch("builtins.print")
+    def test_skipped_daily_run_does_not_inject_desktop_activity(
+        self,
+        _print: MagicMock,
+        _claim_daily_run: MagicMock,
+        desktop_guard_type: MagicMock,
+        _chdir: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            result = run_daily(
+                project_root=Path(temporary),
+                force=False,
+                network_timeout=1.0,
+            )
+
+        self.assertEqual(result, 0)
+        desktop_guard_type.assert_not_called()
+
+    @patch("daily_automation.os.chdir")
+    @patch("daily_automation.update_daily_state")
+    @patch("daily_automation.DesktopActivityGuard")
+    @patch("daily_automation.wait_for_network", return_value=False)
+    @patch("daily_automation.claim_daily_run", return_value=(True, {}))
+    @patch("builtins.print")
+    def test_network_wait_failure_does_not_inject_desktop_activity(
+        self,
+        _print: MagicMock,
+        _claim_daily_run: MagicMock,
+        _wait_for_network: MagicMock,
+        desktop_guard_type: MagicMock,
+        _update_daily_state: MagicMock,
+        _chdir: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            result = run_daily(
+                project_root=Path(temporary),
+                force=True,
+                network_timeout=1.0,
+            )
+
+        self.assertEqual(result, 2)
+        desktop_guard_type.assert_not_called()
 
     def test_second_start_on_same_day_is_skipped(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

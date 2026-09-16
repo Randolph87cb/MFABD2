@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 import traceback
 import urllib.error
@@ -60,6 +61,8 @@ from mute_browndust import set_mute  # noqa: E402
 TASK_NAME = "BrownDust2DailyAutomation"
 MUTEX_NAME = r"Local\BrownDust2DailyAutomation"
 ERROR_ALREADY_EXISTS = 183
+MOUSEEVENTF_MOVE = 0x0001
+DESKTOP_ACTIVITY_INTERVAL_SECONDS = 30.0
 GOOGLE_CONNECTIVITY_URL = "https://www.google.com/generate_204"
 DOWNLOAD_CONFIRM_CLICK = (0.548, 0.725)
 STARTUP_PROMOTION_TRANSITION_MIN_DIFF = 12.0
@@ -157,6 +160,46 @@ class SingleInstance:
             kernel32.CloseHandle.restype = wintypes.BOOL
             kernel32.CloseHandle(self.handle)
             self.handle = None
+
+
+def _pulse_desktop_activity() -> None:
+    """Reset Windows' idle timer without moving the physical cursor."""
+    ctypes.windll.user32.mouse_event(MOUSEEVENTF_MOVE, 0, 0, 0, 0)
+
+
+class DesktopActivityGuard:
+    """Keep the interactive desktop available while the daily run is active."""
+
+    def __init__(self, interval: float = DESKTOP_ACTIVITY_INTERVAL_SECONDS) -> None:
+        self.interval = interval
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def _run(self) -> None:
+        while not self._stop.wait(self.interval):
+            _pulse_desktop_activity()
+
+    def start(self) -> None:
+        _pulse_desktop_activity()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="daily-desktop-activity",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1.0)
+            self._thread = None
+
+    def __enter__(self) -> "DesktopActivityGuard":
+        self.start()
+        return self
+
+    def __exit__(self, _exc_type: object, _exc: object, _tb: object) -> None:
+        self.stop()
 
 
 class MasterLogger:
@@ -1125,9 +1168,12 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
         master.summary(result="skipped", reason=message, previous=previous)
         return 0
 
+    desktop_guard: DesktopActivityGuard | None = None
     try:
         if not wait_for_network(master, timeout=network_timeout):
             raise DailyRunError("network check timed out")
+        desktop_guard = DesktopActivityGuard()
+        desktop_guard.start()
 
         _require_phase(
             master,
@@ -1273,6 +1319,9 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             run_root=str(run_root),
         )
         return 2
+    finally:
+        if desktop_guard is not None:
+            desktop_guard.stop()
 
 
 def check_environment(*, project_root: Path, network_timeout: float) -> int:

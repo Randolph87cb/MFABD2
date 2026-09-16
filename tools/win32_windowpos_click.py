@@ -126,7 +126,10 @@ def click_client(hwnd: int, x: int, y: int, *, restore: bool = True, delay: floa
 
     cursor = POINT()
     if not user32.GetCursorPos(ctypes.byref(cursor)):
-        raise ctypes.WinError()
+        cause = ctypes.WinError()
+        raise RuntimeError(
+            "无法读取鼠标位置；Windows 屏幕保护程序或锁屏界面可能正在运行"
+        ) from cause
 
     border_x = client_origin.x - original_rect.left
     border_y = client_origin.y - original_rect.top
