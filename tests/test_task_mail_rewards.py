@@ -315,8 +315,55 @@ class TaskRewardTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("within 0 seconds", reason)
 
+    @patch("task_rewards.time.sleep")
+    @patch("task_rewards.safe_capture_client")
+    def test_default_page_wait_retries_after_slow_first_ocr(
+        self,
+        capture: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        capture.side_effect = [frame("transition"), frame("daily")]
+        recognize = MagicMock(side_effect=[(False, {}), (True, {})])
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "task_rewards.time.monotonic", side_effect=[0.0, 13.0]
+        ):
+            logger = task_rewards.RunLogger(Path(temporary))
+            ok, image, reason = task_rewards._wait_for_page(
+                123,
+                logger=logger,
+                label="daily",
+                recognize_page=recognize,
+            )
+        self.assertTrue(ok, reason)
+        self.assertEqual(named(image), "daily")
+        self.assertEqual(capture.call_count, 2)
+
 
 class MailRewardTests(unittest.TestCase):
+    @patch("mail_rewards.time.sleep")
+    @patch("mail_rewards._recognize_mail_page")
+    @patch("mail_rewards.safe_capture_client")
+    def test_default_page_wait_retries_after_slow_first_ocr(
+        self,
+        capture: MagicMock,
+        recognize: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        capture.side_effect = [frame("transition"), frame("mail")]
+        recognize.side_effect = [(False, {}), (True, {})]
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "mail_rewards.time.monotonic", side_effect=[0.0, 13.0]
+        ):
+            logger = mail_rewards.RunLogger(Path(temporary))
+            ok, image, reason = mail_rewards._wait_for_mail_page(
+                123,
+                logger=logger,
+                label="mail",
+            )
+        self.assertTrue(ok, reason)
+        self.assertEqual(named(image), "mail")
+        self.assertEqual(capture.call_count, 2)
+
     @patch("mail_rewards.click_ratio_logged")
     @patch("mail_rewards.detect_home_reward_notification", return_value=(False, {}))
     @patch("mail_rewards.recognize_home_labels", return_value=(True, {}))

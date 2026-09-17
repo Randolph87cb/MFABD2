@@ -347,6 +347,27 @@ class PositionedTextRecognitionTests(unittest.TestCase):
 
         self.assertTrue(matched)
 
+    def test_task_interval_reward_and_return_hint_form_an_actionable_overlay(self) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {
+                "header": ["获得区间奖励"],
+                "footer": ["点击画面即可返回。"],
+            },
+            {
+                "header": ["获得区间奖励"],
+                "footer": ["点击画面即可返回"],
+            },
+            None,
+        )
+
+        matched, _details = recognize_reward_overlay_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+
     def test_terms_dialog_requires_all_three_positioned_labels(self) -> None:
         session = MagicMock()
         session.recognize.return_value = (

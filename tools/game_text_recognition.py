@@ -252,8 +252,10 @@ QUICK_HUNT_SETUP_LABEL_GROUPS = {
 
 REWARD_OVERLAY_LABEL_GROUPS = {
     "header": {
-        "region": (0.38, 0.16, 0.38, 0.26),
-        "labels": ("REWARD", "赛季奖励"),
+        # Task interval rewards render their heading in the top-right bar,
+        # while the other settlement variants keep it near the centre.
+        "region": (0.38, 0.00, 0.48, 0.42),
+        "labels": ("REWARD", "赛季奖励", "获得区间奖励"),
     },
     "footer": {
         "region": (0.38, 0.72, 0.38, 0.24),

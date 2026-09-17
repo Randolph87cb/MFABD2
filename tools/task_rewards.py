@@ -24,7 +24,9 @@ DAILY_BADGE_REGION = (0.205, 0.105, 0.035, 0.055)
 # The weekly-tab red diamond is centred near x=0.223 on the current client.
 # Keep this region narrow so only that red exclamation can satisfy the check.
 WEEKLY_BADGE_REGION = (0.205, 0.165, 0.035, 0.055)
-STEP_TIMEOUT = 5.0
+# OCR can take more than five seconds on its first call.  Keep enough wall-clock
+# budget for a transition frame to be rejected and a settled frame to be read.
+STEP_TIMEOUT = 20.0
 CLICK_SETTLE_SECONDS = 1.0
 MAX_REWARD_OVERLAYS = 6
 

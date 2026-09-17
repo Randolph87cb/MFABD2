@@ -421,6 +421,35 @@ class PassRewardFlowTests(unittest.TestCase):
         self.assertIn("pass_task_list", keys)
         self.assertNotIn("pass_claim_all", keys)
 
+    @patch("pass_rewards._capture_until")
+    @patch("pass_rewards._click_logged")
+    def test_task_tab_retries_once_when_first_click_is_dropped(
+        self,
+        click: MagicMock,
+        capture: MagicMock,
+    ) -> None:
+        overview = _image()
+        task_page = _image()
+        capture.side_effect = [
+            (False, overview, {"overview_text_found": True}),
+            (True, task_page, {"overview_text_found": False, "claim_text_found": True}),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            found, actual, _details = pass_rewards._open_pass_task_page(
+                123,
+                overview,
+                logger=RunLogger(Path(temporary)),
+                label="pass-task-page",
+            )
+
+        self.assertTrue(found)
+        self.assertIs(actual, task_page)
+        self.assertEqual(click.call_count, 2)
+        self.assertEqual(
+            [entry.kwargs["key"] for entry in click.call_args_list],
+            ["pass_task_list", "pass_task_list"],
+        )
+
     def test_claim_text_remaining_after_click_is_a_failure(self) -> None:
         ok, reason, click, _swipe, dismiss, home = self._run(
             captures=[_image()] * 7,

@@ -23,7 +23,9 @@ MAIL_CLAIM_CLICK = (0.854, 0.917)
 GENERAL_BADGE_REGION = (0.205, 0.105, 0.035, 0.055)
 PRODUCT_BADGE_REGION = (0.144, 0.203, 0.145, 0.086)
 PRODUCT_TAB_CLICK = (0.216, 0.246)
-STEP_TIMEOUT = 5.0
+# OCR can take more than five seconds on its first call.  Keep enough wall-clock
+# budget for a transition frame to be rejected and a settled frame to be read.
+STEP_TIMEOUT = 20.0
 CLICK_SETTLE_SECONDS = 1.0
 MAX_REWARD_OVERLAYS = 6
 

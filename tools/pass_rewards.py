@@ -71,6 +71,7 @@ ACTION_SAMPLE_DELAY = 0.75
 MAX_PASS_SWIPES = 4
 MAX_PASS_LOOP_STEPS = 24
 MAX_REWARD_OVERLAYS = 6
+MAX_PASS_TASK_LIST_ATTEMPTS = 2
 
 # Kept for callers which imported the old limit name.
 MAX_PASS_CLAIM_CYCLES = MAX_PASS_LOOP_STEPS
@@ -355,6 +356,44 @@ def _wait_for_pass_selection(
     )
 
 
+def _open_pass_task_page(
+    hwnd: int,
+    image: Image.Image,
+    *,
+    logger: RunLogger,
+    label: str,
+) -> tuple[bool, Image.Image, dict[str, Any]]:
+    """Retry one dropped task-tab click while the overview is still confirmed."""
+    current = image
+    last_details: dict[str, Any] = {}
+    for attempt in range(1, MAX_PASS_TASK_LIST_ATTEMPTS + 1):
+        _click_logged(
+            hwnd,
+            current,
+            PASS_TASK_LIST_POINT,
+            key="pass_task_list",
+            logger=logger,
+        )
+        found, current, last_details = _capture_until(
+            hwnd,
+            logger=logger,
+            label=f"{label}-attempt-{attempt}",
+            recognize=_confirm_pass_task_page,
+            samples=1 if attempt < MAX_PASS_TASK_LIST_ATTEMPTS else MAX_ACTION_SAMPLES,
+        )
+        if found:
+            return True, current, last_details
+        if not last_details.get("overview_text_found"):
+            break
+        logger.event(
+            action="retry_click",
+            key="pass_task_list",
+            attempt=attempt + 1,
+            reason="task tab click left the confirmed overview unchanged",
+        )
+    return False, current, last_details
+
+
 def _collect_from_pass_page(
     hwnd: int,
     image: Image.Image,
@@ -427,12 +466,11 @@ def _collect_from_pass_page(
                 task_page = selected
                 logger.event(action="skip_pass_task_list", step=step, reason="already on task page")
             elif selected_state == "overview":
-                _click_logged(hwnd, selected, PASS_TASK_LIST_POINT, key="pass_task_list", logger=logger)
-                task_found, task_page, task_details = _capture_until(
+                task_found, task_page, task_details = _open_pass_task_page(
                     hwnd,
+                    selected,
                     logger=logger,
                     label=f"pass-task-page-{step:02d}",
-                    recognize=_confirm_pass_task_page,
                 )
                 if not task_found:
                     reason = "点击通行证任务标签后页面未切换，固定位置仍识别到LEVEL/基础或未识别到“全部获得”"
@@ -666,12 +704,11 @@ def open_selected_pass_task_list(*, log_root: Path) -> tuple[bool, str]:
         return True, "selected pass task list was already open"
     if not _confirm_selected_pass_panel(image)[0]:
         return False, "selected pass panel was not text-confirmed"
-    _click_logged(hwnd, image, PASS_TASK_LIST_POINT, key="pass_task_list", logger=logger)
-    found, _after, _details = _capture_until(
+    found, _after, _details = _open_pass_task_page(
         hwnd,
+        image,
         logger=logger,
         label="pass-task-page",
-        recognize=_confirm_pass_task_page,
     )
     return (
         (True, "opened selected pass task list")
