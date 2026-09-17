@@ -351,6 +351,33 @@ class ActivitySettlementTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("timeout", reason)
 
+    @patch("activity_rewards._wait_for_image")
+    @patch("activity_rewards.click_ratio_logged")
+    @patch("activity_rewards.recognize_reward_overlay_labels")
+    def test_reward_settlement_retries_one_dropped_click(
+        self,
+        recognize_overlay: MagicMock,
+        click: MagicMock,
+        wait: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1200, 675))
+        recognize_overlay.side_effect = [
+            (True, {"header": "reward"}),
+            (True, {"header": "reward"}),
+            (False, {}),
+        ]
+        wait.side_effect = [(False, image), (True, image)]
+
+        ok, _image, reason = activity_rewards._dismiss_settlements(
+            123,
+            image,
+            logger=MagicMock(),
+            dry_run=False,
+        )
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(click.call_count, 2)
+
 
 class ActivityDiceTests(unittest.TestCase):
     @patch("activity_rewards._wait_for_image")
@@ -541,13 +568,43 @@ class ActivityFlowTests(unittest.TestCase):
         ok, reason, click = self._run(
             recognize_home_labels=MagicMock(return_value=(False, {})),
             detect_home_reward_notification=badge,
+            _is_activity_page=MagicMock(return_value=(False, {})),
         )
         self.assertFalse(ok)
-        self.assertIn("home OCR", reason)
+        self.assertIn("home or activity-page OCR", reason)
         badge.assert_not_called()
         click.assert_not_called()
 
-    def test_activity_entry_retries_once_only_when_home_badge_remains(self) -> None:
+    def test_already_open_activity_page_resumes_without_home_click(self) -> None:
+        activity_page = MagicMock(return_value=(True, {"title": ["活动"]}))
+        ok, reason, click = self._run(
+            recognize_home_labels=MagicMock(return_value=(False, {})),
+            _is_activity_page=activity_page,
+            _activity_list_at_end=MagicMock(return_value=(True, {})),
+        )
+        self.assertTrue(ok, reason)
+        click.assert_not_called()
+
+    def test_dry_run_on_open_activity_page_never_clicks(self) -> None:
+        image = Image.new("RGB", (1200, 675))
+        click = MagicMock()
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch("activity_rewards.find_game_window", return_value=123),
+                patch("activity_rewards.safe_capture_client", return_value=image),
+                patch("activity_rewards.recognize_home_labels", return_value=(False, {})),
+                patch("activity_rewards._is_activity_page", return_value=(True, {})),
+                patch("activity_rewards.click_ratio_logged", click),
+            ):
+                ok, reason = activity_rewards.run_activity_rewards(
+                    dry_run=True,
+                    log_root=Path(temporary),
+                )
+        self.assertTrue(ok, reason)
+        self.assertIn("without clicking", reason)
+        click.assert_not_called()
+
+    def test_activity_entry_retries_when_badge_is_occluded_but_home_remains(self) -> None:
         image = Image.new("RGB", (1200, 675))
         click = MagicMock()
         wait = MagicMock(side_effect=[(False, image), (True, image)])
@@ -556,7 +613,10 @@ class ActivityFlowTests(unittest.TestCase):
                 patch("activity_rewards.find_game_window", return_value=123),
                 patch("activity_rewards.safe_capture_client", return_value=image),
                 patch("activity_rewards.recognize_home_labels", return_value=(True, {})),
-                patch("activity_rewards.detect_home_reward_notification", return_value=(True, {})),
+                patch(
+                    "activity_rewards.detect_home_reward_notification",
+                    side_effect=[(True, {}), (False, {"reason": "temporarily occluded"})],
+                ),
                 patch("activity_rewards._wait_for_image", wait),
                 patch("activity_rewards._is_activity_page", return_value=(True, {})),
                 patch("activity_rewards.find_red_exclamation_badges", return_value=[]),

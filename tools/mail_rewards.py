@@ -28,6 +28,8 @@ PRODUCT_TAB_CLICK = (0.216, 0.246)
 STEP_TIMEOUT = 20.0
 CLICK_SETTLE_SECONDS = 1.0
 MAX_REWARD_OVERLAYS = 6
+MAX_MAIL_ENTRY_ATTEMPTS = 2
+MAX_REWARD_DISMISS_ATTEMPTS = 2
 
 PageRecognition = Callable[[Image.Image], tuple[bool, dict[str, object]]]
 
@@ -68,6 +70,53 @@ def _wait_for_mail_page(
         if now >= deadline:
             return False, image, f"{label} was not OCR-confirmed within {timeout:.0f} seconds"
         time.sleep(poll.next_delay(remaining=deadline - now))
+
+
+def _open_mail_page(
+    hwnd: int,
+    image: Image.Image,
+    *,
+    logger: RunLogger,
+    dry_run: bool,
+) -> tuple[bool, Image.Image, str]:
+    """Retry one dropped mail-entry click only while home remains confirmed."""
+    current = image
+    for attempt in range(1, MAX_MAIL_ENTRY_ATTEMPTS + 1):
+        click_ratio_logged(
+            hwnd,
+            current,
+            MAIL_HOME_CLICK,
+            key="home_mail",
+            logger=logger,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return True, current, "completed: dry-run planned mail reward entry"
+        ok, current, reason = _wait_for_mail_page(
+            hwnd,
+            logger=logger,
+            label=f"mail-page-attempt-{attempt}",
+        )
+        if ok:
+            return True, current, reason
+        still_home, home_details = recognize_home_labels(current)
+        logger.event(
+            action="mail_entry_retry_check",
+            attempt=attempt,
+            home=still_home,
+            details=home_details,
+        )
+        if not still_home:
+            break
+        if attempt >= MAX_MAIL_ENTRY_ATTEMPTS:
+            break
+        logger.event(
+            action="retry_click",
+            key="home_mail",
+            attempt=attempt + 1,
+            reason="mail entry click left the fixed-position home screen unchanged",
+        )
+    return False, current, "mail page was not OCR-confirmed after bounded entry retries"
 
 
 def _wait_after_click(
@@ -141,21 +190,43 @@ def _dismiss_reward_overlays(
         logger.event(action="recognize_reward_overlay", index=index, found=overlay, details=details)
         if not overlay:
             return True, image, f"dismissed {dismissed} mail reward overlays"
-        click_ratio_logged(
-            hwnd,
-            image,
-            (0.50, 0.82),
-            key="mail_reward_overlay_dismiss",
-            logger=logger,
-        )
-        dismissed += 1
-        ok, image, result = _wait_after_click(
-            hwnd,
-            logger=logger,
-            label=f"mail-overlay-{index}",
-        )
+        ok = False
+        result = ""
+        for attempt in range(1, MAX_REWARD_DISMISS_ATTEMPTS + 1):
+            click_ratio_logged(
+                hwnd,
+                image,
+                (0.50, 0.82),
+                key="mail_reward_overlay_dismiss",
+                logger=logger,
+            )
+            ok, image, result = _wait_after_click(
+                hwnd,
+                logger=logger,
+                label=f"mail-overlay-{index}-attempt-{attempt}",
+            )
+            if ok:
+                break
+            still_overlay, retry_details = recognize_reward_overlay_labels(image)
+            logger.event(
+                action="reward_overlay_retry_check",
+                attempt=attempt,
+                found=still_overlay,
+                details=retry_details,
+            )
+            if not still_overlay:
+                break
+            if attempt >= MAX_REWARD_DISMISS_ATTEMPTS:
+                break
+            logger.event(
+                action="retry_click",
+                key="mail_reward_overlay_dismiss",
+                attempt=attempt + 1,
+                reason="OCR-confirmed reward overlay remained after the click",
+            )
         if not ok:
             return False, image, result
+        dismissed += 1
         if result == "page":
             return True, image, f"dismissed {dismissed} mail reward overlays"
 
@@ -263,20 +334,15 @@ def run_mail_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
 
-        click_ratio_logged(
+        ok, image, reason = _open_mail_page(
             hwnd,
             image,
-            MAIL_HOME_CLICK,
-            key="home_mail",
             logger=logger,
             dry_run=dry_run,
         )
         if dry_run:
-            reason = "completed: dry-run planned mail reward entry"
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
-
-        ok, image, reason = _wait_for_mail_page(hwnd, logger=logger, label="mail-page")
         if not ok:
             logger.failure(reason)
             return False, reason

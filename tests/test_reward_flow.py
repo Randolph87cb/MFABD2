@@ -16,6 +16,7 @@ if str(TOOLS_DIR) not in sys.path:
 from free_gacha import RunLogger
 from reward_flow import (
     click_ratio_logged,
+    dismiss_reward_overlays,
     return_to_home,
     wait_for_home_notification_clear,
     wait_for_recognition,
@@ -34,6 +35,34 @@ from win32_windowpos_click import (
 
 
 class RewardFlowTests(unittest.TestCase):
+    @patch("reward_flow.wait_for_recognition")
+    @patch("reward_flow.click_ratio_logged")
+    @patch("reward_flow.recognize_reward_overlay_labels")
+    @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
+    def test_reward_overlay_dismiss_retries_one_dropped_click(
+        self,
+        _capture: MagicMock,
+        recognize: MagicMock,
+        click: MagicMock,
+        wait: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1000, 600))
+        recognize.side_effect = [(True, {}), (False, {})]
+        wait.side_effect = [
+            (False, image, {"header": ["REWARD"]}),
+            (True, image, {}),
+        ]
+
+        ok, _image, reason = dismiss_reward_overlays(
+            123,
+            logger=MagicMock(),
+            max_overlays=2,
+        )
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(click.call_count, 2)
+        self.assertEqual(wait.call_count, 2)
+
     @patch("reward_flow.detect_home_reward_notification", return_value=(True, {}))
     @patch("reward_flow.recognize_home_labels", return_value=(True, {}))
     @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))

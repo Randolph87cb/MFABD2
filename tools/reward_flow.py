@@ -21,6 +21,7 @@ from win32_windowpos_click import click_client, swipe_client, swipe_client_foreg
 
 NormalizedRegion = tuple[float, float, float, float]
 Recognition = Callable[[Image.Image], tuple[bool, dict[str, Any]]]
+MAX_REWARD_DISMISS_ATTEMPTS = 2
 
 
 def recognize_text_at(
@@ -209,23 +210,35 @@ def dismiss_reward_overlays(
         )
         if not is_overlay:
             return True, image, f"dismissed {index - 1} reward overlays"
-        click_ratio_logged(
-            hwnd,
-            image,
-            (0.50, 0.82),
-            key="reward_overlay_dismiss",
-            logger=logger,
-        )
         def overlay_closed(candidate: Image.Image) -> tuple[bool, dict[str, Any]]:
             found, candidate_details = recognize_reward_overlay_labels(candidate)
             return not found, candidate_details
 
-        closed, image, _details = wait_for_recognition(
-            hwnd,
-            logger=logger,
-            label=f"reward-overlay-closed-{index}",
-            recognize=overlay_closed,
-        )
+        closed = False
+        for attempt in range(1, MAX_REWARD_DISMISS_ATTEMPTS + 1):
+            click_ratio_logged(
+                hwnd,
+                image,
+                (0.50, 0.82),
+                key="reward_overlay_dismiss",
+                logger=logger,
+            )
+            closed, image, _details = wait_for_recognition(
+                hwnd,
+                logger=logger,
+                label=f"reward-overlay-closed-{index}-attempt-{attempt}",
+                recognize=overlay_closed,
+            )
+            if closed:
+                break
+            if attempt >= MAX_REWARD_DISMISS_ATTEMPTS:
+                break
+            logger.event(
+                action="retry_click",
+                key="reward_overlay_dismiss",
+                attempt=attempt + 1,
+                reason="OCR-confirmed reward overlay remained after the click",
+            )
         if not closed:
             return False, image, "reward overlay did not close"
     return False, image, f"more than {max_overlays} reward overlays appeared"

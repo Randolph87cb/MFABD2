@@ -120,6 +120,7 @@ POLL_INTERVAL = 0.5
 MAX_SCAN_CYCLES = 40
 MAX_ACTION_REPEATS = 10
 MAX_SETTLEMENTS = 6
+MAX_SETTLEMENT_DISMISS_ATTEMPTS = 2
 MAX_ACTIVITY_SWIPES = 6
 MAX_ACTIVITY_ENTRY_CLICKS = 2
 DICE_RUN_SETTLE_SECONDS = 15.0
@@ -386,23 +387,44 @@ def _dismiss_settlements(
         logger.event(action="recognize_activity_settlement", index=index, found=overlay, details=details)
         if not overlay:
             return True, current, f"closed {index - 1} settlements"
-        click_ratio_logged(
-            hwnd,
-            current,
-            (0.50, 0.82),
-            key="activity_settlement_close",
-            logger=logger,
-            dry_run=dry_run,
-        )
-        if dry_run:
-            return True, current, "dry-run planned settlement close"
-        closed, current = _wait_for_image(
-            hwnd,
-            logger=logger,
-            label=f"activity-settlement-closed-{index}",
-            predicate=lambda candidate: not recognize_reward_overlay_labels(candidate)[0],
-            timeout=SETTLEMENT_TIMEOUT,
-        )
+        closed = False
+        for attempt in range(1, MAX_SETTLEMENT_DISMISS_ATTEMPTS + 1):
+            click_ratio_logged(
+                hwnd,
+                current,
+                (0.50, 0.82),
+                key="activity_settlement_close",
+                logger=logger,
+                dry_run=dry_run,
+            )
+            if dry_run:
+                return True, current, "dry-run planned settlement close"
+            closed, current = _wait_for_image(
+                hwnd,
+                logger=logger,
+                label=f"activity-settlement-closed-{index}-attempt-{attempt}",
+                predicate=lambda candidate: not recognize_reward_overlay_labels(candidate)[0],
+                timeout=SETTLEMENT_TIMEOUT,
+            )
+            if closed:
+                break
+            still_overlay, retry_details = recognize_reward_overlay_labels(current)
+            logger.event(
+                action="activity_settlement_retry_check",
+                attempt=attempt,
+                found=still_overlay,
+                details=retry_details,
+            )
+            if not still_overlay:
+                break
+            if attempt >= MAX_SETTLEMENT_DISMISS_ATTEMPTS:
+                break
+            logger.event(
+                action="retry_click",
+                key="activity_settlement_close",
+                attempt=attempt + 1,
+                reason="OCR-confirmed activity settlement remained after the click",
+            )
         if not closed:
             return False, current, "activity reward settlement did not close before timeout"
     if recognize_reward_overlay_labels(current)[0]:
@@ -915,62 +937,81 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
     image = safe_capture_client(hwnd, logger=logger)
     is_home, home_details = recognize_home_labels(image)
     logger.event(action="recognize_home_before_activity", found=is_home, details=home_details)
-    if not is_home:
-        reason = "activity entry requires fixed-position home OCR"
-        logger.failure(reason)
-        return False, reason
-    has_notification, notification_details = detect_home_reward_notification(image, "events")
-    logger.event(
-        action="detect_notification",
-        target="events",
-        found=has_notification,
-        details=notification_details,
+    opened, activity_page_details = (
+        (False, {"skipped": "home OCR already confirmed"})
+        if is_home
+        else _is_activity_page(image)
     )
-    if not has_notification:
-        return True, "skipped: home activity icon has no red exclamation"
-
-    click_ratio_logged(hwnd, image, HOME_ACTIVITY_POINT, key="home_activity", logger=logger, dry_run=dry_run)
-    if dry_run:
-        return True, "completed: dry-run planned activity entry; no purchase confirmation was clicked"
-
-    opened = False
-    for attempt in range(1, MAX_ACTIVITY_ENTRY_CLICKS + 1):
-        opened, image = _wait_for_image(
-            hwnd,
-            logger=logger,
-            label=f"activity-index-opened-{attempt}",
-            predicate=lambda candidate: _is_activity_page(candidate)[0],
-        )
-        if opened:
-            break
-        still_home, retry_home_details = recognize_home_labels(image)
-        still_marked = False
-        retry_badge_details: dict[str, Any] = {"skipped": "home OCR not confirmed"}
-        if still_home:
-            still_marked, retry_badge_details = detect_home_reward_notification(image, "events")
+    if opened:
         logger.event(
-            action="activity_entry_retry_check",
-            attempt=attempt,
-            home=still_home,
-            home_details=retry_home_details,
-            notification=still_marked,
-            notification_details=retry_badge_details,
+            action="resume_activity_page",
+            reason="fixed-position activity title already recognized",
+            details=activity_page_details,
         )
-        if not (still_home and still_marked and attempt < MAX_ACTIVITY_ENTRY_CLICKS):
-            break
-        click_ratio_logged(
-            hwnd,
-            image,
-            HOME_ACTIVITY_POINT,
-            key="home_activity_retry",
-            logger=logger,
-        )
-    if not opened:
-        reason = (
-            f"点击活动 {MAX_ACTIVITY_ENTRY_CLICKS} 次后，固定位置文字仍未确认活动页"
-        )
+        if dry_run:
+            return True, "completed: dry-run resumed at activity page without clicking"
+    elif not is_home:
+        reason = "activity entry requires fixed-position home or activity-page OCR"
         logger.failure(reason)
         return False, reason
+    else:
+        has_notification, notification_details = detect_home_reward_notification(image, "events")
+        logger.event(
+            action="detect_notification",
+            target="events",
+            found=has_notification,
+            details=notification_details,
+        )
+        if not has_notification:
+            return True, "skipped: home activity icon has no red exclamation"
+
+        click_ratio_logged(hwnd, image, HOME_ACTIVITY_POINT, key="home_activity", logger=logger, dry_run=dry_run)
+        if dry_run:
+            return True, "completed: dry-run planned activity entry; no purchase confirmation was clicked"
+
+        entry_clicks = 1
+        for attempt in range(1, MAX_ACTIVITY_ENTRY_CLICKS + 1):
+            opened, image = _wait_for_image(
+                hwnd,
+                logger=logger,
+                label=f"activity-index-opened-{attempt}",
+                predicate=lambda candidate: _is_activity_page(candidate)[0],
+            )
+            if opened:
+                break
+            still_home, retry_home_details = recognize_home_labels(image)
+            still_marked = False
+            retry_badge_details: dict[str, Any] = {"skipped": "home OCR not confirmed"}
+            if still_home:
+                still_marked, retry_badge_details = detect_home_reward_notification(image, "events")
+            logger.event(
+                action="activity_entry_retry_check",
+                attempt=attempt,
+                home=still_home,
+                home_details=retry_home_details,
+                notification=still_marked,
+                notification_details=retry_badge_details,
+            )
+            # The entry animation can temporarily cover the small notification
+            # badge.  The initial badge was already confirmed, so staying on the
+            # fixed-position home page is sufficient proof that retrying the same
+            # harmless entry click is safe.
+            if not (still_home and attempt < MAX_ACTIVITY_ENTRY_CLICKS):
+                break
+            click_ratio_logged(
+                hwnd,
+                image,
+                HOME_ACTIVITY_POINT,
+                key="home_activity_retry",
+                logger=logger,
+            )
+            entry_clicks += 1
+        if not opened:
+            reason = (
+                f"点击活动 {entry_clicks} 次后，固定位置文字仍未确认活动页"
+            )
+            logger.failure(reason)
+            return False, reason
 
     completed = 0
     swipes = 0

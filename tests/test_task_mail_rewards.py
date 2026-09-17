@@ -301,6 +301,32 @@ class TaskRewardTests(unittest.TestCase):
         self.assertIn("limit reached", reason)
         self.assertEqual(click.call_count, 2)
 
+    @patch("task_rewards._wait_after_click")
+    @patch("task_rewards.click_ratio_logged")
+    @patch("task_rewards.recognize_reward_overlay_labels")
+    def test_task_reward_overlay_retries_one_dropped_click(
+        self,
+        recognize: MagicMock,
+        click: MagicMock,
+        wait_after: MagicMock,
+    ) -> None:
+        overlay = frame("overlay")
+        page = frame("page")
+        recognize.side_effect = [(True, {}), (True, {}), (False, {})]
+        wait_after.side_effect = [
+            (False, overlay, "still overlay"),
+            (True, page, "page"),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, _image, reason = task_rewards._dismiss_reward_overlays(
+                123,
+                overlay,
+                logger=task_rewards.RunLogger(Path(temporary)),
+                recognize_page=task_rewards._recognize_daily_page,
+            )
+        self.assertTrue(ok, reason)
+        self.assertEqual(click.call_count, 2)
+
     @patch("task_rewards.safe_capture_client", return_value=frame("unknown"))
     def test_page_wait_has_per_step_timeout(self, _capture: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -340,6 +366,59 @@ class TaskRewardTests(unittest.TestCase):
 
 
 class MailRewardTests(unittest.TestCase):
+    @patch("mail_rewards.recognize_home_labels", return_value=(True, {"available": True}))
+    @patch("mail_rewards._wait_for_mail_page")
+    @patch("mail_rewards.click_ratio_logged")
+    def test_mail_entry_retries_once_when_first_click_is_dropped(
+        self,
+        click: MagicMock,
+        wait: MagicMock,
+        _home: MagicMock,
+    ) -> None:
+        home = frame("home")
+        mail = frame("mail")
+        wait.side_effect = [
+            (False, home, "mail page not found"),
+            (True, mail, "mail page confirmed"),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, image, reason = mail_rewards._open_mail_page(
+                123,
+                home,
+                logger=mail_rewards.RunLogger(Path(temporary)),
+                dry_run=False,
+            )
+
+        self.assertTrue(ok, reason)
+        self.assertIs(image, mail)
+        self.assertEqual(click.call_count, 2)
+        self.assertEqual(wait.call_count, 2)
+
+    @patch("mail_rewards._wait_after_click")
+    @patch("mail_rewards.click_ratio_logged")
+    @patch("mail_rewards.recognize_reward_overlay_labels")
+    def test_mail_reward_overlay_retries_one_dropped_click(
+        self,
+        recognize: MagicMock,
+        click: MagicMock,
+        wait_after: MagicMock,
+    ) -> None:
+        overlay = frame("overlay")
+        page = frame("page")
+        recognize.side_effect = [(True, {}), (True, {}), (False, {})]
+        wait_after.side_effect = [
+            (False, overlay, "still overlay"),
+            (True, page, "page"),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, _image, reason = mail_rewards._dismiss_reward_overlays(
+                123,
+                overlay,
+                logger=mail_rewards.RunLogger(Path(temporary)),
+            )
+        self.assertTrue(ok, reason)
+        self.assertEqual(click.call_count, 2)
+
     @patch("mail_rewards.time.sleep")
     @patch("mail_rewards._recognize_mail_page")
     @patch("mail_rewards.safe_capture_client")

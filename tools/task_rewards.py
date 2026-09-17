@@ -29,6 +29,7 @@ WEEKLY_BADGE_REGION = (0.205, 0.165, 0.035, 0.055)
 STEP_TIMEOUT = 20.0
 CLICK_SETTLE_SECONDS = 1.0
 MAX_REWARD_OVERLAYS = 6
+MAX_REWARD_DISMISS_ATTEMPTS = 2
 
 PageRecognition = Callable[[Image.Image], tuple[bool, dict[str, object]]]
 
@@ -157,22 +158,44 @@ def _dismiss_reward_overlays(
         logger.event(action="recognize_reward_overlay", index=index, found=overlay, details=details)
         if not overlay:
             return True, image, f"dismissed {dismissed} reward overlays"
-        click_ratio_logged(
-            hwnd,
-            image,
-            (0.50, 0.82),
-            key="task_reward_overlay_dismiss",
-            logger=logger,
-        )
-        dismissed += 1
-        ok, image, result = _wait_after_click(
-            hwnd,
-            logger=logger,
-            label=f"task-overlay-{index}",
-            recognize_page=recognize_page,
-        )
+        ok = False
+        result = ""
+        for attempt in range(1, MAX_REWARD_DISMISS_ATTEMPTS + 1):
+            click_ratio_logged(
+                hwnd,
+                image,
+                (0.50, 0.82),
+                key="task_reward_overlay_dismiss",
+                logger=logger,
+            )
+            ok, image, result = _wait_after_click(
+                hwnd,
+                logger=logger,
+                label=f"task-overlay-{index}-attempt-{attempt}",
+                recognize_page=recognize_page,
+            )
+            if ok:
+                break
+            still_overlay, retry_details = recognize_reward_overlay_labels(image)
+            logger.event(
+                action="reward_overlay_retry_check",
+                attempt=attempt,
+                found=still_overlay,
+                details=retry_details,
+            )
+            if not still_overlay:
+                break
+            if attempt >= MAX_REWARD_DISMISS_ATTEMPTS:
+                break
+            logger.event(
+                action="retry_click",
+                key="task_reward_overlay_dismiss",
+                attempt=attempt + 1,
+                reason="OCR-confirmed reward overlay remained after the click",
+            )
         if not ok:
             return False, image, result
+        dismissed += 1
         if result == "page":
             return True, image, f"dismissed {dismissed} reward overlays"
 
