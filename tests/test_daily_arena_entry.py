@@ -137,6 +137,50 @@ class BattlefieldRestaurantRouteTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("battle preparation reached directly", reason)
 
+    @patch("daily_arena.time.sleep")
+    @patch("daily_arena._click_ratio")
+    @patch("daily_arena.is_gameplay_tab_selected", return_value=True)
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.classify_state")
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_cartridge_selection_dismisses_season_reward_overlay(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        classify: MagicMock,
+        click_with_retry: MagicMock,
+        _gameplay_selected: MagicMock,
+        click_ratio: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        bar_image = Image.new("RGB", (2000, 1000))
+        selected_image = Image.new("RGB", (2000, 1000))
+        reward_image = Image.new("RGB", (2000, 1000))
+        lobby_image = Image.new("RGB", (2000, 1000))
+        capture_client.side_effect = [bar_image, reward_image, lobby_image]
+        classify.side_effect = [
+            ("arena_cartridge_bar", {}),
+            ("reward_overlay", {}),
+            ("arena_lobby", {}),
+        ]
+        click_with_retry.return_value = (
+            True,
+            "arena_cartridge_bar",
+            selected_image,
+            "selected gameplay category",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_arena_from_plaza(dry_run=False, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertIn("arena lobby reached", reason)
+        self.assertEqual(
+            [call.args[2] for call in click_ratio.call_args_list],
+            ["cartridge_first_gameplay", "reward_overlay_dismiss"],
+        )
+
     def test_full_arena_skips_pool_when_already_at_battle_preparation(self) -> None:
         image = Image.new("RGB", (2000, 1000))
         with (

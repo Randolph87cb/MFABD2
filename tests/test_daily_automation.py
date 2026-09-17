@@ -1204,8 +1204,28 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                     "bright_ratio": 0.100353,
                 },
                 {
+                    "bright_ratio": 0.059812,
+                },
+                {
                     "mid_ratio": 0.709,
                     "edge_ratio": 0.014631,
+                },
+            )
+        )
+
+    def test_restaurant_ui_fade_is_not_a_gacha_reveal(self) -> None:
+        self.assertFalse(
+            _is_reveal_animation_like(
+                {
+                    "edge_ratio": 0.024244,
+                    "bright_ratio": 0.0,
+                },
+                {
+                    "bright_ratio": 0.0,
+                },
+                {
+                    "mid_ratio": 0.203245,
+                    "edge_ratio": 0.009971,
                 },
             )
         )

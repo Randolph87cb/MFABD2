@@ -291,7 +291,7 @@ RESTAURANT_LABEL_GROUPS = {
     },
     "settlement": {
         "region": (0.78, 0.82, 0.20, 0.17),
-        "labels": ("结算",),
+        "labels": ("结算", "已满"),
     },
     "regular_customer_mode": {
         "region": (0.42, 0.50, 0.18, 0.20),
@@ -796,7 +796,7 @@ def recognize_restaurant_state(
 
     has_restaurant_shell = (
         "格鲁菲餐厅" in matches["title"]
-        and "结算" in matches["settlement"]
+        and bool({"结算", "已满"} & set(matches["settlement"]))
     )
     is_home = has_restaurant_shell and len(matches["bottom_controls"]) >= 2
     has_new_regular_customer_controls = (
@@ -832,11 +832,11 @@ def recognize_restaurant_state(
         "has_loading_progress": has_loading_progress,
         "state": state,
         "requirements": {
-            "home": ["格鲁菲餐厅", "two bottom controls", "结算"],
+            "home": ["格鲁菲餐厅", "two bottom controls", "结算 or 已满"],
             "loading": ["格鲁菲餐厅", "N%"],
             "regular_customer_mode": [
                 "格鲁菲餐厅",
-                "结算",
+                "结算 or 已满",
                 "常客笔记 + 格鲁TALK before complete home controls, or 查看常客",
             ],
         },

@@ -517,6 +517,7 @@ def _stats(region: np.ndarray) -> dict[str, float]:
 
 def _is_reveal_animation_like(
     animation_top_right: dict[str, float],
+    animation_skip_control: dict[str, float],
     animation_bottom_reveal: dict[str, float],
 ) -> bool:
     # Bright equipment-draw scenes can put a little more light behind the
@@ -524,6 +525,7 @@ def _is_reveal_animation_like(
     return (
         animation_top_right["edge_ratio"] > 0.012
         and animation_top_right["bright_ratio"] < 0.11
+        and animation_skip_control["bright_ratio"] > 0.025
         and animation_bottom_reveal["mid_ratio"] > 0.20
         and animation_bottom_reveal["edge_ratio"] < 0.020
     )
@@ -835,6 +837,7 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     reveal_animation_like = _is_reveal_animation_like(
         animation_top_right,
+        animation_skip_control,
         animation_bottom_reveal,
     )
     if dark_animation_like or reveal_animation_like:

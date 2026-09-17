@@ -76,6 +76,27 @@ class RestaurantRecognitionRegressionTests(unittest.TestCase):
 
         self.assertEqual(state, "restaurant_home")
 
+    @patch("game_text_recognition._recognize_label_groups")
+    def test_full_restaurant_home_accepts_full_settlement_state(
+        self,
+        recognize_groups: MagicMock,
+    ) -> None:
+        grouped_texts = {
+            "title": ["格鲁菲餐厅"],
+            "left_controls": ["常客", "亲密度"],
+            "bottom_controls": ["员工", "客人"],
+            "settlement": ["已满", "24:00:00"],
+            "regular_customer_mode": [],
+            "loading_title": [],
+            "loading_progress": [],
+        }
+        matches = {name: list(texts) for name, texts in grouped_texts.items()}
+        recognize_groups.return_value = grouped_texts, matches, None
+
+        state, _details = recognize_restaurant_state(Image.new("RGB", (2000, 1000)))
+
+        self.assertEqual(state, "restaurant_home")
+
 
 class RestaurantReturnRegressionTests(unittest.TestCase):
     @patch("business_management.wait_for_recognition")

@@ -355,6 +355,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
     )
     dialogue_clicks = 0
     rank_confirm_clicks = 0
+    reward_overlay_clicks = 0
     card_attempts = 1
     stall_timeout = 150.0
     last_progress_at = time.monotonic()
@@ -414,6 +415,22 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
                 dry_run=False,
                 logger=logger,
                 attempt=rank_confirm_clicks,
+            )
+            poll.reset()
+            continue
+        if current_state == "reward_overlay":
+            if reward_overlay_clicks >= 2:
+                reason = "arena reward overlay did not close after 2 clicks"
+                logger.failure(reason)
+                return False, reason
+            reward_overlay_clicks += 1
+            _click_ratio(
+                hwnd,
+                current,
+                "reward_overlay_dismiss",
+                dry_run=False,
+                logger=logger,
+                attempt=reward_overlay_clicks,
             )
             poll.reset()
             continue
