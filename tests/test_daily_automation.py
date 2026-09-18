@@ -19,14 +19,15 @@ if str(TOOLS_DIR) not in sys.path:
 import open_game as open_game_module
 from adaptive_wait import AdaptivePoll
 from daily_automation import (
+    CURRENT_PHASE_IDS,
     DAILY_READY_STATES,
     DesktopActivityGuard,
     DOWNLOAD_CONFIRM_CLICK,
     MAX_UNKNOWN_ENTRY_FRAMES,
     MasterLogger,
     can_finish_entry_phase,
-    claim_daily_run,
     classify_daily_entry_context,
+    daily_plan_report,
     enter_game_logged,
     ensure_home,
     game_day_key,
@@ -37,7 +38,6 @@ from daily_automation import (
     return_home_transition_succeeded,
     run_daily,
     startup_promotion_transition_succeeded,
-    update_daily_state,
     wait_for_network,
 )
 from game_text_recognition import (
@@ -75,7 +75,6 @@ from home_notifications import (
 )
 from pass_rewards import _has_pass_item_popup_close, enter_pass_rewards
 from free_gacha import (
-    ActionResult,
     CLICK_POINTS,
     RETRY_CLICK_POINTS,
     RunLogger,
@@ -763,62 +762,17 @@ class DailyAutomationStateTests(unittest.TestCase):
         self.assertEqual(game_day_key(datetime(2026, 8, 8, 7, 59, 59)), "2026-08-07")
         self.assertEqual(game_day_key(datetime(2026, 8, 8, 8, 0, 0)), "2026-08-08")
 
-    def test_run_is_allowed_again_after_the_eight_oclock_reset(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            state_path = root / "state.json"
-            first_day = game_day_key(datetime(2026, 8, 8, 7, 59, 59))
-            next_day = game_day_key(datetime(2026, 8, 8, 8, 0, 0))
-
-            first, _state = claim_daily_run(
-                state_path,
-                run_date=first_day,
-                run_root=root / "logs" / "before-reset",
-                force=False,
-                started_at="2026-08-08T07:59:59",
-            )
-            second, current = claim_daily_run(
-                state_path,
-                run_date=next_day,
-                run_root=root / "logs" / "after-reset",
-                force=False,
-                started_at="2026-08-08T08:00:00",
-            )
-
-        self.assertTrue(first)
-        self.assertTrue(second)
-        self.assertEqual(current["last_started_game_day"], "2026-08-08")
-
-    def test_old_midnight_based_state_is_migrated_from_its_start_time(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            state_path = root / "state.json"
-            state_path.write_text(
-                json.dumps(
-                    {
-                        "last_started_date": "2026-08-08",
-                        "started_at": "2026-08-08T02:49:34",
-                        "status": "completed",
-                    }
-                ),
-                encoding="utf-8",
-            )
-
-            claimed, _previous = claim_daily_run(
-                state_path,
-                run_date="2026-08-07",
-                run_root=root / "logs" / "retry-before-reset",
-                force=False,
-                started_at="2026-08-08T07:30:00",
-            )
-
-        self.assertFalse(claimed)
-
     def test_scheduled_launcher_uses_a_visible_python_console(self) -> None:
         script = (TOOLS_DIR / "install_daily_task.ps1").read_text(encoding="utf-8")
 
         self.assertIn("Get-Command python.exe", script)
         self.assertNotIn("pythonw.exe", script)
+
+    def test_scheduled_runner_can_force_one_available_phase(self) -> None:
+        script = (TOOLS_DIR / "run_daily_task.ps1").read_text(encoding="utf-8")
+
+        self.assertIn("[string]$ForcePhase", script)
+        self.assertIn('@("--force-phase", $ForcePhase)', script)
 
     @patch("builtins.print")
     def test_master_logger_prints_each_event_to_the_visible_console(
@@ -850,64 +804,50 @@ class DailyAutomationStateTests(unittest.TestCase):
         self.assertIn("识别到：竞技场大厅", output)
         self.assertIn("点击：竞技场右上角主页（第 1 次）", output)
 
+    def test_plan_report_is_read_only_and_keeps_target_order(self) -> None:
+        report = daily_plan_report()
+
+        self.assertEqual(report["compatibility_stage_ids"], list(CURRENT_PHASE_IDS))
+        self.assertEqual([item["preset"] for item in report["presets"]], ["fast", "detailed"])
+        self.assertEqual(report["presets"][0]["contract_stage_count"], 17)
+
     @patch("daily_automation.os.chdir")
-    @patch("daily_automation.claim_daily_run", return_value=(True, {}))
     @patch("daily_automation.wait_for_network", return_value=True)
     @patch("daily_automation.DesktopActivityGuard")
-    @patch("daily_automation._require_phase")
-    @patch("daily_automation.run_free_gacha")
-    @patch("daily_automation.update_daily_state")
+    @patch("daily_automation._execute_daily_phase", return_value="completed")
     @patch("builtins.print")
-    def test_daily_run_returns_home_before_starting_gacha(
+    def test_daily_run_uses_current_capabilities_in_target_order(
         self,
         _print: MagicMock,
-        _update_daily_state: MagicMock,
-        run_free_gacha: MagicMock,
-        require_phase: MagicMock,
+        execute_phase: MagicMock,
         desktop_guard_type: MagicMock,
         _wait_for_network: MagicMock,
-        _claim_daily_run: MagicMock,
         _chdir: MagicMock,
     ) -> None:
-        run_free_gacha.return_value = ActionResult(
-            "gacha_page",
-            "stop",
-            "all requested free gacha targets completed",
-        )
         with tempfile.TemporaryDirectory() as temporary:
             result = run_daily(
-                project_root=Path(temporary),
-                force=True,
-                network_timeout=1.0,
+                project_root=Path(temporary), force=False, network_timeout=1.0
             )
 
-        stages = [call.args[1] for call in require_phase.call_args_list]
         self.assertEqual(result, 0)
+        self.assertEqual(
+            [call.args[0] for call in execute_phase.call_args_list],
+            list(CURRENT_PHASE_IDS),
+        )
+        self.assertLess(CURRENT_PHASE_IDS.index("quick_hunt"), CURRENT_PHASE_IDS.index("free_gacha"))
+        self.assertLess(CURRENT_PHASE_IDS.index("activity_rewards"), CURRENT_PHASE_IDS.index("pass_rewards"))
         desktop_guard_type.return_value.start.assert_called_once_with()
         desktop_guard_type.return_value.stop.assert_called_once_with()
-        self.assertEqual(stages[:2], ["enter_game", "prepare_home"])
-        self.assertEqual(
-            stages[-7:],
-            [
-                "business_management_home",
-                "business_management",
-                "reward_prepare_home",
-                "task_rewards",
-                "pass_rewards",
-                "mail_rewards",
-                "activity_rewards",
-            ],
-        )
 
     @patch("daily_automation.os.chdir")
+    @patch("daily_automation.wait_for_network")
     @patch("daily_automation.DesktopActivityGuard")
-    @patch("daily_automation.claim_daily_run", return_value=(False, {"status": "completed"}))
     @patch("builtins.print")
-    def test_skipped_daily_run_does_not_inject_desktop_activity(
+    def test_incomplete_target_preset_is_blocked_before_game_or_network(
         self,
         _print: MagicMock,
-        _claim_daily_run: MagicMock,
         desktop_guard_type: MagicMock,
+        wait_for_network: MagicMock,
         _chdir: MagicMock,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -915,100 +855,114 @@ class DailyAutomationStateTests(unittest.TestCase):
                 project_root=Path(temporary),
                 force=False,
                 network_timeout=1.0,
+                preset="fast",
             )
 
-        self.assertEqual(result, 0)
+        self.assertEqual(result, 2)
+        wait_for_network.assert_not_called()
         desktop_guard_type.assert_not_called()
 
     @patch("daily_automation.os.chdir")
-    @patch("daily_automation.update_daily_state")
+    @patch("daily_automation.wait_for_network", return_value=True)
+    @patch("daily_automation.DesktopActivityGuard")
+    @patch("daily_automation._execute_daily_phase", return_value="completed")
+    @patch("builtins.print")
+    def test_force_phase_runs_only_the_requested_available_phase(
+        self,
+        _print: MagicMock,
+        execute_phase: MagicMock,
+        _desktop_guard_type: MagicMock,
+        _wait_for_network: MagicMock,
+        _chdir: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            result = run_daily(
+                project_root=Path(temporary),
+                force=False,
+                force_phase="quick_hunt",
+                network_timeout=1.0,
+            )
+
+        self.assertEqual(result, 0)
+        execute_phase.assert_called_once()
+        self.assertEqual(execute_phase.call_args.args[0], "quick_hunt")
+
+    @patch("daily_automation.os.chdir")
+    @patch("daily_automation.wait_for_network", return_value=True)
+    @patch("daily_automation.DesktopActivityGuard")
+    @patch("daily_automation._execute_daily_phase")
+    @patch("builtins.print")
+    def test_failed_run_resumes_without_replaying_completed_phases(
+        self,
+        _print: MagicMock,
+        execute_phase: MagicMock,
+        _desktop_guard_type: MagicMock,
+        _wait_for_network: MagicMock,
+        _chdir: MagicMock,
+    ) -> None:
+        calls: list[str] = []
+        failed_once = False
+
+        def execute(phase_id: str, **_kwargs: object) -> str:
+            nonlocal failed_once
+            calls.append(phase_id)
+            if phase_id == "arena" and not failed_once:
+                failed_once = True
+                raise RuntimeError("arena stopped")
+            return "completed"
+
+        execute_phase.side_effect = execute
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = run_daily(project_root=root, force=False, network_timeout=1.0)
+            second = run_daily(project_root=root, force=False, network_timeout=1.0)
+
+        self.assertEqual((first, second), (2, 0))
+        self.assertEqual(calls.count("start"), 1)
+        self.assertEqual(calls.count("quick_hunt"), 1)
+        self.assertEqual(calls.count("free_gacha"), 1)
+        self.assertEqual(calls.count("arena"), 2)
+        self.assertEqual(calls[-1], "mail_rewards")
+
+    @patch("daily_automation.os.chdir")
+    @patch("daily_automation.wait_for_network", return_value=True)
+    @patch("daily_automation.DesktopActivityGuard")
+    @patch("daily_automation._execute_daily_phase", return_value="completed")
+    @patch("builtins.print")
+    def test_completed_same_day_run_does_not_inject_desktop_activity_again(
+        self,
+        _print: MagicMock,
+        _execute_phase: MagicMock,
+        desktop_guard_type: MagicMock,
+        _wait_for_network: MagicMock,
+        _chdir: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.assertEqual(run_daily(project_root=root, force=False, network_timeout=1.0), 0)
+            desktop_guard_type.reset_mock()
+            self.assertEqual(run_daily(project_root=root, force=False, network_timeout=1.0), 0)
+
+        desktop_guard_type.assert_not_called()
+
+    @patch("daily_automation.os.chdir")
     @patch("daily_automation.DesktopActivityGuard")
     @patch("daily_automation.wait_for_network", return_value=False)
-    @patch("daily_automation.claim_daily_run", return_value=(True, {}))
     @patch("builtins.print")
     def test_network_wait_failure_does_not_inject_desktop_activity(
         self,
         _print: MagicMock,
-        _claim_daily_run: MagicMock,
         _wait_for_network: MagicMock,
         desktop_guard_type: MagicMock,
-        _update_daily_state: MagicMock,
         _chdir: MagicMock,
     ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             result = run_daily(
-                project_root=Path(temporary),
-                force=True,
-                network_timeout=1.0,
+                project_root=Path(temporary), force=False, network_timeout=1.0
             )
 
         self.assertEqual(result, 2)
         desktop_guard_type.assert_not_called()
-
-    def test_second_start_on_same_day_is_skipped(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            state_path = root / "state.json"
-            run_root = root / "logs" / "first"
-
-            first, _state = claim_daily_run(
-                state_path,
-                run_date="2026-07-31",
-                run_root=run_root,
-                force=False,
-                started_at="2026-07-31T08:00:00",
-            )
-            second, previous = claim_daily_run(
-                state_path,
-                run_date="2026-07-31",
-                run_root=root / "logs" / "second",
-                force=False,
-                started_at="2026-07-31T09:00:00",
-            )
-
-            self.assertTrue(first)
-            self.assertFalse(second)
-            self.assertEqual(previous["run_root"], str(run_root))
-
-    def test_force_allows_same_day_manual_rerun(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            state_path = root / "state.json"
-            claim_daily_run(
-                state_path,
-                run_date="2026-07-31",
-                run_root=root / "logs" / "first",
-                force=False,
-                started_at="2026-07-31T08:00:00",
-            )
-            claimed, current = claim_daily_run(
-                state_path,
-                run_date="2026-07-31",
-                run_root=root / "logs" / "forced",
-                force=True,
-                started_at="2026-07-31T09:00:00",
-            )
-
-            self.assertTrue(claimed)
-            self.assertEqual(current["run_root"], str(root / "logs" / "forced"))
-
-    def test_failure_status_keeps_daily_claim(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            state_path = root / "state.json"
-            claim_daily_run(
-                state_path,
-                run_date="2026-07-31",
-                run_root=root / "logs" / "run",
-                force=False,
-                started_at="2026-07-31T08:00:00",
-            )
-            update_daily_state(state_path, status="failed", error="login required")
-            state = json.loads(state_path.read_text(encoding="utf-8"))
-
-            self.assertEqual(state["last_started_date"], "2026-07-31")
-            self.assertEqual(state["status"], "failed")
-            self.assertEqual(state["error"], "login required")
 
 
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):

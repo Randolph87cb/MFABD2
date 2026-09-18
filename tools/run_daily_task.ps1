@@ -1,7 +1,19 @@
 ﻿param(
     [Parameter(Mandatory = $true)]
     [string]$PythonPath,
-    [switch]$Force
+    [switch]$Force,
+    [ValidateSet(
+        "start",
+        "quick_hunt",
+        "free_gacha",
+        "arena",
+        "daily_claims",
+        "task_rewards",
+        "activity_rewards",
+        "pass_rewards",
+        "mail_rewards"
+    )]
+    [string]$ForcePhase
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,6 +28,12 @@ $AutomationScript = Join-Path $PSScriptRoot "daily_automation.py"
 $AutomationArguments = @($AutomationScript, "--scheduled", "--project-root", $ProjectRoot)
 if ($Force) {
     $AutomationArguments += "--force"
+}
+if ($ForcePhase) {
+    if ($Force) {
+        throw "Force and ForcePhase cannot be used together."
+    }
+    $AutomationArguments += @("--force-phase", $ForcePhase)
 }
 
 & $PythonPath @AutomationArguments

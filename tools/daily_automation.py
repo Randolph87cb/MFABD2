@@ -56,6 +56,15 @@ from mail_rewards import run_mail_rewards  # noqa: E402
 from pass_rewards import run_pass_rewards  # noqa: E402
 from task_rewards import run_task_rewards  # noqa: E402
 from mute_browndust import set_mute  # noqa: E402
+from daily_plan import (  # noqa: E402
+    DAILY_PRESETS,
+    DAILY_STAGE_IDS,
+    FAST_PRESET,
+    daily_plan_to_dict,
+    get_current_stages,
+    get_daily_plan,
+)
+from daily_state import DailyStateStore  # noqa: E402
 
 
 TASK_NAME = "BrownDust2DailyAutomation"
@@ -99,6 +108,7 @@ MASTER_STAGE_NAMES = {
     "network": "网络检查",
     "enter_game": "进入游戏",
     "prepare_home": "返回主页",
+    "free_gacha_home": "抽卡前返回主页",
     "free_gacha": "免费抽卡",
     "return_home": "抽卡后返回主页",
     "quick_hunt_entry": "进入快速狩猎",
@@ -278,77 +288,11 @@ def present_failure_review(project_root: Path) -> None:
     print("[每日任务失败] 请在“每日错误”中选择有问题的截图并填写批注。", flush=True)
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    if not path.exists():
-        return {}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise DailyRunError(f"could not read daily state: {exc}") from exc
-    if not isinstance(data, dict):
-        raise DailyRunError("daily state is not a JSON object")
-    return data
-
-
-def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
-
-
-def claim_daily_run(
-    state_path: Path,
-    *,
-    run_date: str,
-    run_root: Path,
-    force: bool,
-    started_at: str,
-) -> tuple[bool, dict[str, Any]]:
-    """Atomically record that the game day's one allowed run has started."""
-    previous = _read_json(state_path)
-    previous_game_day = previous.get("last_started_game_day")
-    if not previous_game_day and previous.get("started_at"):
-        try:
-            previous_started = datetime.fromisoformat(str(previous["started_at"]))
-            previous_game_day = game_day_key(previous_started)
-        except ValueError:
-            previous_game_day = None
-    if not previous_game_day:
-        previous_game_day = previous.get("last_started_date")
-
-    if not force and previous_game_day == run_date:
-        return False, previous
-
-    current = {
-        "last_started_date": run_date,
-        "last_started_game_day": run_date,
-        "started_at": started_at,
-        "completed_at": None,
-        "status": "started",
-        "run_root": str(run_root),
-        "error": None,
-    }
-    _write_json_atomic(state_path, current)
-    return True, current
-
-
 def game_day_key(current: datetime) -> str:
     """Return the local game day, which rolls over every day at 08:00."""
     if current.hour < DAILY_RESET_HOUR:
         current -= timedelta(days=1)
     return current.date().isoformat()
-
-
-def update_daily_state(state_path: Path, *, status: str, error: str | None = None) -> None:
-    current = _read_json(state_path)
-    current["status"] = status
-    current["error"] = error
-    current["completed_at"] = datetime.now().isoformat(timespec="seconds")
-    _write_json_atomic(state_path, current)
 
 
 def current_proxy_settings() -> dict[str, str]:
@@ -1131,7 +1075,169 @@ def _require_phase(
     return reason
 
 
-def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int:
+CURRENT_PHASE_IDS = tuple(stage.id for stage in get_current_stages(FAST_PRESET))
+
+
+def daily_plan_report(preset: str | None = None) -> dict[str, Any]:
+    """Return target plans plus the safe compatibility path, without side effects."""
+    selected = DAILY_PRESETS if preset is None else (preset,)
+    return {
+        "mode": "target-plan",
+        "compatibility_stage_ids": list(CURRENT_PHASE_IDS),
+        "presets": [daily_plan_to_dict(name) for name in selected],
+    }
+
+
+def _phase_log_root(run_root: Path, phase_id: str) -> Path:
+    position = DAILY_STAGE_IDS.index(phase_id) + 1
+    return run_root / f"{position:02d}-{phase_id.replace('_', '-')}"
+
+
+def _run_free_gacha_phase(master: MasterLogger, log_root: Path) -> str:
+    _require_phase(
+        master,
+        "free_gacha_home",
+        lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+        log_root=log_root / "01-return-home",
+    )
+    action_root = log_root / "02-free-gacha"
+    master.event("free_gacha", "start", "开始执行", log_root=str(action_root))
+    result = run_free_gacha(
+        targets=["costume", "gear"],
+        timeout=360.0,
+        interval=2.0,
+        dry_run=False,
+        test_mode=True,
+        log_root=action_root,
+    )
+    if result.reason == "gacha has no home reward notification":
+        master.event("free_gacha", "skipped", "抽抽乐没有红点，跳过免费抽卡")
+        return "skipped:gacha has no home reward notification"
+    if result.reason != "all requested free gacha targets completed":
+        master.event(
+            "free_gacha",
+            "error",
+            f"执行失败，当前画面：{result.state}；详细原因：{result.reason}",
+            state=result.state,
+        )
+        raise DailyRunError(f"free_gacha: {result.reason}")
+    master.event("free_gacha", "success", "人物和装备免费抽卡均已完成", state=result.state)
+    _require_phase(
+        master,
+        "return_home",
+        lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+        log_root=log_root / "03-return-home",
+    )
+    return result.reason
+
+
+def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path) -> str:
+    log_root = _phase_log_root(run_root, phase_id)
+    if phase_id == "start":
+        _require_phase(
+            master,
+            "enter_game",
+            lambda *, log_root: enter_game_logged(timeout=240.0, log_root=log_root),
+            log_root=log_root / "01-enter-game",
+        )
+        return _require_phase(
+            master,
+            "prepare_home",
+            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+            log_root=log_root / "02-prepare-home",
+        )
+    if phase_id == "quick_hunt":
+        entry_reason = _require_phase(
+            master,
+            "quick_hunt_entry",
+            lambda *, log_root: enter_quick_hunt(
+                dry_run=False, log_root=log_root, require_notification=False
+            ),
+            log_root=log_root / "01-entry",
+        )
+        if entry_reason == "quick_hunt has no home reward notification":
+            return "skipped:quick_hunt has no home reward notification"
+        _require_phase(
+            master,
+            "hunting_ground_setup",
+            lambda *, log_root: start_selected_quick_hunt(dry_run=False, log_root=log_root),
+            log_root=log_root / "02-hunting-ground-setup",
+        )
+        _require_phase(
+            master,
+            "hunting_ground_confirm",
+            lambda *, log_root: maximize_and_confirm_quick_hunt(dry_run=False, log_root=log_root),
+            log_root=log_root / "03-hunting-ground-confirm",
+        )
+        return _require_phase(
+            master,
+            "crystal_cave_cycle",
+            lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
+            log_root=log_root / "04-crystal-cave-cycle",
+        )
+    if phase_id == "free_gacha":
+        return _run_free_gacha_phase(master, log_root)
+    if phase_id == "arena":
+        return _require_phase(
+            master,
+            "daily_arena",
+            lambda *, log_root: run_daily_arena(dry_run=False, log_root=log_root),
+            log_root=log_root,
+        )
+    if phase_id == "daily_claims":
+        _require_phase(
+            master,
+            "business_management_home",
+            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+            log_root=log_root / "01-return-home",
+        )
+        return _require_phase(
+            master,
+            "business_management",
+            lambda *, log_root: run_business_management(dry_run=False, log_root=log_root),
+            log_root=log_root / "02-claim-rewards",
+        )
+    reward_operations = {
+        "task_rewards": ("task_rewards", run_task_rewards),
+        "activity_rewards": ("activity_rewards", run_activity_rewards),
+        "pass_rewards": ("pass_rewards", run_pass_rewards),
+        "mail_rewards": ("mail_rewards", run_mail_rewards),
+    }
+    if phase_id in reward_operations:
+        stage, operation = reward_operations[phase_id]
+        return _require_phase(
+            master,
+            stage,
+            lambda *, log_root: operation(dry_run=False, log_root=log_root),
+            log_root=log_root,
+        )
+    raise DailyRunError(f"phase has no local runner: {phase_id}")
+
+
+def _initialize_unavailable_phases(store: DailyStateStore) -> None:
+    for stage in get_daily_plan(FAST_PRESET):
+        if store.phase_status(stage.id) != "pending" or stage.current_runnable:
+            continue
+        if not stage.enabled:
+            store.mark_skipped(stage.id)
+        else:
+            store.mark_unavailable(stage.id, stage.unavailable_reason)
+
+
+def _preset_blockers(preset: str) -> tuple[str, ...]:
+    return tuple(
+        stage.id for stage in get_daily_plan(preset) if stage.enabled and not stage.implemented
+    )
+
+
+def run_daily(
+    *,
+    project_root: Path,
+    force: bool,
+    network_timeout: float,
+    force_phase: str | None = None,
+    preset: str | None = None,
+) -> int:
     os.chdir(project_root)
     started = datetime.now()
     run_date = game_day_key(started)
@@ -1143,177 +1249,100 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
         "start",
         "每日自动任务已启动（每天 08:00 刷新）",
         force=force,
+        force_phase=force_phase,
+        preset=preset or "current-compatible",
         game_day=run_date,
     )
 
-    claimed, previous = claim_daily_run(
-        state_path,
-        run_date=run_date,
-        run_root=run_root,
-        force=force,
-        started_at=started.isoformat(timespec="seconds"),
-    )
-    if not claimed:
-        message = (
-            f"today has already started once; previous status={previous.get('status')}, "
-            f"run_root={previous.get('run_root')}"
+    if preset is not None:
+        blockers = _preset_blockers(preset)
+        if blockers:
+            message = f"preset {preset} has unavailable stages: {', '.join(blockers)}"
+            master.event("daily", "error", "完整预设仍有未实现阶段，未启动游戏", blockers=blockers)
+            master.summary(result="blocked", reason=message, run_root=str(run_root))
+            return 2
+
+    try:
+        store = DailyStateStore.load(
+            state_path, game_day=run_date, phase_ids=DAILY_STAGE_IDS
         )
+    except ValueError as exc:
+        raise DailyRunError(str(exc)) from exc
+
+    state = store.state
+    legacy = state.get("legacy")
+    if (
+        not force
+        and force_phase is None
+        and isinstance(legacy, dict)
+        and legacy.get("status") in {"started", "failed"}
+        and (legacy.get("last_started_game_day") or legacy.get("last_started_date")) == run_date
+    ):
+        message = "legacy failed run has no phase checkpoints; use --force-phase or --force"
+        master.event("daily", "error", "旧失败记录无法安全判断断点，未自动重复执行", technical_message=message)
+        master.summary(result="blocked", reason=message, legacy=legacy)
+        return 2
+
+    _initialize_unavailable_phases(store)
+    if force_phase is not None and force_phase not in CURRENT_PHASE_IDS:
+        message = f"phase is not available in the current PC runner: {force_phase}"
+        master.event("daily", "error", "指定阶段尚无可执行的 PC 实现", technical_message=message)
+        master.summary(result="blocked", reason=message)
+        return 2
+
+    phases_to_run = (
+        CURRENT_PHASE_IDS
+        if force
+        else tuple(
+            phase_id
+            for phase_id in store.phases_to_run(force_phase=force_phase)
+            if phase_id in CURRENT_PHASE_IDS
+        )
+    )
+    if not phases_to_run:
+        message = "all current-compatible phases are already finished for this game day"
         master.event(
             "daily",
             "skipped",
-            "本次刷新周期已经运行过；每天 08:00 后可再次执行",
+            "当前可执行阶段在本刷新周期已经完成；每天 08:00 后会重新开始",
             technical_message=message,
             game_day=run_date,
         )
-        master.summary(result="skipped", reason=message, previous=previous)
+        master.summary(result="skipped", reason=message, state=store.state)
         return 0
 
     desktop_guard: DesktopActivityGuard | None = None
+    active_phase: str | None = None
     try:
         if not wait_for_network(master, timeout=network_timeout):
             raise DailyRunError("network check timed out")
         desktop_guard = DesktopActivityGuard()
         desktop_guard.start()
 
-        _require_phase(
-            master,
-            "enter_game",
-            lambda *, log_root: enter_game_logged(timeout=240.0, log_root=log_root),
-            log_root=run_root / "01-enter-game",
-        )
+        for phase_id in phases_to_run:
+            active_phase = phase_id
+            store.mark_running(phase_id)
+            reason = _execute_daily_phase(phase_id, master=master, run_root=run_root)
+            if reason.startswith("skipped:"):
+                store.mark_skipped(phase_id)
+            else:
+                store.mark_completed(phase_id)
+            active_phase = None
 
-        _require_phase(
-            master,
-            "prepare_home",
-            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
-            log_root=run_root / "02-prepare-home",
-        )
-
-        gacha_root = run_root / "03-free-gacha"
-        master.event("free_gacha", "start", "开始执行", log_root=str(gacha_root))
-        gacha = run_free_gacha(
-            targets=["costume", "gear"],
-            timeout=360.0,
-            interval=2.0,
-            dry_run=False,
-            test_mode=True,
-            log_root=gacha_root,
-        )
-        if gacha.reason == "gacha has no home reward notification":
-            master.event("free_gacha", "skipped", "抽抽乐没有红点，跳过免费抽卡")
-        elif gacha.reason != "all requested free gacha targets completed":
-            master.event(
-                "free_gacha",
-                "error",
-                f"执行失败，当前画面：{gacha.state}；详细原因：{gacha.reason}",
-                state=gacha.state,
-            )
-            raise DailyRunError(f"free_gacha: {gacha.reason}")
-        else:
-            master.event("free_gacha", "success", "人物和装备免费抽卡均已完成", state=gacha.state)
-
-        _require_phase(
-            master,
-            "return_home",
-            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
-            log_root=run_root / "04-return-home",
-        )
-        quick_hunt_reason = _require_phase(
-            master,
-            "quick_hunt_entry",
-            lambda *, log_root: enter_quick_hunt(
-                dry_run=False,
-                log_root=log_root,
-                require_notification=False,
-            ),
-            log_root=run_root / "05-quick-hunt-entry",
-        )
-        if quick_hunt_reason == "quick_hunt has no home reward notification":
-            for stage in ("hunting_ground_setup", "hunting_ground_confirm", "crystal_cave_cycle"):
-                master.event(stage, "skipped", "快速狩猎没有红点，跳过")
-        else:
-            _require_phase(
-                master,
-                "hunting_ground_setup",
-                lambda *, log_root: start_selected_quick_hunt(dry_run=False, log_root=log_root),
-                log_root=run_root / "06-hunting-ground-setup",
-            )
-            _require_phase(
-                master,
-                "hunting_ground_confirm",
-                lambda *, log_root: maximize_and_confirm_quick_hunt(
-                    dry_run=False,
-                    log_root=log_root,
-                ),
-                log_root=run_root / "07-hunting-ground-confirm",
-            )
-            _require_phase(
-                master,
-                "crystal_cave_cycle",
-                lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
-                log_root=run_root / "08-crystal-cave-cycle",
-            )
-        _require_phase(
-            master,
-            "daily_arena",
-            lambda *, log_root: run_daily_arena(dry_run=False, log_root=log_root),
-            log_root=run_root / "09-daily-arena",
-        )
-        _require_phase(
-            master,
-            "business_management_home",
-            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
-            log_root=run_root / "10-business-management" / "01-return-home",
-        )
-        _require_phase(
-            master,
-            "business_management",
-            lambda *, log_root: run_business_management(dry_run=False, log_root=log_root),
-            log_root=run_root / "10-business-management" / "02-claim-rewards",
-        )
-        _require_phase(
-            master,
-            "reward_prepare_home",
-            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
-            log_root=run_root / "11-rewards" / "00-return-home",
-        )
-        _require_phase(
-            master,
-            "task_rewards",
-            lambda *, log_root: run_task_rewards(dry_run=False, log_root=log_root),
-            log_root=run_root / "11-rewards" / "01-task",
-        )
-        _require_phase(
-            master,
-            "pass_rewards",
-            lambda *, log_root: run_pass_rewards(dry_run=False, log_root=log_root),
-            log_root=run_root / "11-rewards" / "02-pass",
-        )
-        _require_phase(
-            master,
-            "mail_rewards",
-            lambda *, log_root: run_mail_rewards(dry_run=False, log_root=log_root),
-            log_root=run_root / "11-rewards" / "03-mail",
-        )
-        _require_phase(
-            master,
-            "activity_rewards",
-            lambda *, log_root: run_activity_rewards(dry_run=False, log_root=log_root),
-            log_root=run_root / "11-rewards" / "04-activity",
-        )
-
-        update_daily_state(state_path, status="completed")
-        master.event("daily", "success", "今天的全部任务已经完成")
+        master.event("daily", "success", "当前 PC 已具备的日常阶段已经完成")
         master.summary(
             result="completed",
             started_at=started.isoformat(timespec="seconds"),
             completed_at=datetime.now().isoformat(timespec="seconds"),
             run_root=str(run_root),
+            completed_phases=list(phases_to_run),
+            state=store.state,
         )
         return 0
     except Exception as exc:  # noqa: BLE001 - fatal errors must be persisted.
         reason = str(exc)
-        update_daily_state(state_path, status="failed", error=reason)
+        if active_phase is not None:
+            store.mark_failed(active_phase, reason)
         master.event("daily", "error", f"任务停止，详细原因：{reason}", traceback=traceback.format_exc())
         master.summary(
             result="failed",
@@ -1321,6 +1350,7 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
             started_at=started.isoformat(timespec="seconds"),
             completed_at=datetime.now().isoformat(timespec="seconds"),
             run_root=str(run_root),
+            state=store.state,
         )
         return 2
     finally:
@@ -1350,7 +1380,23 @@ def check_environment(*, project_root: Path, network_timeout: float) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run BrownDust II daily automation once per day.")
-    parser.add_argument("--force", action="store_true", help="allow a manual rerun today")
+    force_group = parser.add_mutually_exclusive_group()
+    force_group.add_argument("--force", action="store_true", help="rerun all currently available phases")
+    force_group.add_argument(
+        "--force-phase",
+        choices=DAILY_STAGE_IDS,
+        help="rerun only one currently available phase",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=DAILY_PRESETS,
+        help="require a complete target preset; omitted uses current PC capabilities",
+    )
+    parser.add_argument(
+        "--show-plan",
+        action="store_true",
+        help="print the plan without running the game",
+    )
     parser.add_argument("--check", action="store_true", help="check prerequisites without claiming today")
     parser.add_argument("--scheduled", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
@@ -1363,6 +1409,10 @@ def main() -> None:
     args = parser.parse_args()
     project_root = args.project_root.resolve()
 
+    if args.show_plan:
+        print(json.dumps(daily_plan_report(args.preset), ensure_ascii=False, indent=2))
+        raise SystemExit(0)
+
     if args.check:
         raise SystemExit(
             check_environment(project_root=project_root, network_timeout=args.network_timeout)
@@ -1374,6 +1424,8 @@ def main() -> None:
                 project_root=project_root,
                 force=args.force,
                 network_timeout=args.network_timeout,
+                force_phase=args.force_phase,
+                preset=args.preset,
             )
     except DailyRunError as exc:
         print(f"[每日任务失败] 无法继续运行：{exc}", file=sys.stderr, flush=True)
