@@ -283,11 +283,22 @@ def return_to_home(
         key="reward_back",
         logger=logger,
     )
+    def home_after_source_closed(candidate: Image.Image) -> tuple[bool, dict[str, Any]]:
+        is_home, home_details = recognize_home_labels(candidate)
+        source_still_open, current_source_details = recognize_source(candidate)
+        return is_home and not source_still_open, {
+            "home_found": is_home,
+            "home": home_details,
+            "source_found": source_still_open,
+            "source": current_source_details,
+            "requirements": "fixed home text is present and the source page is absent",
+        }
+
     reached_home, _image, _details = wait_for_recognition(
         hwnd,
         logger=logger,
         label="reward-back-home",
-        recognize=recognize_home_labels,
+        recognize=home_after_source_closed,
         timeout=12.0,
     )
     if reached_home:

@@ -398,7 +398,7 @@ def _select_pass_card(
             return True, selected, last_details
         if (
             attempt >= MAX_PASS_CARD_SELECT_ATTEMPTS
-            or last_details.get("state") != "overview"
+            or last_details.get("state") not in {"overview", "task_page"}
             or last_details.get("identity_matches") is not False
         ):
             return False, selected, last_details

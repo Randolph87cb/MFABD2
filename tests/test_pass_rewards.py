@@ -495,6 +495,51 @@ class PassRewardFlowTests(unittest.TestCase):
         self.assertEqual(click.call_count, 2)
         self.assertEqual(wait.call_count, 2)
 
+    @patch("pass_rewards._read_pass_card_identity")
+    @patch("pass_rewards._find_pass_badges")
+    @patch("pass_rewards._wait_for_pass_selection")
+    @patch("pass_rewards._click_logged")
+    def test_pass_card_retry_is_also_safe_from_the_previous_task_page(
+        self,
+        click: MagicMock,
+        wait: MagicMock,
+        find_badges: MagicMock,
+        read_identity: MagicMock,
+    ) -> None:
+        badge = _badge(0.56)
+        previous_task_page = _image()
+        selected = _image()
+        wait.side_effect = [
+            (
+                False,
+                previous_task_page,
+                {"state": "task_page", "identity_matches": False},
+            ),
+            (
+                True,
+                selected,
+                {"state": "task_page", "identity_matches": True},
+            ),
+        ]
+        find_badges.return_value = [badge]
+        read_identity.return_value = (["UNTAMED赛季通行证"], {"available": True})
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, actual, details = pass_rewards._select_pass_card(
+                123,
+                previous_task_page,
+                badge,
+                expected_identity=["UNTAMED赛季通行证"],
+                logger=RunLogger(Path(temporary)),
+                step=2,
+            )
+
+        self.assertTrue(ok)
+        self.assertIs(actual, selected)
+        self.assertEqual(details["state"], "task_page")
+        self.assertEqual(click.call_count, 2)
+        self.assertEqual(wait.call_count, 2)
+
     def test_claim_text_remaining_after_click_is_a_failure(self) -> None:
         ok, reason, click, _swipe, dismiss, home = self._run(
             captures=[_image()] * 7,

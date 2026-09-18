@@ -1221,7 +1221,11 @@ def run_daily(*, project_root: Path, force: bool, network_timeout: float) -> int
         quick_hunt_reason = _require_phase(
             master,
             "quick_hunt_entry",
-            lambda *, log_root: enter_quick_hunt(dry_run=False, log_root=log_root),
+            lambda *, log_root: enter_quick_hunt(
+                dry_run=False,
+                log_root=log_root,
+                require_notification=False,
+            ),
             log_root=run_root / "05-quick-hunt-entry",
         )
         if quick_hunt_reason == "quick_hunt has no home reward notification":

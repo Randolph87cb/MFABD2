@@ -187,6 +187,35 @@ class RewardFlowTests(unittest.TestCase):
     @patch("reward_flow.click_ratio_logged")
     @patch("reward_flow.recognize_home_labels", return_value=(True, {"available": True}))
     @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
+    def test_return_home_rejects_home_text_visible_behind_the_source_overlay(
+        self,
+        _capture: MagicMock,
+        _recognize_home: MagicMock,
+        _click: MagicMock,
+        wait: MagicMock,
+    ) -> None:
+        source = MagicMock(return_value=(True, {"available": True}))
+        wait.return_value = (False, Image.new("RGB", (1000, 600)), {})
+
+        ok, _reason = return_to_home(
+            123,
+            logger=MagicMock(),
+            recognize_source=source,
+            source_name="通行证页面",
+        )
+        recognize = wait.call_args.kwargs["recognize"]
+
+        found, details = recognize(Image.new("RGB", (1000, 600)))
+
+        self.assertFalse(ok)
+        self.assertFalse(found)
+        self.assertTrue(details["home_found"])
+        self.assertTrue(details["source_found"])
+
+    @patch("reward_flow.wait_for_recognition")
+    @patch("reward_flow.click_ratio_logged")
+    @patch("reward_flow.recognize_home_labels", return_value=(True, {"available": True}))
+    @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
     def test_return_home_accepts_home_only_after_source_is_absent(
         self,
         _capture: MagicMock,

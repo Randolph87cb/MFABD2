@@ -151,7 +151,12 @@ def _select_max_quick_hunt_count(
     return False, "MAX did not increase the quick-hunt count after 2 clicks", current, None
 
 
-def enter_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+def enter_quick_hunt(
+    *,
+    dry_run: bool,
+    log_root: Path,
+    require_notification: bool = True,
+) -> tuple[bool, str]:
     logger = RunLogger(log_root, annotate_clicks=True)
     logger.event(action="start", flow="quick_hunt_entry", dry_run=dry_run)
 
@@ -182,10 +187,16 @@ def enter_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         found=has_notification,
         details=notification_details,
     )
-    if not has_notification:
+    if not has_notification and require_notification:
         reason = "quick_hunt has no home reward notification"
         logger.event(action="stop", result="success", state=before_state, reason=reason)
         return True, reason
+    if not has_notification:
+        logger.event(
+            action="continue_without_notification",
+            target="quick_hunt",
+            reason="home notification is only a hint; inspect actual quick-hunt availability",
+        )
 
     ok, state, after, reason = click_with_fixed_retry(
         hwnd,
@@ -730,13 +741,22 @@ def main() -> None:
         default="entry",
     )
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="open quick hunt even when the home icon has no notification badge",
+    )
     parser.add_argument("--log-root", default=None)
     args = parser.parse_args()
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     log_root = Path(args.log_root) if args.log_root else Path.cwd() / "logs" / "quick_hunt" / stamp
     if args.step == "entry":
-        ok, reason = enter_quick_hunt(dry_run=args.dry_run, log_root=log_root)
+        ok, reason = enter_quick_hunt(
+            dry_run=args.dry_run,
+            log_root=log_root,
+            require_notification=not args.force,
+        )
     elif args.step == "start":
         ok, reason = start_selected_quick_hunt(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "confirm":

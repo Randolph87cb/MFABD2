@@ -208,6 +208,33 @@ class PositionedTextRecognitionTests(unittest.TestCase):
         self.assertEqual(reason, "quick_hunt has no home reward notification")
         click_with_fixed_retry.assert_not_called()
 
+    @patch("quick_hunt.click_with_fixed_retry")
+    @patch("quick_hunt.detect_home_reward_notification", return_value=(False, {}))
+    @patch("quick_hunt.classify_state", return_value=("real_home", {}))
+    @patch("quick_hunt.safe_capture_client", return_value=Image.new("RGB", (2000, 1000)))
+    @patch("quick_hunt.find_game_window", return_value=123)
+    def test_quick_hunt_can_force_entry_without_a_home_badge(
+        self,
+        _find_game_window: MagicMock,
+        _safe_capture_client: MagicMock,
+        _classify_state: MagicMock,
+        _detect_notification: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        click_with_fixed_retry.return_value = (True, "quick_hunt_map", image, "opened")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_quick_hunt(
+                dry_run=False,
+                log_root=Path(temporary),
+                require_notification=False,
+            )
+
+        self.assertTrue(ok)
+        self.assertIn("resulting state=quick_hunt_map", reason)
+        click_with_fixed_retry.assert_called_once()
+
     @patch("pass_rewards._capture_until")
     @patch("pass_rewards.click_ratio_logged")
     @patch("pass_rewards.detect_home_reward_notification", return_value=(True, {}))
