@@ -22,6 +22,9 @@ from home_notifications import detect_notification_badge
 from reward_flow import wait_for_recognition
 
 
+NO_REGULAR_CUSTOMER_REWARDS = "regular-customer notes have no reward notification"
+
+
 def _wait_out_loading(
     hwnd: int,
     state: str,
@@ -454,7 +457,7 @@ def open_regular_customer_note_rewards(*, dry_run: bool, log_root: Path) -> tupl
     )
     if not has_notification:
         logger.event(action="stop", result="success", state=state, reason="no reward notification")
-        return True, "regular-customer notes have no reward notification"
+        return True, NO_REGULAR_CUSTOMER_REWARDS
 
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
@@ -571,6 +574,11 @@ def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str
     )
     if not ok:
         return False, reason
+    if reason == NO_REGULAR_CUSTOMER_REWARDS:
+        return return_home_from_restaurant(
+            dry_run=False,
+            log_root=log_root / "10-return-home",
+        )
     ok, reason = claim_all_regular_customer_rewards(
         dry_run=False,
         log_root=log_root / "07-claim-regular-customer-rewards",

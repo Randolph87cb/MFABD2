@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import ANY, DEFAULT, MagicMock, patch
 
 from PIL import Image
 
@@ -13,10 +13,12 @@ TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
+import business_management
 from business_management import (
     enter_restaurant,
     open_regular_customer_rewards,
     return_home_from_restaurant,
+    run_business_management,
 )
 from game_text_recognition import recognize_home_labels, recognize_restaurant_state
 
@@ -146,6 +148,56 @@ class RestaurantReturnRegressionTests(unittest.TestCase):
 
 
 class RestaurantFlowRegressionTests(unittest.TestCase):
+    def test_business_management_skips_regular_customer_claim_when_no_notification(
+        self,
+    ) -> None:
+        with patch.multiple(
+            business_management,
+            open_business_management=DEFAULT,
+            claim_business_management_rewards=DEFAULT,
+            dismiss_business_management_reward=DEFAULT,
+            enter_restaurant=DEFAULT,
+            open_regular_customer_rewards=DEFAULT,
+            open_regular_customer_note_rewards=DEFAULT,
+            claim_all_regular_customer_rewards=DEFAULT,
+            dismiss_regular_customer_reward=DEFAULT,
+            leave_regular_customer_notes=DEFAULT,
+            return_home_from_restaurant=DEFAULT,
+        ) as mocks:
+            for name in (
+                "open_business_management",
+                "claim_business_management_rewards",
+                "dismiss_business_management_reward",
+                "enter_restaurant",
+                "open_regular_customer_rewards",
+            ):
+                mocks[name].return_value = (True, "ok")
+            mocks["open_regular_customer_note_rewards"].return_value = (
+                True,
+                "regular-customer notes have no reward notification",
+            )
+            mocks["claim_all_regular_customer_rewards"].return_value = (
+                False,
+                "claim should have been skipped",
+            )
+            mocks["return_home_from_restaurant"].return_value = (
+                True,
+                "returned home from restaurant",
+            )
+
+            with tempfile.TemporaryDirectory() as temporary:
+                ok, reason = run_business_management(
+                    dry_run=False,
+                    log_root=Path(temporary),
+                )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned home from restaurant")
+        mocks["claim_all_regular_customer_rewards"].assert_not_called()
+        mocks["dismiss_regular_customer_reward"].assert_not_called()
+        mocks["leave_regular_customer_notes"].assert_not_called()
+        mocks["return_home_from_restaurant"].assert_called_once()
+
     @patch("business_management.click_with_fixed_retry")
     @patch(
         "business_management.classify_state",
