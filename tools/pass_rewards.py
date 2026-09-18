@@ -71,6 +71,7 @@ ACTION_SAMPLE_DELAY = 0.75
 MAX_PASS_SWIPES = 4
 MAX_PASS_LOOP_STEPS = 24
 MAX_REWARD_OVERLAYS = 6
+MAX_PASS_CARD_SELECT_ATTEMPTS = 2
 MAX_PASS_TASK_LIST_ATTEMPTS = 2
 
 # Kept for callers which imported the old limit name.
@@ -327,6 +328,7 @@ def _wait_for_pass_selection(
     expected_identity: list[str],
     logger: RunLogger,
     step: int,
+    attempt: int = 1,
 ) -> tuple[bool, Image.Image, dict[str, Any]]:
     """Require evidence that the clicked card, rather than the old panel, won."""
 
@@ -351,9 +353,82 @@ def _wait_for_pass_selection(
     return _capture_until(
         hwnd,
         logger=logger,
-        label=f"pass-selected-{step:02d}",
+        label=f"pass-selected-{step:02d}-attempt-{attempt}",
         recognize=selection_effect,
     )
+
+
+def _select_pass_card(
+    hwnd: int,
+    image: Image.Image,
+    badge: dict[str, Any],
+    *,
+    expected_identity: list[str],
+    logger: RunLogger,
+    step: int,
+) -> tuple[bool, Image.Image, dict[str, Any]]:
+    """Retry one dropped card click only while the same marked card remains."""
+    current = image
+    current_badge = badge
+    last_details: dict[str, Any] = {}
+    for attempt in range(1, MAX_PASS_CARD_SELECT_ATTEMPTS + 1):
+        _click_logged(
+            hwnd,
+            current,
+            _pass_card_click_point(current_badge),
+            key="pass_list_notification",
+            logger=logger,
+        )
+        selected_ok, selected, last_details = _wait_for_pass_selection(
+            hwnd,
+            current_badge,
+            expected_identity=expected_identity,
+            logger=logger,
+            step=step,
+            attempt=attempt,
+        )
+        logger.event(
+            action="recognize_selected_pass",
+            step=step,
+            attempt=attempt,
+            found=selected_ok,
+            details=last_details,
+        )
+        if selected_ok:
+            return True, selected, last_details
+        if (
+            attempt >= MAX_PASS_CARD_SELECT_ATTEMPTS
+            or last_details.get("state") != "overview"
+            or last_details.get("identity_matches") is not False
+        ):
+            return False, selected, last_details
+
+        matching_badge: dict[str, Any] | None = None
+        matching_details: dict[str, Any] = {}
+        for candidate in _find_pass_badges(selected):
+            candidate_identity, identity_details = _read_pass_card_identity(selected, candidate)
+            if _pass_identity_matches(expected_identity, candidate_identity):
+                matching_badge = candidate
+                matching_details = identity_details
+                break
+        logger.event(
+            action="pass_card_retry_check",
+            step=step,
+            attempt=attempt,
+            found=matching_badge is not None,
+            details=matching_details,
+        )
+        if matching_badge is None:
+            return False, selected, last_details
+        logger.event(
+            action="retry_click",
+            key="pass_list_notification",
+            attempt=attempt + 1,
+            reason="same OCR-confirmed marked pass remained after the click",
+        )
+        current = selected
+        current_badge = matching_badge
+    return False, current, last_details
 
 
 def _open_pass_task_page(
@@ -438,25 +513,13 @@ def _collect_from_pass_page(
             )
             if not any(len(_normalized_pass_identity(text)) >= 4 for text in expected_identity):
                 return False, "带红色感叹号的通行证名称未能在固定位置识别，未点击"
-            _click_logged(
+            selected_ok, selected, selected_details = _select_pass_card(
                 hwnd,
                 current,
-                _pass_card_click_point(badge),
-                key="pass_list_notification",
-                logger=logger,
-            )
-            selected_ok, selected, selected_details = _wait_for_pass_selection(
-                hwnd,
                 badge,
                 expected_identity=expected_identity,
                 logger=logger,
                 step=step,
-            )
-            logger.event(
-                action="recognize_selected_pass",
-                step=step,
-                found=selected_ok,
-                details=selected_details,
             )
             if not selected_ok:
                 return False, "点击通行证卡片后未切换到对应通行证，固定位置页面文字或卡片名称未确认"

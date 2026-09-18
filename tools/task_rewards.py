@@ -29,6 +29,7 @@ WEEKLY_BADGE_REGION = (0.205, 0.165, 0.035, 0.055)
 STEP_TIMEOUT = 20.0
 CLICK_SETTLE_SECONDS = 1.0
 MAX_REWARD_OVERLAYS = 6
+MAX_CLAIM_ATTEMPTS = 2
 MAX_REWARD_DISMISS_ATTEMPTS = 2
 
 PageRecognition = Callable[[Image.Image], tuple[bool, dict[str, object]]]
@@ -218,20 +219,44 @@ def _claim_page_once(
     if not claimable:
         return True, image, f"{page_name} has no claim-all reward"
 
-    click_ratio_logged(
-        hwnd,
-        image,
-        TASK_CLAIM_CLICK,
-        key=f"task_{page_name}_claim_all",
-        logger=logger,
-    )
-    ok, image, result = _wait_after_click(
-        hwnd,
-        logger=logger,
-        label=f"task-{page_name}-claim",
-        recognize_page=recognize_page,
-        wait_for_claim=True,
-    )
+    ok = False
+    result = ""
+    for attempt in range(1, MAX_CLAIM_ATTEMPTS + 1):
+        click_ratio_logged(
+            hwnd,
+            image,
+            TASK_CLAIM_CLICK,
+            key=f"task_{page_name}_claim_all",
+            logger=logger,
+        )
+        ok, image, result = _wait_after_click(
+            hwnd,
+            logger=logger,
+            label=f"task-{page_name}-claim-attempt-{attempt}",
+            recognize_page=recognize_page,
+            wait_for_claim=True,
+        )
+        if ok:
+            break
+        still_page, page_details = recognize_page(image)
+        still_claimable, claim_details = _recognize_claim_all(image)
+        logger.event(
+            action="task_claim_retry_check",
+            page_name=page_name,
+            attempt=attempt,
+            page=still_page,
+            page_details=page_details,
+            claimable=still_claimable,
+            claim_details=claim_details,
+        )
+        if not (still_page and still_claimable) or attempt >= MAX_CLAIM_ATTEMPTS:
+            return False, image, result
+        logger.event(
+            action="retry_click",
+            key=f"task_{page_name}_claim_all",
+            attempt=attempt + 1,
+            reason="OCR-confirmed task page and claim button remained after the click",
+        )
     if not ok:
         return False, image, result
     if result == "claim_button_gone":

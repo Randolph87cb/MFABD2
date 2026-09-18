@@ -327,6 +327,40 @@ class TaskRewardTests(unittest.TestCase):
         self.assertTrue(ok, reason)
         self.assertEqual(click.call_count, 2)
 
+    @patch("task_rewards._dismiss_reward_overlays")
+    @patch("task_rewards._wait_after_click")
+    @patch("task_rewards.click_ratio_logged")
+    @patch("task_rewards._recognize_claim_all", return_value=(True, {}))
+    def test_task_claim_retries_one_dropped_click_while_claim_page_is_unchanged(
+        self,
+        recognize_claim: MagicMock,
+        click: MagicMock,
+        wait_after: MagicMock,
+        dismiss: MagicMock,
+    ) -> None:
+        unchanged = frame("unchanged-claim-page")
+        overlay = frame("reward-overlay")
+        wait_after.side_effect = [
+            (False, unchanged, "click had no effect"),
+            (True, overlay, "reward_overlay"),
+        ]
+        dismiss.return_value = (True, frame("page"), "dismissed reward overlay")
+        recognize_page = MagicMock(return_value=(True, {}))
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, _image, reason = task_rewards._claim_page_once(
+                123,
+                unchanged,
+                logger=task_rewards.RunLogger(Path(temporary)),
+                page_name="daily",
+                recognize_page=recognize_page,
+            )
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(click.call_count, 2)
+        self.assertEqual(wait_after.call_count, 2)
+        self.assertGreaterEqual(recognize_claim.call_count, 2)
+
     @patch("task_rewards.safe_capture_client", return_value=frame("unknown"))
     def test_page_wait_has_per_step_timeout(self, _capture: MagicMock) -> None:
         with tempfile.TemporaryDirectory() as temporary:
