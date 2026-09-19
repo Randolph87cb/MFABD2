@@ -31,6 +31,7 @@ CLICK_SETTLE_SECONDS = 1.0
 MAX_REWARD_OVERLAYS = 6
 MAX_CLAIM_ATTEMPTS = 2
 MAX_REWARD_DISMISS_ATTEMPTS = 2
+MAX_ENTRY_ATTEMPTS = 2
 
 PageRecognition = Callable[[Image.Image], tuple[bool, dict[str, object]]]
 
@@ -302,25 +303,45 @@ def run_task_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
 
-        click_ratio_logged(
-            hwnd,
-            image,
-            TASK_HOME_CLICK,
-            key="home_tasks",
-            logger=logger,
-            dry_run=dry_run,
-        )
-        if dry_run:
-            reason = "completed: dry-run planned task reward entry"
-            logger.event(action="stop", result="success", reason=reason)
-            return True, reason
+        ok = False
+        reason = "task page did not open"
+        for entry_attempt in range(1, MAX_ENTRY_ATTEMPTS + 1):
+            click_ratio_logged(
+                hwnd,
+                image,
+                TASK_HOME_CLICK,
+                key="home_tasks",
+                logger=logger,
+                dry_run=dry_run,
+            )
+            if dry_run:
+                reason = "completed: dry-run planned task reward entry"
+                logger.event(action="stop", result="success", reason=reason)
+                return True, reason
 
-        ok, image, reason = _wait_for_page(
-            hwnd,
-            logger=logger,
-            label="daily-task-page",
-            recognize_page=_recognize_daily_page,
-        )
+            ok, image, reason = _wait_for_page(
+                hwnd,
+                logger=logger,
+                label=f"daily-task-page-attempt-{entry_attempt}",
+                recognize_page=_recognize_daily_page,
+            )
+            if ok:
+                break
+            still_home, retry_home_details = recognize_home_labels(image)
+            logger.event(
+                action="task_entry_retry_check",
+                attempt=entry_attempt,
+                home=still_home,
+                details=retry_home_details,
+            )
+            if not still_home or entry_attempt >= MAX_ENTRY_ATTEMPTS:
+                break
+            logger.event(
+                action="retry_click",
+                key="home_tasks",
+                attempt=entry_attempt + 1,
+                reason="task entry click had no effect and the home page is still confirmed",
+            )
         if not ok:
             logger.failure(reason)
             return False, reason

@@ -899,6 +899,15 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details = classify_state(image)
+        should_probe_return_home = state in {"unknown", "gacha_animation"} or (
+            state == "blocking_ad_overlay"
+            and details.get("classification_rule") == "blocking_overlay_brightness"
+        )
+        if should_probe_return_home:
+            returnable, return_details = recognize_return_home_control(image)
+            details["return_home_control"] = return_details
+            if returnable:
+                state = "returnable_scene"
         path = logger.save_image(image, f"step-{step:03d}-{state}.png")
         logger.event(
             action="classify",
@@ -965,6 +974,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             description = "dismiss home overlay"
             expected = {"real_home", "plaza", "loading"}
             overlay_before = image.copy()
+        elif state == "returnable_scene":
+            key = "plaza_home"
+            description = "return home from fallback scene"
+            expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
         elif state == "plaza":
             key = "plaza_home"
             description = "return home from plaza"

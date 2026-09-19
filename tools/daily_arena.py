@@ -151,6 +151,10 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         reason = "already in arena lobby"
         logger.event(action="stop", result="success", state=state, reason=reason)
         return True, reason
+    if is_returnable_battlefield(state, image):
+        reason = "already in a returnable battlefield scene"
+        logger.event(action="stop", result="success", state=state, reason=reason)
+        return True, reason
     if state == "arena_cartridge_collection":
         ok, next_state, _next_image, reason = leave_cartridge_collection(
             hwnd,
@@ -242,6 +246,9 @@ def enter_battle_prep(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         description="enter arena battle preparation",
         dry_run=dry_run,
         logger=logger,
+        verify_timeout=60.0,
+        wait_on_unknown_transition=True,
+        extend_on_visual_progress=True,
     )
     if ok and not dry_run and next_state == "loading":
         next_state, _next_image = wait_for_state(
@@ -293,24 +300,41 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
 
     if state == "returnable_scene":
         ok = False
-        reason = "battlefield quick cartridge did not open after 2 key presses"
+        reason = "battlefield quick cartridge did not open by shortcut or visible button"
         bar_image = image
-        for attempt in range(1, 3):
-            post_quick_cartridge_key(hwnd, dry_run=dry_run, logger=logger)
-            if dry_run:
-                return True, "dry-run planned battlefield quick-cartridge shortcut"
+        post_quick_cartridge_key(hwnd, dry_run=dry_run, logger=logger)
+        if dry_run:
+            return True, "dry-run planned battlefield quick-cartridge shortcut"
+        next_state, bar_image = wait_for_state(
+            hwnd,
+            logger,
+            expected={"arena_cartridge_bar"},
+            timeout=20.0,
+            interval=1.0,
+            label="battlefield-quick-cartridge-shortcut",
+        )
+        if next_state == "arena_cartridge_bar":
+            ok = True
+            reason = "opened battlefield quick cartridge by shortcut"
+        else:
+            _click_ratio(
+                hwnd,
+                bar_image,
+                "plaza_cartridge",
+                dry_run=False,
+                logger=logger,
+            )
             next_state, bar_image = wait_for_state(
                 hwnd,
                 logger,
                 expected={"arena_cartridge_bar"},
                 timeout=20.0,
                 interval=1.0,
-                label=f"battlefield-quick-cartridge-attempt-{attempt}",
+                label="battlefield-quick-cartridge-button",
             )
             if next_state == "arena_cartridge_bar":
                 ok = True
-                reason = f"opened battlefield quick cartridge on attempt {attempt}"
-                break
+                reason = "opened battlefield quick cartridge by visible button"
         if not ok:
             logger.failure(reason)
             return False, reason

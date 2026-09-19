@@ -21,6 +21,7 @@ from win32_windowpos_click import click_client, swipe_client, swipe_client_foreg
 
 NormalizedRegion = tuple[float, float, float, float]
 Recognition = Callable[[Image.Image], tuple[bool, dict[str, Any]]]
+RETURN_HOME_TIMEOUT = 45.0
 MAX_REWARD_DISMISS_ATTEMPTS = 2
 
 
@@ -299,7 +300,7 @@ def return_to_home(
         logger=logger,
         label="reward-back-home",
         recognize=home_after_source_closed,
-        timeout=12.0,
+        timeout=RETURN_HOME_TIMEOUT,
     )
     if reached_home:
         if notification_target is None:
@@ -313,4 +314,7 @@ def return_to_home(
         if not cleared:
             return False, clear_reason
         return True, f"已从{source_name}返回主页；{clear_reason}"
-    return False, f"从{source_name}点击返回后，12秒内未识别到主页文字"
+    return False, (
+        f"从{source_name}点击返回后，"
+        f"{RETURN_HOME_TIMEOUT:.0f}秒内未识别到主页文字"
+    )

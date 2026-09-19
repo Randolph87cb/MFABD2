@@ -92,7 +92,14 @@ FREE_GACHA_CONFIRM_LABEL_GROUPS = {
 GACHA_ANIMATION_LABEL_GROUPS = {
     "equipment_details": {
         "region": (0.04, 0.10, 0.28, 0.36),
-        "labels": ("EQUIPMENT TYPE", "WEAPON", "ARMOR", "专用装备"),
+        "labels": (
+            "EQUIPMENT TYPE",
+            "ELEMENT TYPE",
+            "WEAPON",
+            "ARMOR",
+            "专用装备",
+            "服装",
+        ),
     },
 }
 
@@ -228,6 +235,16 @@ QUICK_HUNT_MAP_LABEL_GROUPS = {
     "left_categories": {
         "region": (0.04, 0.10, 0.18, 0.42),
         "labels": ("狩猎场", "金币", "史莱姆", "圣石洞穴"),
+    },
+    "hunting_ground_locations": {
+        "region": (0.28, 0.08, 0.56, 0.58),
+        "labels": (
+            "野猪洞穴",
+            "废弃矿山",
+            "星落洞穴",
+            "守山人休息处",
+            "伯爵家宝库",
+        ),
     },
     "start_button": {
         "region": (0.76, 0.82, 0.22, 0.16),
@@ -732,7 +749,7 @@ def recognize_gacha_animation_labels(
     *,
     session: LabelRecognitionSession | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Recognize an equipment reveal from its fixed left-side detail labels."""
+    """Recognize an equipment or costume reveal from fixed left-side detail labels."""
     grouped_texts, matches, error = _recognize_with_session(
         image,
         GACHA_ANIMATION_LABEL_GROUPS,
@@ -1231,17 +1248,18 @@ def recognize_quick_hunt_map_labels(
     )
     if error is not None:
         return False, error
-    is_quick_hunt_map = (
-        "快速狩猎" in matches["start_button"]
-        and len(matches["left_categories"]) >= 3
+    has_map_context = (
+        len(matches["left_categories"]) >= 3
+        or len(matches["hunting_ground_locations"]) >= 2
     )
+    is_quick_hunt_map = "快速狩猎" in matches["start_button"] and has_map_context
     return is_quick_hunt_map, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {
             "start_button": 1,
-            "left_categories": 3,
+            "map_context": "3 left categories or 2 hunting-ground locations",
         },
     }
 

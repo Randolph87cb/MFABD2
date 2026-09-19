@@ -186,6 +186,45 @@ class TaskRewardTests(unittest.TestCase):
         self.assertEqual(keys, ["home_tasks"])
         return_home.assert_called_once()
 
+    @patch("task_rewards._wait_for_page")
+    @patch("task_rewards.click_ratio_logged")
+    @patch("task_rewards.detect_red_exclamation_badge", return_value=(False, {}))
+    @patch("task_rewards.detect_home_reward_notification", return_value=(True, {}))
+    @patch("task_rewards.return_to_home", return_value=(True, "returned home"))
+    @patch("task_rewards._recognize_claim_all", return_value=(False, {}))
+    @patch("task_rewards.recognize_home_labels", return_value=(True, {}))
+    @patch("task_rewards.safe_capture_client", return_value=frame("home"))
+    @patch("task_rewards.find_game_window", return_value=123)
+    def test_task_entry_retries_once_when_first_click_leaves_home_unchanged(
+        self,
+        _window: MagicMock,
+        _capture: MagicMock,
+        _home: MagicMock,
+        _claim: MagicMock,
+        return_home: MagicMock,
+        _home_badge: MagicMock,
+        _weekly_badge: MagicMock,
+        click: MagicMock,
+        wait_for_page: MagicMock,
+    ) -> None:
+        wait_for_page.side_effect = [
+            (False, frame("home"), "first entry click had no effect"),
+            (True, frame("daily"), "daily page confirmed"),
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = task_rewards.run_task_rewards(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(
+            [entry.kwargs["key"] for entry in click.call_args_list],
+            ["home_tasks", "home_tasks"],
+        )
+        return_home.assert_called_once()
+
     @patch("task_rewards.time.sleep")
     @patch("task_rewards.recognize_reward_overlay_labels")
     @patch("task_rewards._recognize_claim_all", return_value=(True, {}))

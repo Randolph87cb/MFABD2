@@ -50,6 +50,7 @@ from game_text_recognition import (
     recognize_gacha_target_labels,
     recognize_game_loading_labels,
     recognize_plaza_labels,
+    recognize_quick_hunt_map_labels,
     recognize_quick_hunt_setup_labels,
     recognize_return_home_control,
     recognize_reward_overlay_labels,
@@ -66,7 +67,11 @@ from daily_arena import (
 )
 from business_management import detect_regular_customer_note_notification
 from enter_game import TOUCH_CLICK
-from quick_hunt import _select_max_quick_hunt_count, enter_quick_hunt
+from quick_hunt import (
+    _select_max_quick_hunt_count,
+    detect_selected_quick_hunt_category,
+    enter_quick_hunt,
+)
 from home_notifications import (
     detect_home_reward_notification,
     detect_notification_badge,
@@ -278,6 +283,49 @@ class PositionedTextRecognitionTests(unittest.TestCase):
         self.assertTrue(matched)
         self.assertEqual(details["requirements"]["body"], "狩猎N次")
 
+    def test_quick_hunt_map_accepts_hunting_locations_without_legacy_sidebar(
+        self,
+    ) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {
+                "left_categories": [],
+                "hunting_ground_locations": ["野猪洞穴", "废弃矿山", "星落洞穴"],
+                "start_button": ["快速狩猎"],
+            },
+            {
+                "left_categories": [],
+                "hunting_ground_locations": ["野猪洞穴", "废弃矿山", "星落洞穴"],
+                "start_button": ["快速狩猎"],
+            },
+            None,
+        )
+
+        matched, details = recognize_quick_hunt_map_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertEqual(len(details["matches"]["hunting_ground_locations"]), 3)
+
+    @patch("quick_hunt.recognize_quick_hunt_map_labels")
+    def test_hunting_locations_confirm_selected_category_without_legacy_sidebar(
+        self,
+        recognize_quick_hunt_map_labels: MagicMock,
+    ) -> None:
+        recognize_quick_hunt_map_labels.return_value = (
+            True,
+            {"matches": {"hunting_ground_locations": ["野猪洞穴", "废弃矿山"]}},
+        )
+
+        category, scores = detect_selected_quick_hunt_category(
+            Image.new("RGB", (2000, 1000))
+        )
+
+        self.assertEqual(category, "hunting_ground")
+        self.assertEqual(scores["hunting_ground_location_matches"], 2.0)
+
     @patch("quick_hunt.time.sleep")
     @patch("quick_hunt.time.monotonic", side_effect=[0.0, 0.0, 0.0])
     @patch("quick_hunt.is_quick_hunt_count_at_max", return_value=(True, {}))
@@ -341,6 +389,29 @@ class PositionedTextRecognitionTests(unittest.TestCase):
 
         self.assertTrue(matched)
         self.assertEqual(len(details["matches"]["equipment_details"]), 3)
+
+    def test_costume_reveal_uses_element_type_and_costume_labels(self) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {
+                "equipment_details": [
+                    "ELEMENT TYPE",
+                    "LIGHT",
+                    "艾玛",
+                    "服装",
+                ]
+            },
+            {"equipment_details": ["ELEMENT TYPE", "服装"]},
+            None,
+        )
+
+        matched, details = recognize_gacha_animation_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertEqual(details["matches"]["equipment_details"], ["ELEMENT TYPE", "服装"])
 
     def test_season_reward_and_return_hint_form_an_actionable_overlay(self) -> None:
         session = MagicMock()
@@ -1610,6 +1681,26 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "opened the last battlefield")
 
+    @patch("daily_arena.recognize_return_home_control", return_value=(True, {"found": True}))
+    @patch("daily_arena.classify_state", return_value=("unknown", {}))
+    @patch("daily_arena.safe_capture_client", return_value=Image.new("RGB", (80, 45)))
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_battlefield_entry_resumes_from_an_existing_returnable_scene(
+        self,
+        _find_window: MagicMock,
+        _capture_client: MagicMock,
+        _classify: MagicMock,
+        _recognize_home: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_battlefield(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "already in a returnable battlefield scene")
+
     @patch("daily_arena.time.sleep")
     @patch("daily_arena._click_ratio")
     @patch("daily_arena.post_quick_cartridge_key")
@@ -1660,6 +1751,57 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         )
         self.assertEqual(click_with_retry.call_args.args[2], "cartridge_gameplay_tab")
         click_ratio.assert_called_once()
+
+    @patch("daily_arena.time.sleep")
+    @patch("daily_arena._click_ratio")
+    @patch("daily_arena.post_quick_cartridge_key")
+    @patch("daily_arena.wait_for_state")
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.recognize_return_home_control", return_value=(True, {"found": True}))
+    @patch("daily_arena.classify_state")
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_cartridge_route_clicks_visible_button_when_p_shortcut_is_ignored(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        classify: MagicMock,
+        _recognize_home: MagicMock,
+        click_with_retry: MagicMock,
+        wait_for_state: MagicMock,
+        post_quick_cartridge: MagicMock,
+        click_ratio: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        field_image = Image.new("RGB", (80, 45), color=(10, 10, 10))
+        bar_image = Image.new("RGB", (80, 45), color=(20, 20, 20))
+        gameplay_image = Image.new("RGB", (80, 45), color=(30, 30, 30))
+        lobby_image = Image.new("RGB", (80, 45), color=(40, 40, 40))
+        capture_client.side_effect = [field_image, lobby_image]
+        classify.side_effect = [("unknown", {}), ("arena_lobby", {})]
+        wait_for_state.side_effect = [
+            ("unknown", field_image),
+            ("arena_cartridge_bar", bar_image),
+        ]
+        click_with_retry.return_value = (
+            True,
+            "arena_cartridge_bar",
+            gameplay_image,
+            "selected gameplay tab",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_arena_from_plaza(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertIn("arena lobby reached", reason)
+        post_quick_cartridge.assert_called_once_with(123, dry_run=False, logger=ANY)
+        self.assertEqual(wait_for_state.call_count, 2)
+        self.assertEqual(click_ratio.call_args_list[0].args[2], "plaza_cartridge")
+        self.assertEqual(click_ratio.call_args_list[1].args[2], "cartridge_first_gameplay")
 
     @patch("daily_arena.confirm_optional_rank_change", return_value=(True, "done"))
     @patch("daily_arena.leave_arena_victory", return_value=(True, "left arena"))
@@ -1716,7 +1858,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             patch(
                 "daily_arena.click_with_fixed_retry",
                 return_value=(True, "loading", image, "portal click reached loading"),
-            ),
+            ) as click_with_retry,
             patch(
                 "daily_arena.wait_for_state",
                 return_value=("arena_battle_prep", image),
@@ -1730,6 +1872,9 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "entered arena battle preparation after loading")
         wait_for_state.assert_called_once()
+        self.assertEqual(click_with_retry.call_args.kwargs["verify_timeout"], 60.0)
+        self.assertTrue(click_with_retry.call_args.kwargs["wait_on_unknown_transition"])
+        self.assertTrue(click_with_retry.call_args.kwargs["extend_on_visual_progress"])
 
     @patch("free_gacha.click_client")
     def test_arena_pool_click_uses_detected_position(
@@ -1845,6 +1990,75 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(
             click_with_fixed_retry.call_args.kwargs["wait_on_unknown_transition"]
         )
+
+    @patch("daily_automation.recognize_return_home_control")
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_prefers_home_control_over_generic_overlay_heuristic(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+        recognize_return_home_control: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image]
+        classify_state.side_effect = [
+            (
+                "blocking_ad_overlay",
+                {"classification_rule": "blocking_overlay_brightness"},
+            ),
+            ("real_home", {}),
+        ]
+        recognize_return_home_control.return_value = (
+            True,
+            {"matches": {"home_control": ["H"]}},
+        )
+        click_with_fixed_retry.return_value = (True, "real_home", image, "returned home")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "plaza_home")
+        self.assertNotEqual(click_with_fixed_retry.call_args.args[2], "dismiss_overlay")
+
+    @patch("daily_automation.recognize_return_home_control")
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_uses_home_control_from_an_unknown_field_scene(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+        recognize_return_home_control: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image]
+        classify_state.side_effect = [("unknown", {}), ("real_home", {})]
+        recognize_return_home_control.return_value = (
+            True,
+            {"matches": {"home_control": ["H"]}},
+        )
+        click_with_fixed_retry.return_value = (True, "real_home", image, "returned home")
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "plaza_home")
 
     @patch("daily_automation.click_with_fixed_retry")
     @patch("daily_automation.classify_state")

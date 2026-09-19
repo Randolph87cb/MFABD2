@@ -78,7 +78,7 @@ CLICK_POINTS = {
     "restaurant_regular_customer_claim_all": (0.877, 0.930),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
-    "plaza_cartridge": (0.413, 0.933),
+    "plaza_cartridge": (0.444, 0.925),
     "cartridge_gameplay_tab": (0.521, 0.814),
     "cartridge_first_gameplay": (0.078, 0.901),
     "arena_pool": (0.414, 0.592),

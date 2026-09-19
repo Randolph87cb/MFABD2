@@ -260,8 +260,9 @@ class RewardFlowTests(unittest.TestCase):
         )
 
         self.assertFalse(ok)
-        self.assertIn("12秒内", reason)
+        self.assertIn("45秒内", reason)
         click.assert_called_once()
+        self.assertEqual(wait.call_args.kwargs["timeout"], 45.0)
 
 
 class SwipeClientTests(unittest.TestCase):

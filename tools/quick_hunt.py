@@ -23,6 +23,7 @@ from free_gacha import (
     safe_capture_client,
 )
 from home_notifications import detect_home_reward_notification
+from game_text_recognition import recognize_quick_hunt_map_labels
 from open_game import find_game_window
 
 
@@ -44,6 +45,12 @@ def detect_selected_quick_hunt_category(image: Image.Image) -> tuple[str | None,
     selected = max(scores, key=scores.get)
     ordered = sorted(scores.values(), reverse=True)
     if scores[selected] < 0.015 or scores[selected] - ordered[1] < 0.008:
+        map_match, map_details = recognize_quick_hunt_map_labels(image)
+        matches = map_details.get("matches", {})
+        locations = matches.get("hunting_ground_locations", [])
+        scores["hunting_ground_location_matches"] = float(len(locations))
+        if map_match and len(locations) >= 2:
+            return "hunting_ground", scores
         return None, scores
     return selected, scores
 
