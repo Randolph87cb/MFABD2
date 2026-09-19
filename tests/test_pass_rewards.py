@@ -31,6 +31,40 @@ def _recognition(found: bool) -> tuple[bool, dict[str, object]]:
 
 
 class PassRewardEntryTests(unittest.TestCase):
+    @patch("pass_rewards._capture_until")
+    @patch("pass_rewards._click_logged")
+    @patch("pass_rewards.detect_home_reward_notification", return_value=(True, {}))
+    @patch("pass_rewards.recognize_home_labels", return_value=(True, {}))
+    def test_pass_entry_retries_once_when_first_click_leaves_home_unchanged(
+        self,
+        _home: MagicMock,
+        _notification: MagicMock,
+        click: MagicMock,
+        capture: MagicMock,
+    ) -> None:
+        home = _image()
+        pass_page = _image(10)
+        capture.side_effect = [
+            (False, home, {"available": True}),
+            (True, pass_page, {"available": True}),
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, actual, reason, entered = pass_rewards._enter_with_logger(
+                123,
+                home,
+                dry_run=False,
+                logger=RunLogger(Path(temporary)),
+            )
+
+        self.assertTrue(ok, reason)
+        self.assertTrue(entered)
+        self.assertIs(actual, pass_page)
+        self.assertEqual(
+            [entry.kwargs["key"] for entry in click.call_args_list],
+            ["home_pass", "home_pass"],
+        )
+
     @patch("pass_rewards.click_ratio_logged")
     @patch("pass_rewards.detect_home_reward_notification", return_value=(False, {}))
     @patch("pass_rewards.recognize_home_labels", return_value=(True, {}))

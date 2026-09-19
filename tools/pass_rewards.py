@@ -73,6 +73,7 @@ MAX_PASS_LOOP_STEPS = 24
 MAX_REWARD_OVERLAYS = 6
 MAX_PASS_CARD_SELECT_ATTEMPTS = 2
 MAX_PASS_TASK_LIST_ATTEMPTS = 2
+MAX_PASS_ENTRY_ATTEMPTS = 2
 
 # Kept for callers which imported the old limit name.
 MAX_PASS_CLAIM_CYCLES = MAX_PASS_LOOP_STEPS
@@ -622,22 +623,53 @@ def _enter_with_logger(
     if not has_notification:
         return True, image, "pass has no reward notification", False
 
-    _click_logged(
-        hwnd,
-        image,
-        HOME_PASS_POINT,
-        key="home_pass",
-        logger=logger,
-        dry_run=dry_run,
-    )
-    if dry_run:
-        return True, image, "dry-run planned open pass reward list", True
-    opened, next_image, _details = _capture_until(
-        hwnd,
-        logger=logger,
-        label="pass-page-opened",
-        recognize=_confirm_pass_reward_page,
-    )
+    current = image
+    opened = False
+    next_image = image
+    for attempt in range(1, MAX_PASS_ENTRY_ATTEMPTS + 1):
+        _click_logged(
+            hwnd,
+            current,
+            HOME_PASS_POINT,
+            key="home_pass",
+            logger=logger,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return True, image, "dry-run planned open pass reward list", True
+        opened, next_image, _details = _capture_until(
+            hwnd,
+            logger=logger,
+            label=f"pass-page-opened-attempt-{attempt}",
+            recognize=_confirm_pass_reward_page,
+        )
+        if opened:
+            break
+        still_home, retry_home_details = recognize_home_labels(next_image)
+        still_marked = False
+        retry_badge_details: dict[str, Any] = {"skipped": "home OCR not confirmed"}
+        if still_home:
+            still_marked, retry_badge_details = detect_home_reward_notification(
+                next_image,
+                "pass",
+            )
+        logger.event(
+            action="pass_entry_retry_check",
+            attempt=attempt,
+            home=still_home,
+            home_details=retry_home_details,
+            notification=still_marked,
+            notification_details=retry_badge_details,
+        )
+        if not (still_home and still_marked and attempt < MAX_PASS_ENTRY_ATTEMPTS):
+            break
+        logger.event(
+            action="retry_click",
+            key="home_pass",
+            attempt=attempt + 1,
+            reason="pass entry click left the OCR-confirmed marked home page unchanged",
+        )
+        current = next_image
     reason = "opened pass reward list" if opened else "点击主页通行证后未识别到通行证页面"
     return opened, next_image, reason, True
 
