@@ -27,6 +27,7 @@ from free_gacha import (
 from game_text_recognition import (
     recognize_arena_auto_battle_labels,
     recognize_arena_cartridge_labels,
+    recognize_home_labels,
     recognize_return_home_control,
 )
 from open_game import find_game_window
@@ -45,7 +46,7 @@ ARENA_FREE_ONLY_TOGGLE_ROI = (0.655, 0.365, 0.050, 0.045)
 
 
 def is_returnable_battlefield(state: str, image: Image.Image) -> bool:
-    if state != "unknown":
+    if state not in {"unknown", "blocking_ad_overlay"}:
         return False
     returnable, _details = recognize_return_home_control(image)
     return returnable
@@ -147,6 +148,18 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     state, details = classify_state(image)
     image_path = logger.save_image(image, f"step-001-before-{state}.png")
     logger.event(action="classify", state=state, details=details, screenshot=str(image_path))
+    if (
+        state == "blocking_ad_overlay"
+        and details.get("classification_rule") == "blocking_overlay_brightness"
+    ):
+        is_home, home_details = recognize_home_labels(image)
+        logger.event(
+            action="classify_home_fallback",
+            matched=is_home,
+            details=home_details,
+        )
+        if is_home:
+            state = "real_home"
     if state in {"arena_lobby", "arena_cartridge_bar"}:
         reason = "already in arena lobby"
         logger.event(action="stop", result="success", state=state, reason=reason)
@@ -238,18 +251,34 @@ def enter_battle_prep(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         logger.failure(reason)
         return False, reason
 
-    ok, next_state, _next_image, reason = click_with_fixed_retry(
-        hwnd,
-        image,
-        "arena_pool",
-        verify=lambda candidate, _image: candidate in {"arena_battle_prep", "loading"},
-        description="enter arena battle preparation",
-        dry_run=dry_run,
-        logger=logger,
-        verify_timeout=60.0,
-        wait_on_unknown_transition=True,
-        extend_on_visual_progress=True,
-    )
+    next_image = image
+    for portal_attempt in range(1, 3):
+        ok, next_state, next_image, reason = click_with_fixed_retry(
+            hwnd,
+            next_image,
+            "arena_pool",
+            verify=lambda candidate, _image: candidate in {"arena_battle_prep", "loading"},
+            description="enter arena battle preparation",
+            dry_run=dry_run,
+            logger=logger,
+            verify_timeout=60.0,
+            attempts=1,
+            wait_on_unknown_transition=True,
+            extend_on_visual_progress=False,
+        )
+        if ok or portal_attempt >= 2:
+            break
+        if next_state != "arena_lobby" and not is_returnable_battlefield(
+            next_state,
+            next_image,
+        ):
+            break
+        logger.event(
+            action="retry_arena_pool",
+            previous_attempts=portal_attempt,
+            state=next_state,
+            reason="arena lobby remained after the portal click",
+        )
     if ok and not dry_run and next_state == "loading":
         next_state, _next_image = wait_for_state(
             hwnd,

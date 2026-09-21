@@ -940,6 +940,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "reward_overlay_dismiss"
             description = "dismiss reward overlay before returning home"
             expected = {
+                "arena_lobby",
                 "business_management_dialog",
                 "restaurant_regular_customer_notes",
                 "quick_hunt_map",

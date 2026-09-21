@@ -1681,6 +1681,75 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "opened the last battlefield")
 
+    @patch("daily_arena.recognize_home_labels", return_value=(True, {"matched": True}))
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch(
+        "daily_arena.classify_state",
+        return_value=("blocking_ad_overlay", {"classification_rule": "blocking_overlay_brightness"}),
+    )
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_battlefield_entry_accepts_a_brightness_misclassified_home(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify: MagicMock,
+        click_with_retry: MagicMock,
+        recognize_home: MagicMock,
+    ) -> None:
+        home_image = Image.new("RGB", (80, 45), color=(240, 240, 240))
+        arena_image = Image.new("RGB", (80, 45), color=(20, 20, 20))
+        capture_client.return_value = home_image
+        click_with_retry.return_value = (
+            True,
+            "arena_lobby",
+            arena_image,
+            "opened the arena lobby",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_battlefield(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "opened the arena lobby")
+        recognize_home.assert_called_once_with(home_image)
+        self.assertEqual(click_with_retry.call_args.args[2], "home_return_battlefield")
+
+    @patch("daily_arena.recognize_return_home_control", return_value=(True, {"found": True}))
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.classify_state", return_value=("real_home", {}))
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_battlefield_entry_accepts_a_brightness_misclassified_arena_scene(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify: MagicMock,
+        click_with_retry: MagicMock,
+        _recognize_home: MagicMock,
+    ) -> None:
+        home_image = Image.new("RGB", (80, 45), color=(10, 10, 10))
+        arena_image = Image.new("RGB", (80, 45), color=(20, 20, 20))
+        capture_client.return_value = home_image
+
+        def click_effect(*_args: object, **kwargs: object) -> tuple[bool, str, Image.Image, str]:
+            accepted = kwargs["verify"]("blocking_ad_overlay", arena_image)
+            return accepted, "blocking_ad_overlay", arena_image, "opened the arena lobby"
+
+        click_with_retry.side_effect = click_effect
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_battlefield(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "opened the arena lobby")
+
     @patch("daily_arena.recognize_return_home_control", return_value=(True, {"found": True}))
     @patch("daily_arena.classify_state", return_value=("unknown", {}))
     @patch("daily_arena.safe_capture_client", return_value=Image.new("RGB", (80, 45)))
@@ -1874,7 +1943,43 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         wait_for_state.assert_called_once()
         self.assertEqual(click_with_retry.call_args.kwargs["verify_timeout"], 60.0)
         self.assertTrue(click_with_retry.call_args.kwargs["wait_on_unknown_transition"])
-        self.assertTrue(click_with_retry.call_args.kwargs["extend_on_visual_progress"])
+        self.assertFalse(click_with_retry.call_args.kwargs["extend_on_visual_progress"])
+
+    @patch("daily_arena.recognize_return_home_control", return_value=(True, {"found": True}))
+    @patch("daily_arena.wait_for_state")
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.classify_state", return_value=("arena_lobby", {}))
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_arena_pool_retries_when_lobby_is_misclassified_by_brightness(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify: MagicMock,
+        click_with_retry: MagicMock,
+        wait_for_state: MagicMock,
+        _recognize_home: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1000, 600))
+        capture_client.return_value = image
+        click_with_retry.side_effect = [
+            (False, "blocking_ad_overlay", image, "brightness fallback"),
+            (True, "loading", image, "portal click reached loading"),
+        ]
+        wait_for_state.return_value = ("arena_battle_prep", image)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_battle_prep(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "entered arena battle preparation after loading")
+        self.assertEqual(click_with_retry.call_count, 2)
+        self.assertTrue(
+            all(call.kwargs["attempts"] == 1 for call in click_with_retry.call_args_list)
+        )
 
     @patch("free_gacha.click_client")
     def test_arena_pool_click_uses_detected_position(
@@ -1989,6 +2094,51 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_home")
         self.assertTrue(
             click_with_fixed_retry.call_args.kwargs["wait_on_unknown_transition"]
+        )
+
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_accepts_arena_lobby_after_dismissing_season_reward(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image, image]
+        classify_state.side_effect = [
+            ("reward_overlay", {}),
+            ("arena_lobby", {}),
+            ("real_home", {}),
+        ]
+
+        def click_and_verify(
+            _hwnd: int,
+            current: Image.Image,
+            key: str,
+            **kwargs: object,
+        ) -> tuple[bool, str, Image.Image, str]:
+            next_state = "arena_lobby" if key == "reward_overlay_dismiss" else "real_home"
+            verify = kwargs["verify"]
+            assert callable(verify)
+            accepted = verify(next_state, current)
+            return accepted, next_state, current, f"{key} verified={accepted}"
+
+        click_with_fixed_retry.side_effect = click_and_verify
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(
+            [call.args[2] for call in click_with_fixed_retry.call_args_list],
+            ["reward_overlay_dismiss", "arena_home"],
         )
 
     @patch("daily_automation.recognize_return_home_control")
