@@ -33,8 +33,9 @@ def _wait_out_loading(
     expected: set[str],
     logger: RunLogger,
     label: str,
+    transient_states: set[str] | None = None,
 ) -> tuple[str, Image.Image]:
-    if state != "loading":
+    if state not in (transient_states or {"loading"}):
         return state, image
     return wait_for_state(
         hwnd,
@@ -44,6 +45,15 @@ def _wait_out_loading(
         interval=2.0,
         label=label,
     )
+
+
+def _is_business_entry_transition(state: str, image: Image.Image) -> bool:
+    if state in {"business_management_dialog", "loading"}:
+        return True
+    if state != "blocking_ad_overlay":
+        return False
+    home_matched, _details = recognize_home_labels(image)
+    return home_matched
 
 
 def open_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
@@ -59,6 +69,10 @@ def open_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, st
     state, details = classify_state(image)
     path = logger.save_image(image, f"entry-start-{state}.png")
     logger.event(action="classify", state=state, details=details, screenshot=str(path))
+    if state == "business_management_dialog":
+        reason = "business-management dialog already open"
+        logger.event(action="stop", result="success", state=state, reason=reason)
+        return True, reason
     if state != "real_home":
         reason = f"business-management entry requires real_home, got {state}"
         logger.failure(reason)
@@ -68,7 +82,7 @@ def open_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, st
         hwnd,
         image,
         "home_business_management",
-        verify=lambda next_state, _image: next_state in {"business_management_dialog", "loading"},
+        verify=_is_business_entry_transition,
         description="open business-management dialog",
         dry_run=dry_run,
         logger=logger,
@@ -84,6 +98,7 @@ def open_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, st
         expected={"business_management_dialog"},
         logger=logger,
         label="after-business-management-open",
+        transient_states={"loading", "blocking_ad_overlay"},
     )
     if state != "business_management_dialog":
         reason = f"business-management entry ended at unexpected state: {state}"

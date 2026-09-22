@@ -16,6 +16,7 @@ if str(TOOLS_DIR) not in sys.path:
 import business_management
 from business_management import (
     enter_restaurant,
+    open_business_management,
     open_regular_customer_rewards,
     return_home_from_restaurant,
     run_business_management,
@@ -144,6 +145,87 @@ class RestaurantReturnRegressionTests(unittest.TestCase):
             label="after-restaurant-home",
             recognize=recognize_home_labels,
             timeout=20.0,
+        )
+
+
+class BusinessManagementEntryRegressionTests(unittest.TestCase):
+    @patch("business_management.click_with_fixed_retry")
+    @patch(
+        "business_management.classify_state",
+        return_value=("business_management_dialog", {}),
+    )
+    @patch(
+        "business_management.safe_capture_client",
+        return_value=Image.new("RGB", (2000, 1000)),
+    )
+    @patch("business_management.find_game_window", return_value=123)
+    def test_entry_resumes_from_an_already_open_dialog(
+        self,
+        _find_window: MagicMock,
+        _capture_client: MagicMock,
+        _classify_state: MagicMock,
+        click_with_retry: MagicMock,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = open_business_management(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "business-management dialog already open")
+        click_with_retry.assert_not_called()
+
+    @patch("business_management.wait_for_state")
+    @patch("business_management.recognize_home_labels")
+    @patch("business_management.click_with_fixed_retry")
+    @patch(
+        "business_management.classify_state",
+        return_value=("real_home", {}),
+    )
+    @patch("business_management.safe_capture_client")
+    @patch("business_management.find_game_window", return_value=123)
+    def test_entry_waits_through_a_brightness_misclassified_home_loading_frame(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify_state: MagicMock,
+        click_with_retry: MagicMock,
+        recognize_home: MagicMock,
+        wait_for_state: MagicMock,
+    ) -> None:
+        home_image = Image.new("RGB", (2000, 1000))
+        loading_image = Image.new("RGB", (2000, 1000), color=(80, 80, 80))
+        dialog_image = Image.new("RGB", (2000, 1000), color=(160, 160, 160))
+        capture_client.return_value = home_image
+        recognize_home.return_value = (True, {"matched": True})
+        wait_for_state.return_value = ("business_management_dialog", dialog_image)
+
+        def click_effect(
+            *_args: object,
+            **kwargs: object,
+        ) -> tuple[bool, str, Image.Image, str]:
+            accepted = kwargs["verify"]("blocking_ad_overlay", loading_image)
+            return accepted, "blocking_ad_overlay", loading_image, "entry transition"
+
+        click_with_retry.side_effect = click_effect
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = open_business_management(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "business-management dialog opened")
+        recognize_home.assert_called_once_with(loading_image)
+        wait_for_state.assert_called_once_with(
+            123,
+            ANY,
+            expected={"business_management_dialog"},
+            timeout=20.0,
+            interval=2.0,
+            label="after-business-management-open",
         )
 
 
