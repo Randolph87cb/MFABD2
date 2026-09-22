@@ -1,6 +1,8 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)]
     [string]$PythonPath,
+    [Parameter(Mandatory = $true)]
+    [string]$CodexPath,
     [switch]$Force,
     [ValidateSet(
         "start",
@@ -23,30 +25,31 @@ $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$AutomationScript = Join-Path $PSScriptRoot "daily_automation.py"
-
-$AutomationArguments = @($AutomationScript, "--scheduled", "--project-root", $ProjectRoot)
+$SupervisorScript = Join-Path $PSScriptRoot "daily_supervisor.py"
+$SupervisorArguments = @(
+    $SupervisorScript,
+    "--project-root", $ProjectRoot,
+    "--python-path", $PythonPath,
+    "--codex-path", $CodexPath,
+    "--retention-days", "7",
+    "--max-repair-rounds", "2"
+)
 if ($Force) {
-    $AutomationArguments += "--force"
+    $SupervisorArguments += "--force"
 }
 if ($ForcePhase) {
     if ($Force) {
         throw "Force and ForcePhase cannot be used together."
     }
-    $AutomationArguments += @("--force-phase", $ForcePhase)
+    $SupervisorArguments += @("--force-phase", $ForcePhase)
 }
 
-& $PythonPath @AutomationArguments
-$AutomationExitCode = $LASTEXITCODE
+& $PythonPath @SupervisorArguments
+$SupervisorExitCode = $LASTEXITCODE
 
-if ($AutomationExitCode -ne 0) {
+if ($SupervisorExitCode -ne 0) {
     Write-Host ""
-    Write-Host "每日任务没有执行成功。中文日志保留在上方，标注网站会自动打开。" -ForegroundColor Red
-    Write-Host "请在“每日错误”中标记有问题的截图并填写原因。" -ForegroundColor Yellow
-    Write-Host "此窗口会保持打开；查看完后请直接关闭窗口。" -ForegroundColor Cyan
-    while ($true) {
-        Start-Sleep -Seconds 30
-    }
+    Write-Host "Daily automation and recovery did not finish. See logs\supervisor." -ForegroundColor Red
 }
 
-exit $AutomationExitCode
+exit $SupervisorExitCode

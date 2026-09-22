@@ -14,6 +14,33 @@
 python -m pip install -r requirements.txt
 ```
 
+## 每日定时任务
+
+在 Windows PowerShell 中安装或更新计划任务：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
+```
+
+安装脚本会创建项目内 `.venv`、安装 `requirements.txt`，并注册每天 `08:30` 运行的
+`BrownDust2DailyAutomation`。网络检查仍会无限等待网络恢复，不设置任务执行时限。
+
+每轮运行由 `tools\daily_supervisor.py` 监督：
+
+- 正常流程结束后关闭精确识别到的游戏进程，以及本轮新建的官方启动器进程；
+- 不启动识别标注网站；
+- 仅保留 `logs\daily`、`daily-check`、`supervisor`、`recovery` 中最近 7 天的日期日志；
+- 当前可运行阶段没有全部完成时，在当前目录创建 Codex 线程，读取日志并参考
+  `.external\MFABD2-reference`；修复后使用正常状态机从失败阶段继续到最后阶段，最多修复两轮；
+- 自动修复前若主仓库已有未提交改动，监督器会停止自动修改，避免覆盖人工工作。
+
+只检查监督器、Codex 和本地参考仓库，不启动游戏：
+
+```powershell
+$CodexPath = (Get-Command codex.cmd).Source
+python tools\daily_supervisor.py --check --codex-path $CodexPath
+```
+
 ## 已实现
 
 打开游戏：

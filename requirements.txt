@@ -3,3 +3,4 @@ Pillow
 rapidocr
 onnxruntime
 pycaw
+psutil
