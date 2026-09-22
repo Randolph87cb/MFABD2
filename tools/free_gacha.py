@@ -94,6 +94,7 @@ CLICK_POINTS = {
     "quick_hunt": (0.918, 0.255),
     "quick_hunt_start": (0.855, 0.918),
     "quick_hunt_max": (0.609, 0.471),
+    "quick_hunt_cancel": (0.416, 0.725),
     "quick_hunt_confirm": (0.540, 0.725),
     "quick_hunt_crystal_cave": (0.091, 0.440),
     "quick_hunt_back": (0.090, 0.045),

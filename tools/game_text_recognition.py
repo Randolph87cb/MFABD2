@@ -253,6 +253,10 @@ QUICK_HUNT_MAP_LABEL_GROUPS = {
 }
 
 QUICK_HUNT_SETUP_LABEL_GROUPS = {
+    "free_resource": {
+        "region": (0.83, 0.01, 0.12, 0.08),
+        "labels": (),
+    },
     "header": {
         "region": (0.30, 0.24, 0.38, 0.11),
         "labels": ("快速狩猎",),

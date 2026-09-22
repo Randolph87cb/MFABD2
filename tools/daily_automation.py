@@ -87,6 +87,7 @@ DAILY_READY_STATES = {
     "gacha_item_overlay",
     "arena_lobby",
     "quick_hunt_map",
+    "quick_hunt_setup",
     "business_management_dialog",
     "reward_overlay",
     "restaurant_home",
@@ -962,6 +963,10 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "quick_hunt_back"
             description = "return home from quick-hunt map"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
+        elif state == "quick_hunt_setup":
+            key = "quick_hunt_cancel"
+            description = "close quick-hunt setup before returning home"
+            expected = {"quick_hunt_map", "loading"}
         elif state == "gacha_result":
             key = "result_back"
             description = "return from gacha result to gacha page"
@@ -1161,6 +1166,12 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             log_root=log_root / "02-prepare-home",
         )
     if phase_id == "quick_hunt":
+        _require_phase(
+            master,
+            "prepare_home",
+            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+            log_root=log_root / "00-prepare-home",
+        )
         entry_reason = _require_phase(
             master,
             "quick_hunt_entry",

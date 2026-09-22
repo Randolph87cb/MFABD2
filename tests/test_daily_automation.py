@@ -68,9 +68,12 @@ from daily_arena import (
 from business_management import detect_regular_customer_note_notification
 from enter_game import TOUCH_CLICK
 from quick_hunt import (
+    _quick_hunt_free_resource,
     _select_max_quick_hunt_count,
     detect_selected_quick_hunt_category,
     enter_quick_hunt,
+    maximize_and_confirm_quick_hunt,
+    run_crystal_cave_cycle,
 )
 from home_notifications import (
     detect_home_reward_notification,
@@ -358,6 +361,112 @@ class PositionedTextRecognitionTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertIsNone(count)
+
+    def test_quick_hunt_free_resource_reads_the_resource_counter(self) -> None:
+        details = {
+            "quick_hunt_setup_text": {
+                "texts": {"free_resource": ["0/90 | +8.2K"]},
+            }
+        }
+
+        self.assertEqual(_quick_hunt_free_resource(details), (0, 90))
+
+    @patch("quick_hunt.click_with_fixed_retry")
+    @patch("quick_hunt.is_quick_hunt_count_at_max", return_value=(False, {}))
+    @patch("quick_hunt.classify_state")
+    @patch("quick_hunt.safe_capture_client")
+    @patch("quick_hunt.find_game_window", return_value=123)
+    def test_quick_hunt_skips_hunting_ground_when_free_rice_is_exhausted(
+        self,
+        _find_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        _at_max: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.return_value = image
+        classify_state.return_value = (
+            "quick_hunt_setup",
+            {
+                "quick_hunt_setup_text": {
+                    "texts": {
+                        "body": ["狩猎1次"],
+                        "free_resource": ["0/90 | +8.2K"],
+                    }
+                }
+            },
+        )
+        click_with_fixed_retry.return_value = (
+            True,
+            "quick_hunt_map",
+            image,
+            "cancelled empty quick hunt",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = maximize_and_confirm_quick_hunt(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "skipped: free rice exhausted (0/90)")
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "quick_hunt_cancel")
+
+    @patch("quick_hunt.click_with_fixed_retry")
+    @patch("quick_hunt.is_quick_hunt_count_at_max", return_value=(False, {}))
+    @patch("quick_hunt.classify_state")
+    @patch("quick_hunt.safe_capture_client")
+    @patch("quick_hunt.find_game_window", return_value=123)
+    def test_crystal_cave_skips_when_free_torches_are_exhausted(
+        self,
+        _find_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        _at_max: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.return_value = image
+        classify_state.side_effect = [
+            ("quick_hunt_map", {}),
+            (
+                "quick_hunt_setup",
+                {
+                    "quick_hunt_setup_text": {
+                        "texts": {
+                            "body": ["狩猎1次"],
+                            "free_resource": ["0/60+813"],
+                        }
+                    }
+                },
+            ),
+        ]
+        click_with_fixed_retry.side_effect = [
+            (True, "quick_hunt_map", image, "selected crystal cave"),
+            (True, "quick_hunt_setup", image, "opened setup"),
+            (True, "quick_hunt_map", image, "closed empty setup"),
+            (True, "real_home", image, "returned home"),
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = run_crystal_cave_cycle(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "skipped: free torches exhausted (0/60)")
+        self.assertEqual(
+            [call.args[2] for call in click_with_fixed_retry.call_args_list],
+            [
+                "quick_hunt_crystal_cave",
+                "quick_hunt_start",
+                "quick_hunt_cancel",
+                "quick_hunt_back",
+            ],
+        )
 
     def test_equipment_reveal_uses_positioned_detail_labels(self) -> None:
         session = MagicMock()
@@ -2094,6 +2203,41 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(click_with_fixed_retry.call_args.args[2], "arena_home")
         self.assertTrue(
             click_with_fixed_retry.call_args.kwargs["wait_on_unknown_transition"]
+        )
+
+    @patch("daily_automation.click_with_fixed_retry")
+    @patch("daily_automation.classify_state")
+    @patch("daily_automation.safe_capture_client")
+    @patch("open_game.find_game_window", return_value=123)
+    @patch("builtins.print")
+    def test_ensure_home_closes_leftover_quick_hunt_setup_before_returning_home(
+        self,
+        _print: MagicMock,
+        _find_game_window: MagicMock,
+        safe_capture_client: MagicMock,
+        classify_state: MagicMock,
+        click_with_fixed_retry: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        safe_capture_client.side_effect = [image, image, image]
+        classify_state.side_effect = [
+            ("quick_hunt_setup", {}),
+            ("quick_hunt_map", {}),
+            ("real_home", {}),
+        ]
+        click_with_fixed_retry.side_effect = [
+            (True, "quick_hunt_map", image, "closed setup"),
+            (True, "real_home", image, "returned home"),
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        self.assertEqual(
+            [call.args[2] for call in click_with_fixed_retry.call_args_list],
+            ["quick_hunt_cancel", "quick_hunt_back"],
         )
 
     @patch("daily_automation.click_with_fixed_retry")

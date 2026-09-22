@@ -72,6 +72,60 @@ def _quick_hunt_count(details: dict[str, object]) -> int | None:
     return None
 
 
+def _quick_hunt_free_resource(details: dict[str, object]) -> tuple[int, int] | None:
+    setup = details.get("quick_hunt_setup_text")
+    if not isinstance(setup, dict):
+        return None
+    texts = setup.get("texts")
+    if not isinstance(texts, dict):
+        return None
+    free_resource = texts.get("free_resource")
+    if not isinstance(free_resource, list):
+        return None
+    for text in free_resource:
+        match = re.search(r"(\d+)\s*/\s*(\d+)", str(text))
+        if match:
+            return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def _cancel_exhausted_quick_hunt_setup(
+    hwnd: int,
+    before: Image.Image,
+    *,
+    resource_name: str,
+    resource: tuple[int, int],
+    dry_run: bool,
+    logger: RunLogger,
+) -> tuple[bool, str, Image.Image]:
+    ok, state, after, cancel_reason = click_with_fixed_retry(
+        hwnd,
+        before,
+        "quick_hunt_cancel",
+        verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
+        description=f"close quick-hunt setup with no free {resource_name}",
+        dry_run=dry_run,
+        logger=logger,
+    )
+    if not ok or dry_run:
+        if not ok:
+            logger.failure(cancel_reason)
+        return ok, cancel_reason, after
+    state, after = _wait_out_loading(
+        hwnd,
+        state,
+        after,
+        logger=logger,
+        label=f"after-no-free-{resource_name}-cancel",
+    )
+    if state != "quick_hunt_map":
+        reason = f"free-{resource_name} skip ended at unexpected state: {state}"
+        logger.failure(reason)
+        return False, reason, after
+    reason = f"skipped: free {resource_name} exhausted ({resource[0]}/{resource[1]})"
+    return True, reason, after
+
+
 def is_quick_hunt_count_at_max(image: Image.Image) -> tuple[bool, dict[str, float]]:
     """Confirm the count slider handle and filled track are at the right end."""
     frame = np.asarray(image.convert("RGB"))
@@ -344,12 +398,14 @@ def maximize_and_confirm_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[b
     before = safe_capture_client(hwnd, logger=logger)
     before_state, before_details = classify_state(before)
     initial_count = _quick_hunt_count(before_details)
+    free_resource = _quick_hunt_free_resource(before_details)
     initially_at_max, initial_max_scores = is_quick_hunt_count_at_max(before)
     before_path = logger.save_image(before, f"before-{before_state}-count-{initial_count}.png")
     logger.event(
         action="classify_before_max",
         state=before_state,
         count=initial_count,
+        free_resource=free_resource,
         at_max=initially_at_max,
         max_scores=initial_max_scores,
         screenshot=str(before_path),
@@ -362,6 +418,19 @@ def maximize_and_confirm_quick_hunt(*, dry_run: bool, log_root: Path) -> tuple[b
         )
         logger.failure(reason)
         return False, reason
+
+    if free_resource is not None and free_resource[0] == 0:
+        ok, reason, _after = _cancel_exhausted_quick_hunt_setup(
+            hwnd,
+            before,
+            resource_name="rice",
+            resource=free_resource,
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if ok:
+            logger.event(action="stop", result="success", state="quick_hunt_map", reason=reason)
+        return ok, reason
 
     if initially_at_max:
         max_reason = "maximum count already selected"
@@ -546,13 +615,51 @@ def run_crystal_cave_cycle(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
 
     state, setup_details = classify_state(image)
     initial_count = _quick_hunt_count(setup_details)
+    free_resource = _quick_hunt_free_resource(setup_details)
     at_max, max_scores = is_quick_hunt_count_at_max(image)
     logger.event(
         action="detect_crystal_count",
         count=initial_count,
+        free_resource=free_resource,
         at_max=at_max,
         max_scores=max_scores,
     )
+    if free_resource is not None and free_resource[0] == 0:
+        ok, skip_reason, image = _cancel_exhausted_quick_hunt_setup(
+            hwnd,
+            image,
+            resource_name="torches",
+            resource=free_resource,
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not ok or dry_run:
+            return ok, skip_reason
+        ok, state, image, back_reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "quick_hunt_back",
+            verify=lambda next_state, _next_image: next_state in {"real_home", "loading"},
+            description="return home after skipping empty crystal cave",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not ok:
+            logger.failure(back_reason)
+            return False, back_reason
+        state, image = _wait_out_loading(
+            hwnd,
+            state,
+            image,
+            logger=logger,
+            label="after-empty-crystal-cave-back",
+        )
+        if state != "real_home":
+            reason = f"empty crystal-cave skip did not finish at real_home: {state}"
+            logger.failure(reason)
+            return False, reason
+        logger.event(action="stop", result="success", state=state, reason=skip_reason)
+        return True, skip_reason
     if at_max:
         max_image = image
         max_count = initial_count
