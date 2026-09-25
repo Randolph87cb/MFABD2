@@ -104,6 +104,7 @@ MASTER_STAGE_NAMES = {
     "daily": "每日任务",
     "network": "网络检查",
     "enter_game": "进入游戏",
+    "resume_game": "恢复游戏",
     "prepare_home": "返回主页",
     "free_gacha_home": "抽卡前返回主页",
     "free_gacha": "免费抽卡",
@@ -1298,6 +1299,14 @@ def run_daily(
             raise DailyRunError("network check timed out")
         desktop_guard = DesktopActivityGuard()
         desktop_guard.start()
+
+        if force_phase is None and phases_to_run[0] != "start" and not find_game_window():
+            _require_phase(
+                master,
+                "resume_game",
+                lambda *, log_root: enter_game_logged(timeout=240.0, log_root=log_root),
+                log_root=run_root / "00-resume-game",
+            )
 
         for phase_id in phases_to_run:
             active_phase = phase_id

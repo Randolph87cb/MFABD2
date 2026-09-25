@@ -165,7 +165,7 @@ ARENA_BATTLE_PREP_LABEL_GROUPS = {
 ARENA_AUTO_BATTLE_LABEL_GROUPS = {
     "dialog": {
         "region": (0.27, 0.22, 0.46, 0.58),
-        "labels": ("自动战斗", "MAX", "取消", "10倍战斗开始"),
+        "labels": ("自动战斗", "MAX", "取消", "战斗开始"),
     },
 }
 
@@ -1022,7 +1022,7 @@ def recognize_arena_auto_battle_labels(
     )
     if error is not None:
         return False, error
-    required = {"自动战斗", "MAX", "取消", "10倍战斗开始"}
+    required = {"自动战斗", "MAX", "取消", "战斗开始"}
     is_dialog = required <= set(matches["dialog"])
     return is_dialog, {
         "available": True,

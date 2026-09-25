@@ -41,6 +41,7 @@ from daily_automation import (
 )
 from game_text_recognition import (
     LabelRecognitionSession,
+    recognize_arena_auto_battle_labels,
     recognize_arena_cartridge_bar_labels,
     recognize_arena_cartridge_labels,
     recognize_arena_rank_change_labels,
@@ -675,6 +676,26 @@ class PositionedTextRecognitionTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(texts, [])
 
+    def test_arena_auto_battle_dialog_accepts_current_start_button_text(self) -> None:
+        session = LabelRecognitionSession(Image.new("RGB", (80, 45)))
+        observations = [
+            (0.50, 0.30, "自动战斗"),
+            (0.50, 0.45, "MAX"),
+            (0.40, 0.70, "取消"),
+            (0.60, 0.70, "战斗开始"),
+        ]
+        with patch.object(session, "_load", return_value=(observations, None)):
+            matched, details = recognize_arena_auto_battle_labels(
+                Image.new("RGB", (80, 45)),
+                session=session,
+            )
+
+        self.assertTrue(matched)
+        self.assertEqual(
+            set(details["matches"]["dialog"]),
+            {"自动战斗", "MAX", "取消", "战斗开始"},
+        )
+
     def test_plaza_uses_bottom_left_chat_input_text(self) -> None:
         session = MagicMock()
         session.recognize.return_value = (
@@ -1037,12 +1058,16 @@ class DailyAutomationStateTests(unittest.TestCase):
     @patch("daily_automation.os.chdir")
     @patch("daily_automation.wait_for_network", return_value=True)
     @patch("daily_automation.DesktopActivityGuard")
+    @patch("daily_automation.find_game_window", return_value=0)
+    @patch("daily_automation.enter_game_logged", return_value=(True, "game ready"))
     @patch("daily_automation._execute_daily_phase")
     @patch("builtins.print")
     def test_failed_run_resumes_without_replaying_completed_phases(
         self,
         _print: MagicMock,
         execute_phase: MagicMock,
+        enter_game: MagicMock,
+        _find_game_window: MagicMock,
         _desktop_guard_type: MagicMock,
         _wait_for_network: MagicMock,
         _chdir: MagicMock,
@@ -1070,6 +1095,11 @@ class DailyAutomationStateTests(unittest.TestCase):
         self.assertEqual(calls.count("free_gacha"), 1)
         self.assertEqual(calls.count("arena"), 2)
         self.assertEqual(calls[-1], "mail_rewards")
+        enter_game.assert_called_once()
+        self.assertEqual(
+            enter_game.call_args.kwargs["log_root"].name,
+            "00-resume-game",
+        )
 
     @patch("daily_automation.os.chdir")
     @patch("daily_automation.wait_for_network", return_value=True)
