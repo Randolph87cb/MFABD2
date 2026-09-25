@@ -744,7 +744,7 @@ class OpenGameTests(unittest.TestCase):
 
         with (
             patch("open_game.STARTER", starter),
-            patch("open_game.subprocess.Popen"),
+            patch("open_game.subprocess.Popen") as start_process,
             patch("open_game.find_game_window", side_effect=lambda: next(windows)),
             patch("open_game._starter_log_activity", side_effect=lambda: next(log_activity)),
             patch("open_game.time.monotonic", side_effect=lambda: clock[0]),
@@ -754,6 +754,12 @@ class OpenGameTests(unittest.TestCase):
 
         self.assertEqual(hwnd, 123)
         self.assertGreater(clock[0], 5.0)
+        start_process.assert_called_once_with(
+            ["starter.exe", "browndust2:games/10000002?usn=0"],
+            cwd=".",
+            stdout=open_game_module.subprocess.DEVNULL,
+            stderr=open_game_module.subprocess.DEVNULL,
+        )
 
     def test_starter_wait_stops_after_continuous_inactivity(self) -> None:
         clock = [0.0]
@@ -2892,9 +2898,15 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     def test_bottom_download_progress_is_a_waiting_state(self) -> None:
         with Image.open(FIXTURES / "entry-downloading-v2318-2048x1128.png") as image:
             state, details = recognize_daily_entry_state(image)
+            shared_state, shared_details = classify_state(image)
 
         self.assertEqual(state, "download_waiting")
         self.assertEqual(details["source"], "ocr")
+        self.assertEqual(shared_state, "loading")
+        self.assertEqual(
+            shared_details["classification_rule"],
+            "game_loading_text",
+        )
 
     def test_blank_cold_start_capture_is_waited(self) -> None:
         with Image.open(FIXTURES / "entry-blank-white-3421x1927.png") as image:

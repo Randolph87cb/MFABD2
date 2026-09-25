@@ -17,7 +17,7 @@ enable_dpi_awareness()
 
 STARTER = Path(r"C:\ProgramData\Neowiz\Browndust2Starter\Browndust2Starter.exe")
 STARTER_LOG_DIR = STARTER.parent / "Log"
-PROTOCOL_ARG = "browndust2:games/10000001?usn=0"
+PROTOCOL_ARG = "browndust2:games/10000002?usn=0"
 WINDOW_CLASS = "UnityWndClass"
 WINDOW_TITLE = "BrownDust II"
 STARTER_ATTEMPTS = 2

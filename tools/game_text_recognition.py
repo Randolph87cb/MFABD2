@@ -210,6 +210,10 @@ GAME_LOADING_LABEL_GROUPS = {
         "region": (0.28, 0.28, 0.44, 0.38),
         "labels": ("MIRROR", "WARS", "镜中之战"),
     },
+    "download_status": {
+        "region": (0.02, 0.84, 0.18, 0.12),
+        "labels": ("正在下载", "下载中"),
+    },
     "progress": {
         "region": (0.88, 0.82, 0.11, 0.17),
         "labels": (),
@@ -1119,15 +1123,24 @@ def recognize_game_loading_labels(
 
     title_matches = set(matches["title"])
     has_title = "镜中之战" in title_matches or {"MIRROR", "WARS"} <= title_matches
-    normalized_progress = [_normalize_text(text) for text in grouped_texts["progress"]]
-    has_progress = any(re.fullmatch(r"\d{1,3}", text) for text in normalized_progress)
-    return has_title and has_progress, {
+    has_download_status = bool(matches.get("download_status", []))
+    compact_progress = [
+        re.sub(r"\s+", "", text)
+        for text in grouped_texts["progress"]
+    ]
+    has_progress = any(
+        re.fullmatch(r"\d{1,3}(?:\.\d+)?%", text)
+        for text in compact_progress
+    )
+    return (has_title or has_download_status) and has_progress, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,
+        "has_download_status": has_download_status,
         "has_progress": has_progress,
         "requirements": {
             "title": ["镜中之战", "or MIRROR + WARS"],
+            "download_status": ["正在下载", "下载中"],
             "progress": "N%",
         },
     }
