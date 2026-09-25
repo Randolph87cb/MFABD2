@@ -19,6 +19,8 @@ from daily_supervisor import (  # noqa: E402
     CURRENT_PHASE_IDS,
     _parse_codex_events,
     completion_report,
+    finalize_prompt,
+    followup_prompt,
     prune_old_logs,
     repair_prompt,
     run_codex_turn,
@@ -96,7 +98,7 @@ class DailySupervisorTests(unittest.TestCase):
         self.assertTrue(completed)
         self.assertIsNone(error)
 
-    def test_repair_prompt_forbids_single_phase_rerun_and_reference_writes(self) -> None:
+    def test_repair_prompts_allow_committing_verified_repairs(self) -> None:
         prompt = repair_prompt(
             project_root=Path("C:/project"),
             reference_root=Path("C:/project/.external/MFABD2-reference"),
@@ -108,7 +110,26 @@ class DailySupervisorTests(unittest.TestCase):
 
         self.assertIn("禁止修改参考仓库", prompt)
         self.assertIn("不要把自动恢复改成 --force-phase", prompt)
-        self.assertIn("本轮不要 git commit", prompt)
+        self.assertIn("完成离线验证后", prompt)
+        self.assertIn("提交", prompt)
+        self.assertIn("推送当前 main 分支", prompt)
+        self.assertNotIn("不要 git commit", prompt)
+
+        followup = followup_prompt(
+            report={"statuses": {}, "failed_phase": "arena"},
+            summary_path=None,
+            supervisor_log=Path("C:/project/logs/supervisor.log"),
+            round_number=2,
+        )
+        self.assertIn("完成离线验证后", followup)
+        self.assertIn("提交并推送本轮相关改动", followup)
+        self.assertNotIn("不要 commit/push", followup)
+
+        final = finalize_prompt(
+            supervisor_log=Path("C:/project/logs/supervisor.log"),
+            summary_path=None,
+        )
+        self.assertIn("若本次修复仍有未提交", final)
 
     @patch("daily_supervisor.run_command")
     def test_codex_turn_uses_automatic_workspace_review_without_conflicting_flag(

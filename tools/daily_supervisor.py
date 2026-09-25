@@ -344,7 +344,7 @@ def repair_prompt(
 3. 禁止修改参考仓库，禁止启动游戏或执行真实每日流程；只运行离线测试、静态检查和 --show-plan 等无副作用验证。
 4. 保持网络无限等待行为不变。不要引入模糊进程终止；只能处理精确识别的本次运行进程。
 5. 正常续跑入口会自动执行 failed/running/pending 阶段，因此不要把自动恢复改成 --force-phase。
-6. 本轮不要 git commit、不要 git push；修复后清楚说明改动和验证结果，然后结束本轮。
+6. 完成离线验证后，只提交与本轮自动修复直接相关的代码和测试，使用中文提交信息并推送当前 main 分支；不要提交 logs、state、.external 或其他本地运行产物。清楚说明改动、验证和提交推送结果。
 """
 
 
@@ -360,7 +360,7 @@ def followup_prompt(
 最新 summary：{summary_path or '无'}
 当前阶段状态：{json.dumps(report.get('statuses', {}), ensure_ascii=False)}
 首个未完成阶段：{report.get('failed_phase')}
-继续遵守上一轮约束：先读新日志；只做最小修复；不得启动游戏；不得修改参考仓库；本轮仍不要 commit/push。完成后运行离线验证。
+继续遵守上一轮约束：先读新日志；只做最小修复；不得启动游戏；不得修改参考仓库。完成离线验证后，按项目规则提交并推送本轮相关改动，不要提交本地运行产物。
 """
 
 
@@ -368,7 +368,7 @@ def finalize_prompt(*, supervisor_log: Path, summary_path: Path | None) -> str:
     return f"""真实每日流程现已从失败阶段续跑到最后并全部完成。
 监督日志：{supervisor_log}
 最终 summary：{summary_path or '无'}
-请做最终只读核对，确认没有修改只读参考仓库；查看主仓库 git status，只提交与本次自动修复直接相关的代码和测试，使用中文提交信息并推送当前 main 分支。不要把 logs、state、.external 或其他本地运行产物加入提交。完成后报告 commit 和 push 结果。
+请做最终只读核对，确认没有修改只读参考仓库，并查看主仓库 git status 与本次修复的提交、推送状态。若本次修复仍有未提交的代码或测试改动，按项目规则提交并推送当前 main 分支；不要把 logs、state、.external 或其他本地运行产物加入提交。完成后报告核对结果。
 """
 
 
