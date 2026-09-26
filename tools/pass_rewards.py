@@ -20,6 +20,7 @@ from open_game import find_game_window
 from reward_flow import (
     click_ratio_logged,
     dismiss_reward_overlays,
+    prepare_actionable_home,
     recognize_text_at,
     return_to_home,
     swipe_ratio_logged,
@@ -684,7 +685,12 @@ def run_pass_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         logger.failure(reason)
         return False, reason
     try:
-        image = safe_capture_client(hwnd, logger=logger)
+        home_ready, image, home_reason = prepare_actionable_home(
+            hwnd, logger=logger, dry_run=dry_run
+        )
+        if not home_ready:
+            logger.failure(home_reason)
+            return False, home_reason
         ok, pass_image, reason, entered = _enter_with_logger(
             hwnd,
             image,
@@ -736,7 +742,12 @@ def enter_pass_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         reason = "game window not found"
         logger.failure(reason)
         return False, reason
-    image = safe_capture_client(hwnd, logger=logger)
+    home_ready, image, home_reason = prepare_actionable_home(
+        hwnd, logger=logger, dry_run=dry_run
+    )
+    if not home_ready:
+        logger.failure(home_reason)
+        return False, home_reason
     ok, next_image, reason, entered = _enter_with_logger(
         hwnd,
         image,

@@ -9,7 +9,7 @@ from typing import Any
 from PIL import Image
 
 from adaptive_wait import AdaptivePoll
-from free_gacha import RunLogger, safe_capture_client
+from free_gacha import CLICK_POINTS, RunLogger, classify_state, safe_capture_client
 from game_text_recognition import (
     LabelRecognitionSession,
     recognize_home_labels,
@@ -23,6 +23,107 @@ NormalizedRegion = tuple[float, float, float, float]
 Recognition = Callable[[Image.Image], tuple[bool, dict[str, Any]]]
 RETURN_HOME_TIMEOUT = 45.0
 MAX_REWARD_DISMISS_ATTEMPTS = 2
+AD_OPTION_REGION: NormalizedRegion = (846 / 1280, 143 / 720, 142 / 1280, 36 / 720)
+AD_OPTION_LABELS = ("7天内不再显示", "7天內不再顯示", "7日期間不再觀看")
+MAX_HOME_OVERLAY_ACTIONS = 4
+
+
+def _recognize_actionable_home(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Require both the visual state and fixed home text on the same frame."""
+    state, state_details = classify_state(image)
+    home_found = False
+    home_details: dict[str, Any] = {}
+    if state == "real_home":
+        home_found, home_details = recognize_home_labels(image)
+    return state == "real_home" and home_found, {
+        "state": state,
+        "state_details": state_details,
+        "home_found": home_found,
+        "home_details": home_details,
+    }
+
+
+def prepare_actionable_home(
+    hwnd: int,
+    *,
+    logger: RunLogger,
+    dry_run: bool = False,
+    timeout: float = 30.0,
+) -> tuple[bool, Image.Image, str]:
+    """Clear only recognized home obstructions and verify an actionable home."""
+    deadline = time.monotonic() + timeout
+    ad_option_clicked = False
+    ad_dismiss_attempts = 0
+    home_dismiss_attempts = 0
+    actions = 0
+    while True:
+        image = safe_capture_client(hwnd, logger=logger)
+        actionable, details = _recognize_actionable_home(image)
+        state = details["state"]
+        screenshot = logger.save_image(
+            image, f"prepare-home-{time.time_ns()}-{actions}-{state}.png"
+        )
+        logger.event(
+            action="prepare_actionable_home",
+            state=state,
+            actionable=actionable,
+            details=details,
+            screenshot=str(screenshot),
+        )
+        if actionable:
+            return True, image, "已确认可操作主页"
+        if state == "real_home":
+            return False, image, "主页文字未识别，不能确认可操作主页"
+        if state not in {"blocking_ad_overlay", "home_overlay"}:
+            return False, image, f"当前画面为{state}，不能确认可操作主页"
+        if dry_run:
+            return False, image, f"dry-run 遇到{state}，未点击且不能确认可操作主页"
+        if time.monotonic() >= deadline or actions >= MAX_HOME_OVERLAY_ACTIONS:
+            return False, image, "关闭主页遮挡超时或超过点击次数，不能确认可操作主页"
+
+        if state == "blocking_ad_overlay" and not ad_option_clicked:
+            found, recognition = recognize_text_at(image, AD_OPTION_REGION, AD_OPTION_LABELS)
+            logger.event(
+                action="recognize_home_ad_option",
+                found=found,
+                details=recognition,
+                screenshot=str(screenshot),
+            )
+            if time.monotonic() >= deadline:
+                return False, image, "识别广告弹窗后已超时，未执行点击"
+            if found:
+                point = (917 / 1280, 161 / 720)
+                key = "home_ad_7day_option"
+            else:
+                if ad_dismiss_attempts >= 2:
+                    return False, image, "广告弹窗关闭失败，不能确认可操作主页"
+                ad_dismiss_attempts += 1
+                point = CLICK_POINTS["dismiss_overlay"]
+                key = "dismiss_overlay"
+        else:
+            if state == "blocking_ad_overlay":
+                if ad_dismiss_attempts >= 2:
+                    return False, image, "广告弹窗关闭失败，不能确认可操作主页"
+                ad_dismiss_attempts += 1
+            else:
+                if home_dismiss_attempts >= 2:
+                    return False, image, "主页弹窗关闭失败，不能确认可操作主页"
+                home_dismiss_attempts += 1
+            point = CLICK_POINTS["dismiss_overlay"]
+            key = "dismiss_overlay"
+
+        try:
+            click_ratio_logged(hwnd, image, point, key=key, logger=logger)
+        except Exception as exc:
+            logger.event(action="prepare_home_click_failed", key=key, error=repr(exc))
+            return False, image, f"关闭主页遮挡点击失败：{exc}"
+        logger.event(action="prepare_home_click_result", key=key, result="sent")
+        if key == "home_ad_7day_option":
+            ad_option_clicked = True
+        actions += 1
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.4, remaining))
 
 
 def recognize_text_at(
@@ -133,7 +234,7 @@ def wait_for_home_notification_clear(
     """Require home OCR and the exact target red exclamation to be gone."""
 
     def cleared(image: Image.Image) -> tuple[bool, dict[str, Any]]:
-        is_home, home_details = recognize_home_labels(image)
+        is_home, home_details = _recognize_actionable_home(image)
         if not is_home:
             return False, {"home": False, "home_details": home_details}
         has_badge, badge_details = detect_home_reward_notification(image, target)
@@ -264,7 +365,7 @@ def return_to_home(
         details=source_details,
     )
     if not is_source:
-        is_home, home_details = recognize_home_labels(image)
+        is_home, home_details = _recognize_actionable_home(image)
         logger.event(action="recognize_home", found=is_home, details=home_details)
         if is_home:
             if notification_target is None:
@@ -285,7 +386,7 @@ def return_to_home(
         logger=logger,
     )
     def home_after_source_closed(candidate: Image.Image) -> tuple[bool, dict[str, Any]]:
-        is_home, home_details = recognize_home_labels(candidate)
+        is_home, home_details = _recognize_actionable_home(candidate)
         source_still_open, current_source_details = recognize_source(candidate)
         return is_home and not source_still_open, {
             "home_found": is_home,

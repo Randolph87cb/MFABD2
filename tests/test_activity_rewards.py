@@ -513,6 +513,25 @@ class ActivityOcrTransitionTests(unittest.TestCase):
 
 
 class ActivityFlowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        def prepare_home(
+            hwnd: int, *, logger: object, dry_run: bool = False, timeout: float = 30.0
+        ) -> tuple[bool, Image.Image, str]:
+            image = activity_rewards.safe_capture_client(hwnd, logger=logger)
+            is_home, _details = activity_rewards.recognize_home_labels(image)
+            reason = (
+                "actionable home"
+                if is_home
+                else "activity entry requires fixed-position home or activity-page OCR"
+            )
+            return is_home, image, reason
+
+        prepare_home_patch = patch(
+            "activity_rewards.prepare_actionable_home", side_effect=prepare_home
+        )
+        self.prepare_home = prepare_home_patch.start()
+        self.addCleanup(prepare_home_patch.stop)
+
     @patch("activity_rewards.safe_capture_client", side_effect=RuntimeError("boom"))
     @patch("activity_rewards.find_game_window", return_value=123)
     def test_direct_entry_exception_is_persisted(
@@ -561,6 +580,20 @@ class ActivityFlowTests(unittest.TestCase):
         ok, reason, click = self._run(detect_home_reward_notification=notification)
         self.assertTrue(ok)
         self.assertTrue(reason.startswith("skipped:"))
+        click.assert_not_called()
+
+    def test_blocking_overlay_cannot_be_skipped_as_no_reward(self) -> None:
+        self.prepare_home.side_effect = None
+        self.prepare_home.return_value = (
+            False,
+            Image.new("RGB", (1200, 675)),
+            "blocking ad overlay remains",
+        )
+        badge = MagicMock(return_value=(False, {}))
+        ok, reason, click = self._run(detect_home_reward_notification=badge)
+        self.assertFalse(ok)
+        self.assertIn("blocking ad overlay", reason)
+        badge.assert_not_called()
         click.assert_not_called()
 
     def test_non_home_screen_is_rejected_before_badge_detection(self) -> None:

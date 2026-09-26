@@ -13,7 +13,7 @@ from free_gacha import RunLogger, safe_capture_client
 from game_text_recognition import recognize_home_labels, recognize_reward_overlay_labels
 from home_notifications import detect_home_reward_notification, detect_red_exclamation_badge
 from open_game import find_game_window
-from reward_flow import click_ratio_logged, recognize_text_at, return_to_home
+from reward_flow import click_ratio_logged, prepare_actionable_home, recognize_text_at, return_to_home
 
 
 TASK_HOME_CLICK = (0.356, 0.925)
@@ -281,7 +281,12 @@ def run_task_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         return False, reason
 
     try:
-        image = safe_capture_client(hwnd, logger=logger)
+        home_ready, image, home_reason = prepare_actionable_home(
+            hwnd, logger=logger, dry_run=dry_run
+        )
+        if not home_ready:
+            logger.failure(home_reason)
+            return False, home_reason
         is_home, home_details = recognize_home_labels(image)
         has_notification = False
         notification_details: dict[str, object] = {"skipped": "homepage text not confirmed"}

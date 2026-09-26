@@ -260,7 +260,10 @@ class PositionedTextRecognitionTests(unittest.TestCase):
         image = Image.new("RGB", (2000, 1000))
         safe_capture_client.return_value = image
         capture_until.return_value = (True, image, {"available": True})
-        with tempfile.TemporaryDirectory() as temporary:
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "pass_rewards.prepare_actionable_home",
+            return_value=(True, image, "actionable home"),
+        ):
             ok, _reason = enter_pass_rewards(dry_run=False, log_root=Path(temporary))
 
         self.assertTrue(ok)

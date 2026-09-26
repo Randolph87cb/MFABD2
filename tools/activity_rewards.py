@@ -26,7 +26,7 @@ from game_text_recognition import (
 )
 from home_notifications import detect_home_reward_notification, find_red_exclamation_badges
 from open_game import find_game_window
-from reward_flow import click_ratio_logged, return_to_home, swipe_ratio_logged
+from reward_flow import click_ratio_logged, prepare_actionable_home, return_to_home, swipe_ratio_logged
 
 
 NormalizedRegion = tuple[float, float, float, float]
@@ -950,11 +950,13 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
         )
         if dry_run:
             return True, "completed: dry-run resumed at activity page without clicking"
-    elif not is_home:
-        reason = "activity entry requires fixed-position home or activity-page OCR"
-        logger.failure(reason)
-        return False, reason
     else:
+        home_ready, image, home_reason = prepare_actionable_home(
+            hwnd, logger=logger, dry_run=dry_run
+        )
+        if not home_ready:
+            logger.failure(home_reason)
+            return False, home_reason
         has_notification, notification_details = detect_home_reward_notification(image, "events")
         logger.event(
             action="detect_notification",

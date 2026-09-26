@@ -31,6 +31,22 @@ def _recognition(found: bool) -> tuple[bool, dict[str, object]]:
 
 
 class PassRewardEntryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        def prepare_home(
+            hwnd: int, *, logger: RunLogger, dry_run: bool = False, timeout: float = 30.0
+        ) -> tuple[bool, Image.Image, str]:
+            image = pass_rewards.safe_capture_client(hwnd, logger=logger)
+            is_home, _details = pass_rewards.recognize_home_labels(image)
+            return (
+                is_home,
+                image,
+                "actionable home" if is_home else "pass entry requires fixed-position home OCR",
+            )
+
+        prepare_home_patch = patch("pass_rewards.prepare_actionable_home", side_effect=prepare_home)
+        self.prepare_home = prepare_home_patch.start()
+        self.addCleanup(prepare_home_patch.stop)
+
     @patch("pass_rewards._capture_until")
     @patch("pass_rewards._click_logged")
     @patch("pass_rewards.detect_home_reward_notification", return_value=(True, {}))
@@ -87,6 +103,23 @@ class PassRewardEntryTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(reason.startswith("skipped:"))
         click.assert_not_called()
+
+    @patch("pass_rewards.detect_home_reward_notification")
+    @patch("pass_rewards.find_game_window", return_value=123)
+    def test_blocking_overlay_cannot_be_skipped_as_no_reward(
+        self,
+        _window: MagicMock,
+        badge: MagicMock,
+    ) -> None:
+        self.prepare_home.side_effect = None
+        self.prepare_home.return_value = (False, _image(), "blocking ad overlay remains")
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = pass_rewards.run_pass_rewards(
+                dry_run=False, log_root=Path(temporary)
+            )
+        self.assertFalse(ok)
+        self.assertIn("blocking ad overlay", reason)
+        badge.assert_not_called()
 
     @patch("pass_rewards.detect_home_reward_notification")
     @patch("pass_rewards.recognize_home_labels", return_value=(False, {}))
@@ -263,6 +296,18 @@ class PassRewardEntryTests(unittest.TestCase):
 
 
 class PassRewardFlowTests(unittest.TestCase):
+    def setUp(self) -> None:
+        prepare_home_patch = patch(
+            "pass_rewards.prepare_actionable_home",
+            side_effect=lambda hwnd, *, logger, dry_run=False, timeout=30.0: (
+                True,
+                pass_rewards.safe_capture_client(hwnd, logger=logger),
+                "actionable home",
+            ),
+        )
+        self.prepare_home = prepare_home_patch.start()
+        self.addCleanup(prepare_home_patch.stop)
+
     def _run(
         self,
         *,

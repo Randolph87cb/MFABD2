@@ -28,6 +28,18 @@ def named(image: Image.Image) -> str:
 
 
 class TaskRewardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        prepare_home_patch = patch(
+            "task_rewards.prepare_actionable_home",
+            side_effect=lambda hwnd, *, logger, dry_run=False, timeout=30.0: (
+                True,
+                task_rewards.safe_capture_client(hwnd, logger=logger),
+                "actionable home",
+            ),
+        )
+        self.prepare_home = prepare_home_patch.start()
+        self.addCleanup(prepare_home_patch.stop)
+
     @patch("task_rewards.recognize_text_at")
     def test_daily_title_is_not_accepted_as_weekly(self, recognize: MagicMock) -> None:
         recognize.return_value = (True, {"texts": ["每日任务"]})
@@ -85,6 +97,23 @@ class TaskRewardTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(reason.startswith("skipped:"))
         click.assert_not_called()
+
+    @patch("task_rewards.detect_home_reward_notification")
+    @patch("task_rewards.find_game_window", return_value=123)
+    def test_blocking_overlay_cannot_be_skipped_as_no_reward(
+        self,
+        _window: MagicMock,
+        badge: MagicMock,
+    ) -> None:
+        self.prepare_home.side_effect = None
+        self.prepare_home.return_value = (False, frame("overlay"), "blocking ad overlay remains")
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = task_rewards.run_task_rewards(
+                dry_run=False, log_root=Path(temporary)
+            )
+        self.assertFalse(ok)
+        self.assertIn("blocking ad overlay", reason)
+        badge.assert_not_called()
 
     @patch("task_rewards.click_ratio_logged")
     @patch(
@@ -439,6 +468,18 @@ class TaskRewardTests(unittest.TestCase):
 
 
 class MailRewardTests(unittest.TestCase):
+    def setUp(self) -> None:
+        prepare_home_patch = patch(
+            "mail_rewards.prepare_actionable_home",
+            side_effect=lambda hwnd, *, logger, dry_run=False, timeout=30.0: (
+                True,
+                mail_rewards.safe_capture_client(hwnd, logger=logger),
+                "actionable home",
+            ),
+        )
+        self.prepare_home = prepare_home_patch.start()
+        self.addCleanup(prepare_home_patch.stop)
+
     @patch("mail_rewards.recognize_home_labels", return_value=(True, {"available": True}))
     @patch("mail_rewards._wait_for_mail_page")
     @patch("mail_rewards.click_ratio_logged")
@@ -537,6 +578,23 @@ class MailRewardTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertTrue(reason.startswith("skipped:"))
         click.assert_not_called()
+
+    @patch("mail_rewards.detect_home_reward_notification")
+    @patch("mail_rewards.find_game_window", return_value=123)
+    def test_blocking_overlay_cannot_be_skipped_as_no_reward(
+        self,
+        _window: MagicMock,
+        badge: MagicMock,
+    ) -> None:
+        self.prepare_home.side_effect = None
+        self.prepare_home.return_value = (False, frame("overlay"), "blocking ad overlay remains")
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = mail_rewards.run_mail_rewards(
+                dry_run=False, log_root=Path(temporary)
+            )
+        self.assertFalse(ok)
+        self.assertIn("blocking ad overlay", reason)
+        badge.assert_not_called()
 
     @patch("mail_rewards.click_ratio_logged")
     @patch("mail_rewards.detect_red_exclamation_badge")
