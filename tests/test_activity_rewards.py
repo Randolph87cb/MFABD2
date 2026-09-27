@@ -60,6 +60,15 @@ class ActivityDispatchTests(unittest.TestCase):
             activity_rewards.CLOTHING_OPEN_POINT,
             (1047 / 1280, 204 / 720),
         )
+        self.assertEqual(activity_rewards.REGULAR_CLAIM_POINT, (0.773, 0.717))
+        claim_x, claim_y = activity_rewards.REGULAR_CLAIM_POINT
+        region_x, region_y, region_width, region_height = (
+            activity_rewards.REGULAR_CLAIM_REGION
+        )
+        self.assertLessEqual(region_x, claim_x)
+        self.assertLessEqual(claim_x, region_x + region_width)
+        self.assertLessEqual(region_y, claim_y)
+        self.assertLessEqual(claim_y, region_y + region_height)
         expected_switch = (
             (1076 + 11 / 2 + 10) / 1280,
             (534 + 13 / 2 + 4) / 720,
@@ -87,6 +96,17 @@ class ActivityDispatchTests(unittest.TestCase):
                     activity_rewards.classify_activity_from_matches({group: ["matched"]}),
                     expected,
                 )
+
+    def test_regular_claim_beats_broad_free_clothing_copy(self) -> None:
+        self.assertEqual(
+            activity_rewards.classify_activity_from_matches(
+                {
+                    "regular_claim": ["全部领取"],
+                    "clothing_offer": ["+5强化"],
+                }
+            ),
+            "regular",
+        )
 
     def test_purchase_without_free_offer_is_unsafe_not_unknown(self) -> None:
         kind = activity_rewards.classify_activity_from_matches(
@@ -430,6 +450,17 @@ class ActivityDiceTests(unittest.TestCase):
 
 
 class ActivityOcrTransitionTests(unittest.TestCase):
+    def test_generic_pickup_task_identity_matches_specific_task_copy(self) -> None:
+        self.assertTrue(
+            activity_rewards._activity_identity_matches(
+                ["Pickup活动任务"],
+                [
+                    "进行无限宇宙之全一·山城恋Pickup抽抽乐1/1",
+                    "请获取Pickup服装。",
+                ],
+            )
+        )
+
     def test_known_short_roulette_identity_matches_detail_title(self) -> None:
         self.assertTrue(
             activity_rewards._activity_identity_matches(

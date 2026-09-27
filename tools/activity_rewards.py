@@ -83,7 +83,11 @@ CLOTHING_CLAIM_NOW_REGION = _region(320, 145, 843, 422)
 # stays inside that exact expanded envelope.
 CLOTHING_BUTTON_TEMPLATE_REGION = _region(1060, 284, 86, 269)
 CLOTHING_BUTTON_COLUMN_REGION = _region(1030, 254, 146, 329)
-REGULAR_CLAIM_REGION = _region(544, 527, 595, 37)
+# Current-client calibration: the regular activity claim button is rendered at
+# x≈0.773, y≈0.717.  The upstream 1280x720 search strip ends below its OCR
+# centre on the desktop client, so keep this region tight around the actual
+# button to avoid treating task copy elsewhere as an actionable control.
+REGULAR_CLAIM_REGION = (0.700, 0.680, 0.150, 0.080)
 PAID_FREE_REGION = _region(719, 515, 92, 44)
 PAID_PURCHASE_REGION = _region(630, 358, 201, 136)
 
@@ -101,7 +105,7 @@ TOKEN_ROULETTE_POINT = _center(TOKEN_ROULETTE_REGION)
 TOKEN_ROULETTE_TEN_POINT = _center(TOKEN_ROULETTE_TEN_REGION)
 CLOTHING_OPEN_POINT = (1047 / 1280, 204 / 720)
 CLOTHING_CLAIM_NOW_POINT = _center(CLOTHING_CLAIM_NOW_REGION)
-REGULAR_CLAIM_POINT = _center(REGULAR_CLAIM_REGION)
+REGULAR_CLAIM_POINT = (0.773, 0.717)
 # Upstream clicks 50 pixels above the OCR match to open the free paid-diamond
 # offer, then uses the centre of the fixed confirmation region.
 PAID_FREE_POINT = _offset_center(PAID_FREE_REGION, 0, -50)
@@ -183,10 +187,14 @@ def classify_activity_from_matches(matches: MatchMap) -> str:
         ("bingo_unlock", "bingo"),
         ("free_roulette", "free_roulette"),
         ("token_roulette", "token_roulette"),
+        # A fixed-position action label is stronger than broad activity copy.
+        # In particular, ordinary Pickup tasks contain text such as
+        # "强化…服装", which can fuzzily resemble the free-clothing
+        # "+5强化" marker.
+        ("regular_claim", "regular"),
         ("clothing_claim_now", "free_clothing_style_1"),
         ("clothing_button", "free_clothing_style_2"),
         ("clothing_offer", "free_clothing"),
-        ("regular_claim", "regular"),
     ):
         if matches.get(group):
             return kind
@@ -261,7 +269,7 @@ def _read_texts_at(image: Image.Image, region: NormalizedRegion) -> tuple[list[s
 def _normalized_activity_identity(value: object) -> str:
     text = re.sub(r"[^0-9A-Za-z\u3400-\u9fff]+", "", str(value)).upper()
     text = re.sub(r"D\d+", "", text)
-    for generic in ("活动", "EVENT"):
+    for generic in ("活动", "任务", "EVENT"):
         text = text.replace(generic, "")
     return text
 
