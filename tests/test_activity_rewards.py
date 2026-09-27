@@ -450,6 +450,28 @@ class ActivityDiceTests(unittest.TestCase):
 
 
 class ActivityOcrTransitionTests(unittest.TestCase):
+    def test_stylized_harvest_title_uses_detail_progress_fallback(self) -> None:
+        before = [
+            "强化信实之翼服装2／3",
+            "请强化Pickup服装3次。",
+            "强化信实之翼服装2／4",
+        ]
+        after = [
+            "每日登录1 / 1",
+            "请每天登录游戏。",
+            "Hanest",
+            "结算格鲁菲餐厅营业额1 / 1",
+        ]
+
+        self.assertFalse(
+            activity_rewards._activity_identity_matches(
+                ["Moon", "活动任务"],
+                after,
+            )
+        )
+        self.assertTrue(activity_rewards._activity_detail_progressed(before, after))
+        self.assertFalse(activity_rewards._activity_detail_progressed(before, before))
+
     def test_generic_pickup_task_identity_matches_specific_task_copy(self) -> None:
         self.assertTrue(
             activity_rewards._activity_identity_matches(
@@ -508,6 +530,49 @@ class ActivityOcrTransitionTests(unittest.TestCase):
                 logger=MagicMock(),
                 dry_run=False,
             )
+        self.assertTrue(ok)
+
+    @patch(
+        "activity_rewards._read_activity_card_identity",
+        return_value=(["Moon", "活动任务"], {"available": True}),
+    )
+    @patch("activity_rewards.recognize_activity_kind", return_value=("regular", {}))
+    @patch("activity_rewards._is_activity_page", return_value=(True, {}))
+    @patch("activity_rewards.click_ratio_logged")
+    def test_list_selection_accepts_confirmed_detail_progress(
+        self,
+        _click: MagicMock,
+        _page: MagicMock,
+        _kind: MagicMock,
+        _card_identity: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1280, 720))
+        badge = {"center": (0.2, 0.3)}
+        before = ["强化信实之翼服装2／3", "请强化Pickup服装3次。"]
+        after = ["每日登录1 / 1", "请每天登录游戏。", "Hanest"]
+
+        def evaluate(_hwnd: int, **kwargs: object) -> tuple[bool, Image.Image]:
+            predicate = kwargs["predicate"]
+            return bool(predicate(image)), image  # type: ignore[operator]
+
+        with (
+            patch(
+                "activity_rewards._read_texts_at",
+                side_effect=[
+                    (before, {"available": True}),
+                    (after, {"available": True}),
+                ],
+            ),
+            patch("activity_rewards._wait_for_image", side_effect=evaluate),
+        ):
+            ok, _image, _reason = activity_rewards._click_marked_activity(
+                123,
+                image,
+                badge,
+                logger=MagicMock(),
+                dry_run=False,
+            )
+
         self.assertTrue(ok)
 
     @patch("activity_rewards._return_to_activity_index")

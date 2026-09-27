@@ -328,6 +328,24 @@ def _activity_list_progressed(before: tuple[str, ...], after: tuple[str, ...]) -
     return old_left and new_entered
 
 
+def _activity_detail_progressed(before_texts: list[str], after_texts: list[str]) -> bool:
+    """Confirm a detail-page change when a stylized card title cannot be linked."""
+
+    def stable_values(texts: list[str]) -> tuple[str, ...]:
+        values = {
+            normalized
+            for text in texts
+            if len(normalized := _normalized_activity_identity(text)) >= 4
+            and sum(character.isalpha() for character in normalized) >= 4
+        }
+        return tuple(sorted(values))
+
+    return _activity_list_progressed(
+        stable_values(before_texts),
+        stable_values(after_texts),
+    )
+
+
 def _activity_list_at_end(image: Image.Image) -> tuple[bool, dict[str, Any]]:
     texts, details = _read_texts_at(image, ACTIVITY_LIST_END_REGION)
     normalized = [_normalized_ui_text(text) for text in texts]
@@ -880,6 +898,15 @@ def _click_marked_activity(
     )
     if not any(_usable_activity_identity(text) for text in expected_identity):
         return False, image, "带红色感叹号的活动名称未能在固定位置识别，未点击"
+    before_detail_texts, before_detail_details = _read_texts_at(
+        image,
+        ACTIVITY_DETAIL_IDENTITY_REGION,
+    )
+    logger.event(
+        action="recognize_activity_detail_before_selection",
+        texts=before_detail_texts,
+        details=before_detail_details,
+    )
     point = (max(0.0, badge_x - 50 / 1280), min(1.0, badge_y + 10 / 720))
     click_ratio_logged(
         hwnd, image, point, key="activity_marked_list_entry", logger=logger, dry_run=dry_run
@@ -891,7 +918,12 @@ def _click_marked_activity(
         if not _is_activity_page(candidate)[0]:
             return False
         detail_texts, _details = _read_texts_at(candidate, ACTIVITY_DETAIL_IDENTITY_REGION)
-        if not _activity_identity_matches(expected_identity, detail_texts):
+        identity_matched = _activity_identity_matches(expected_identity, detail_texts)
+        detail_progressed = _activity_detail_progressed(
+            before_detail_texts,
+            detail_texts,
+        )
+        if not (identity_matched or detail_progressed):
             return False
         kind, _details = recognize_activity_kind(candidate)
         return kind != "unknown"
