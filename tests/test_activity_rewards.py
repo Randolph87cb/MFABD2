@@ -52,6 +52,17 @@ class ActivityDispatchTests(unittest.TestCase):
             ((665 + 85 / 2) / 1280, (403 + 29 / 2) / 720),
         )
         self.assertEqual(
+            activity_rewards.TOKEN_EXCHANGE_REGION,
+            (0.290, 0.660, 0.115, 0.100),
+        )
+        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[0], 0.3475)
+        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[1], 0.7100)
+        self.assertLessEqual(
+            activity_rewards.TOKEN_EXCHANGE_REGION[0]
+            + activity_rewards.TOKEN_EXCHANGE_REGION[2],
+            0.405,
+        )
+        self.assertEqual(
             activity_rewards.SCROLL_BEGIN,
             (0.175, 0.700),
         )

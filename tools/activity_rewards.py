@@ -61,7 +61,10 @@ ACTIVITY_LIST_BADGE_REGION = (0.255, 0.170, 0.025, 0.620)
 ACTIVITY_LIST_TEXT_REGION = _region(100, 100, 205, 516)
 ACTIVITY_LIST_END_REGION = _region(125, 335, 176, 281)
 ACTIVITY_DETAIL_IDENTITY_REGION = (0.250, 0.120, 0.660, 0.360)
-TOKEN_EXCHANGE_REGION = _region(531, 515, 114, 33)
+# Current-client calibration: the safe single-exchange button is on the left at
+# x≈0.35.  The upstream region lands on the adjacent 100-exchange button and
+# OCR sees only its cost, so it cannot safely identify or click this activity.
+TOKEN_EXCHANGE_REGION = (0.290, 0.660, 0.115, 0.100)
 TOKEN_CONFIRM_REGION = _region(665, 403, 85, 29)
 DICE_AUTO_REGION = _region(1068, 486, 87, 37)
 DICE_SWITCH_REGION = _region(1059, 517, 104, 47)
