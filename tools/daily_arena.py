@@ -246,6 +246,26 @@ def enter_battle_prep(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     state, details = classify_state(image)
     image_path = logger.save_image(image, f"step-001-before-{state}.png")
     logger.event(action="classify", state=state, details=details, screenshot=str(image_path))
+    if state == "reward_overlay":
+        ok, state, image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "reward_overlay_dismiss",
+            verify=lambda candidate, _image: candidate in {"arena_lobby", "arena_battle_prep"},
+            description="dismiss delayed arena season reward",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not ok or dry_run:
+            result = "success" if ok else "error"
+            logger.event(action="stop", result=result, state=state, reason=reason)
+            if not ok:
+                logger.failure(reason)
+            return ok, reason
+    if state == "arena_battle_prep":
+        reason = "already in arena battle preparation"
+        logger.event(action="stop", result="success", state=state, reason=reason)
+        return True, reason
     if state != "arena_lobby":
         reason = f"arena pool entry requires arena_lobby; current state={state}"
         logger.failure(reason)
@@ -907,7 +927,7 @@ def run_daily_arena(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         if not ok:
             return False, reason
         state, _details = classify_state(safe_capture_client(hwnd))
-    if state == "arena_lobby":
+    if state in {"arena_lobby", "reward_overlay"}:
         ok, reason = enter_battle_prep(dry_run=False, log_root=log_root / "03-pool")
         if not ok:
             return False, reason

@@ -17,6 +17,7 @@ from daily_arena import (
     _ensure_free_only,
     _free_only_toggle_enabled,
     enter_arena_from_plaza,
+    enter_battle_prep,
     enter_battlefield,
     leave_arena_victory,
     maximize_and_start_auto_battle,
@@ -180,6 +181,76 @@ class BattlefieldRestaurantRouteTests(unittest.TestCase):
             [call.args[2] for call in click_ratio.call_args_list],
             ["cartridge_first_gameplay", "reward_overlay_dismiss"],
         )
+
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.classify_state", return_value=("reward_overlay", {}))
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
+    def test_battle_prep_dismisses_delayed_season_reward_overlay(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify: MagicMock,
+        click_with_retry: MagicMock,
+    ) -> None:
+        reward_image = Image.new("RGB", (2000, 1000))
+        lobby_image = Image.new("RGB", (2000, 1000))
+        prep_image = Image.new("RGB", (2000, 1000))
+        capture_client.return_value = reward_image
+        click_with_retry.side_effect = [
+            (True, "arena_lobby", lobby_image, "dismissed season reward"),
+            (True, "arena_battle_prep", prep_image, "entered battle prep"),
+        ]
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_battle_prep(dry_run=False, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "entered battle prep")
+        self.assertEqual(
+            [call.args[2] for call in click_with_retry.call_args_list],
+            ["reward_overlay_dismiss", "arena_pool"],
+        )
+
+    def test_full_arena_accepts_delayed_season_reward_before_pool(self) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_arena.enter_battlefield", return_value=(True, "entered battlefield")),
+            patch("daily_arena.find_game_window", return_value=123),
+            patch("daily_arena.safe_capture_client", return_value=image),
+            patch(
+                "daily_arena.classify_state",
+                side_effect=[("arena_cartridge_bar", {}), ("reward_overlay", {})],
+            ),
+            patch(
+                "daily_arena.enter_arena_from_plaza",
+                return_value=(True, "arena lobby reached"),
+            ),
+            patch(
+                "daily_arena.enter_battle_prep",
+                return_value=(True, "entered battle prep"),
+            ) as enter_pool,
+            patch("daily_arena.open_auto_battle", return_value=(True, "opened auto battle")),
+            patch(
+                "daily_arena.maximize_and_start_auto_battle",
+                return_value=(True, "started auto battle"),
+            ),
+            patch(
+                "daily_arena.wait_and_close_repeat_result",
+                return_value=(True, "closed repeat result"),
+            ),
+            patch("daily_arena.leave_arena_victory", return_value=(True, "left arena")),
+            patch(
+                "daily_arena.confirm_optional_rank_change",
+                return_value=(True, "rank confirmed"),
+            ),
+        ):
+            ok, reason = run_daily_arena(dry_run=False, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "rank confirmed")
+        enter_pool.assert_called_once()
 
     def test_full_arena_skips_pool_when_already_at_battle_preparation(self) -> None:
         image = Image.new("RGB", (2000, 1000))
