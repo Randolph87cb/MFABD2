@@ -408,12 +408,13 @@ def open_regular_customer_rewards(*, dry_run: bool, log_root: Path) -> tuple[boo
         logger.failure(reason)
         return False, reason
 
+    restaurant_states = {"restaurant_home", "restaurant_regular_customer_mode"}
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
         image,
         "restaurant_regular_customer",
-        verify=lambda next_state, _image: next_state == "restaurant_regular_customer_mode",
-        description="open regular-customer rewards",
+        verify=lambda next_state, _image: next_state in restaurant_states,
+        description="claim regular-customer rewards",
         dry_run=dry_run,
         logger=logger,
     )
@@ -423,20 +424,20 @@ def open_regular_customer_rewards(*, dry_run: bool, log_root: Path) -> tuple[boo
     if dry_run:
         return True, reason
 
-    if state != "restaurant_regular_customer_mode":
-        reason = f"regular-customer entry ended at unexpected state: {state}"
+    if state not in restaurant_states:
+        reason = f"regular-customer reward claim ended at unexpected state: {state}"
         logger.failure(reason)
         return False, reason
 
-    final_path = logger.save_image(image, f"regular-customer-opened-{state}.png")
+    final_path = logger.save_image(image, f"regular-customer-claimed-{state}.png")
     logger.event(
         action="stop",
         result="success",
         state=state,
-        reason="regular-customer screen opened",
+        reason="regular-customer rewards checked",
         screenshot=str(final_path),
     )
-    return True, "regular-customer mode opened"
+    return True, "regular-customer rewards checked"
 
 
 def detect_regular_customer_note_notification(image: Image.Image) -> tuple[bool, dict[str, float | int]]:

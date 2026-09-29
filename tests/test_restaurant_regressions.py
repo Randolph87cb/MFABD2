@@ -338,6 +338,41 @@ class RestaurantFlowRegressionTests(unittest.TestCase):
         self.assertEqual(reason, "regular-customer mode already open")
         click_with_retry.assert_not_called()
 
+    @patch("business_management.click_with_fixed_retry")
+    @patch(
+        "business_management.classify_state",
+        return_value=("restaurant_home", {}),
+    )
+    @patch("business_management.safe_capture_client")
+    @patch("business_management.find_game_window", return_value=123)
+    def test_regular_customer_reward_claim_can_remain_on_restaurant_home(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify_state: MagicMock,
+        click_with_retry: MagicMock,
+    ) -> None:
+        restaurant_image = Image.new("RGB", (2000, 1000))
+        capture_client.return_value = restaurant_image
+
+        def claim_effect(
+            *_args: object,
+            **kwargs: object,
+        ) -> tuple[bool, str, Image.Image, str]:
+            accepted = kwargs["verify"]("restaurant_home", restaurant_image)
+            return accepted, "restaurant_home", restaurant_image, "reward claimed"
+
+        click_with_retry.side_effect = claim_effect
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = open_regular_customer_rewards(
+                dry_run=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "regular-customer rewards checked")
+
 
 if __name__ == "__main__":
     unittest.main()
