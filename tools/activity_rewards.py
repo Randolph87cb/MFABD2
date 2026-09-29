@@ -61,10 +61,11 @@ ACTIVITY_LIST_BADGE_REGION = (0.255, 0.170, 0.025, 0.620)
 ACTIVITY_LIST_TEXT_REGION = _region(100, 100, 205, 516)
 ACTIVITY_LIST_END_REGION = _region(125, 335, 176, 281)
 ACTIVITY_DETAIL_IDENTITY_REGION = (0.250, 0.120, 0.660, 0.360)
-# Current-client calibration: the safe single-exchange button is on the left at
-# x≈0.35.  The upstream region lands on the adjacent 100-exchange button and
-# OCR sees only its cost, so it cannot safely identify or click this activity.
+# Current-client calibration: identify this activity from the single-exchange
+# button on the left.  The adjacent 100-exchange button is only clicked after
+# the fixed top-right balance proves that at least 100 tokens are available.
 TOKEN_EXCHANGE_REGION = (0.290, 0.660, 0.115, 0.100)
+TOKEN_EXCHANGE_HUNDRED_REGION = (0.405, 0.660, 0.115, 0.100)
 TOKEN_CONFIRM_REGION = _region(665, 403, 85, 29)
 DICE_AUTO_REGION = _region(1068, 486, 87, 37)
 DICE_SWITCH_REGION = _region(1059, 517, 104, 47)
@@ -98,6 +99,7 @@ PAID_PURCHASE_REGION = _region(630, 358, 201, 136)
 # activity-entry target is offset on the current client.
 HOME_ACTIVITY_POINT = (0.467, 0.925)
 TOKEN_EXCHANGE_POINT = _center(TOKEN_EXCHANGE_REGION)
+TOKEN_EXCHANGE_HUNDRED_POINT = _center(TOKEN_EXCHANGE_HUNDRED_REGION)
 TOKEN_CONFIRM_POINT = _center(TOKEN_CONFIRM_REGION)
 DICE_AUTO_POINT = _center(DICE_AUTO_REGION)
 DICE_SWITCH_POINT = _offset_center(DICE_SWITCH_CONTROL_REGION, 10, 4)
@@ -526,8 +528,30 @@ def _click_then_return(
 def _handle_token_exchange(
     hwnd: int, image: Image.Image, *, logger: RunLogger, dry_run: bool
 ) -> tuple[bool, Image.Image, str]:
+    balance, details = _activity_token_balance(image)
+    logger.event(action="recognize_exchange_token_balance", balance=balance, details=details)
+    if balance is None:
+        logger.event(
+            action="exchange_balance_fallback",
+            reason="顶部单个数字未识别，仅尝试固定位置的单次兑换按钮",
+        )
+        point = TOKEN_EXCHANGE_POINT
+        key = "activity_token_exchange_1_balance_unreadable"
+    elif balance <= 0:
+        return False, image, "活动代币为 0，未点击兑换"
+    elif balance >= 100:
+        point = TOKEN_EXCHANGE_HUNDRED_POINT
+        key = "activity_token_exchange_100"
+    else:
+        point = TOKEN_EXCHANGE_POINT
+        key = "activity_token_exchange_1"
     click_ratio_logged(
-        hwnd, image, TOKEN_EXCHANGE_POINT, key="activity_token_exchange", logger=logger, dry_run=dry_run
+        hwnd,
+        image,
+        point,
+        key=key,
+        logger=logger,
+        dry_run=dry_run,
     )
     if dry_run:
         return True, image, "dry-run planned token exchange and confirmation"
@@ -783,7 +807,7 @@ def _handle_paid_diamonds(
     )
 
 
-def _roulette_token_balance(image: Image.Image) -> tuple[int | None, dict[str, Any]]:
+def _activity_token_balance(image: Image.Image) -> tuple[int | None, dict[str, Any]]:
     texts, details = _read_texts_at(image, ROULETTE_BALANCE_REGION)
     values = []
     for text in texts:
@@ -801,7 +825,7 @@ def _handle_token_roulette(
     logger: RunLogger,
     dry_run: bool,
 ) -> tuple[bool, Image.Image, str]:
-    balance, details = _roulette_token_balance(image)
+    balance, details = _activity_token_balance(image)
     logger.event(action="recognize_roulette_token_balance", balance=balance, details=details)
     if balance is None:
         logger.event(
@@ -1086,10 +1110,11 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             kind, details = recognize_activity_kind(image)
             logger.event(action="recognize_activity_kind", cycle=cycle, kind=kind, details=details)
             action_hits[kind] = action_hits.get(kind, 0) + 1
-            if action_hits[kind] > MAX_ACTION_REPEATS:
+            action_limit = MAX_SCAN_CYCLES if kind == "token_exchange" else MAX_ACTION_REPEATS
+            if action_hits[kind] > action_limit:
                 reason = (
                     f"activity {kind} exceeded per-action hard limit "
-                    f"{MAX_ACTION_REPEATS}"
+                    f"{action_limit}"
                 )
                 logger.failure(reason)
                 return False, reason

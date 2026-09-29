@@ -57,6 +57,8 @@ class ActivityDispatchTests(unittest.TestCase):
         )
         self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[0], 0.3475)
         self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[1], 0.7100)
+        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_HUNDRED_POINT[0], 0.4625)
+        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_HUNDRED_POINT[1], 0.7100)
         self.assertLessEqual(
             activity_rewards.TOKEN_EXCHANGE_REGION[0]
             + activity_rewards.TOKEN_EXCHANGE_REGION[2],
@@ -282,6 +284,35 @@ class ActivityPaidSafetyTests(unittest.TestCase):
 
 
 class ActivitySettlementTests(unittest.TestCase):
+    def test_exchange_batch_size_is_guarded_by_balance(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        cases = (
+            (610, activity_rewards.TOKEN_EXCHANGE_HUNDRED_POINT, "activity_token_exchange_100"),
+            (10, activity_rewards.TOKEN_EXCHANGE_POINT, "activity_token_exchange_1"),
+            (None, activity_rewards.TOKEN_EXCHANGE_POINT, "balance_unreadable"),
+        )
+        for balance, expected_point, expected_key in cases:
+            with self.subTest(balance=balance):
+                with (
+                    patch(
+                        "activity_rewards._activity_token_balance",
+                        return_value=(balance, {"available": True}),
+                    ),
+                    patch("activity_rewards.click_ratio_logged") as click,
+                    patch("activity_rewards._wait_for_image", return_value=(True, image)),
+                    patch(
+                        "activity_rewards._click_then_return",
+                        return_value=(True, image, "done"),
+                    ),
+                ):
+                    ok, _image, _reason = activity_rewards._handle_token_exchange(
+                        123, image, logger=MagicMock(), dry_run=False
+                    )
+
+                self.assertTrue(ok)
+                self.assertEqual(click.call_args.args[2], expected_point)
+                self.assertIn(expected_key, click.call_args.kwargs["key"])
+
     @patch("activity_rewards._click_then_return")
     @patch("activity_rewards._read_texts_at", return_value=(["21"], {"available": True}))
     def test_roulette_uses_ten_spin_when_balance_allows_it(
@@ -898,6 +929,32 @@ class ActivityFlowTests(unittest.TestCase):
                 )
         self.assertFalse(ok)
         self.assertIn("per-action hard limit 1", reason)
+
+    def test_token_exchange_uses_the_outer_scan_limit(self) -> None:
+        image = Image.new("RGB", (1200, 675))
+        badge = {"center": (0.2, 0.3)}
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch("activity_rewards.MAX_ACTION_REPEATS", 1),
+                patch("activity_rewards.MAX_SCAN_CYCLES", 3),
+                patch("activity_rewards.find_game_window", return_value=123),
+                patch("activity_rewards.safe_capture_client", return_value=image),
+                patch("activity_rewards.recognize_home_labels", return_value=(True, {})),
+                patch("activity_rewards.detect_home_reward_notification", return_value=(True, {})),
+                patch("activity_rewards._wait_for_image", return_value=(True, image)),
+                patch("activity_rewards._is_activity_page", return_value=(True, {})),
+                patch("activity_rewards.find_red_exclamation_badges", return_value=[badge]),
+                patch("activity_rewards._click_marked_activity", return_value=(True, image, "selected")),
+                patch("activity_rewards.recognize_activity_kind", return_value=("token_exchange", {})),
+                patch("activity_rewards._handle_activity", return_value=(True, image, "claimed")),
+                patch("activity_rewards.click_ratio_logged"),
+            ):
+                ok, reason = activity_rewards.run_activity_rewards(
+                    dry_run=False,
+                    log_root=Path(temporary),
+                )
+        self.assertFalse(ok)
+        self.assertIn("activity scan exceeded hard limit 3", reason)
 
     def test_hard_scan_limit_is_failure(self) -> None:
         image = Image.new("RGB", (1200, 675))
