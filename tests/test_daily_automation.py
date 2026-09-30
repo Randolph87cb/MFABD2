@@ -3057,6 +3057,10 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                 "free_gacha.click_with_fixed_retry",
                 side_effect=lambda *_args, **_kwargs: next(click_results),
             ) as click_with_fixed_retry,
+            patch(
+                "free_gacha.skip_gacha_animation",
+                return_value=(True, "gacha_result", image, "skipped animation"),
+            ),
         ):
             result = run_free_gacha(
                 targets=["costume"],
@@ -3071,6 +3075,60 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         confirm_call = click_with_fixed_retry.call_args_list[0]
         self.assertEqual(confirm_call.args[2], "confirm")
         self.assertTrue(confirm_call.kwargs["wait_on_unknown_transition"])
+
+    @patch("builtins.print")
+    def test_free_gacha_skips_animation_found_after_confirmation_transition(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        states = iter(("confirm_free_gacha", "gacha_result", "gacha_page"))
+        click_results = iter(
+            (
+                (True, "gacha_page", image, "confirmation entered network transition"),
+                (True, "gacha_page", image, "returned from result"),
+            )
+        )
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("free_gacha.find_game_window", return_value=123),
+            patch("free_gacha.safe_capture_client", return_value=image),
+            patch(
+                "free_gacha.classify_state",
+                side_effect=lambda _image: (next(states), {}),
+            ),
+            patch(
+                "free_gacha.click_with_fixed_retry",
+                side_effect=lambda *_args, **_kwargs: next(click_results),
+            ),
+            patch(
+                "free_gacha.wait_for_state",
+                return_value=("gacha_animation", image),
+            ) as wait_for_state,
+            patch(
+                "free_gacha.skip_gacha_animation",
+                return_value=(True, "gacha_result", image, "skipped animation"),
+            ) as skip_gacha_animation,
+        ):
+            result = run_free_gacha(
+                targets=["gear"],
+                timeout=5.0,
+                interval=0.0,
+                dry_run=False,
+                test_mode=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertEqual(result.reason, "all requested free gacha targets completed")
+        wait_for_state.assert_called_once()
+        skip_gacha_animation.assert_called_once_with(
+            123,
+            image,
+            dry_run=False,
+            logger=ANY,
+            interval=0.0,
+        )
 
 
 class CaptureRecoveryTests(unittest.TestCase):

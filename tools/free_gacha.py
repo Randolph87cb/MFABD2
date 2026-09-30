@@ -1669,6 +1669,23 @@ def run_free_gacha(
                         screenshot=str(image_path),
                     )
                     return ActionResult(next_state, "stop", reason)
+            if next_state == "gacha_animation":
+                ok, _, _, reason = skip_gacha_animation(
+                    hwnd,
+                    next_image,
+                    dry_run=dry_run,
+                    logger=logger,
+                    interval=interval,
+                )
+                if not ok:
+                    logger.failure(reason)
+                    logger.event(
+                        action="stop",
+                        result="error",
+                        reason=reason,
+                        screenshot=str(image_path),
+                    )
+                    return ActionResult(next_state, "stop", reason)
             if not dry_run:
                 last_progress_at = time.monotonic()
             continue
