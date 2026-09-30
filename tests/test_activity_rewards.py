@@ -57,8 +57,8 @@ class ActivityDispatchTests(unittest.TestCase):
         )
         self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[0], 0.3475)
         self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[1], 0.7100)
-        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_HUNDRED_POINT[0], 0.4625)
-        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_HUNDRED_POINT[1], 0.7100)
+        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_BATCH_POINT[0], 0.4625)
+        self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_BATCH_POINT[1], 0.7100)
         self.assertLessEqual(
             activity_rewards.TOKEN_EXCHANGE_REGION[0]
             + activity_rewards.TOKEN_EXCHANGE_REGION[2],
@@ -284,11 +284,13 @@ class ActivityPaidSafetyTests(unittest.TestCase):
 
 
 class ActivitySettlementTests(unittest.TestCase):
-    def test_exchange_batch_size_is_guarded_by_balance(self) -> None:
+    def test_exchange_uses_dynamic_batch_when_balance_is_readable(self) -> None:
         image = Image.new("RGB", (1280, 720))
         cases = (
-            (610, activity_rewards.TOKEN_EXCHANGE_HUNDRED_POINT, "activity_token_exchange_100"),
-            (10, activity_rewards.TOKEN_EXCHANGE_POINT, "activity_token_exchange_1"),
+            (610, activity_rewards.TOKEN_EXCHANGE_BATCH_POINT, "activity_token_exchange_batch"),
+            (60, activity_rewards.TOKEN_EXCHANGE_BATCH_POINT, "activity_token_exchange_batch"),
+            (10, activity_rewards.TOKEN_EXCHANGE_BATCH_POINT, "activity_token_exchange_batch"),
+            (1, activity_rewards.TOKEN_EXCHANGE_BATCH_POINT, "activity_token_exchange_batch"),
             (None, activity_rewards.TOKEN_EXCHANGE_POINT, "balance_unreadable"),
         )
         for balance, expected_point, expected_key in cases:
@@ -312,6 +314,26 @@ class ActivitySettlementTests(unittest.TestCase):
                 self.assertTrue(ok)
                 self.assertEqual(click.call_args.args[2], expected_point)
                 self.assertIn(expected_key, click.call_args.kwargs["key"])
+
+    def test_exchange_does_not_click_when_balance_is_zero(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        with (
+            patch(
+                "activity_rewards._activity_token_balance",
+                return_value=(0, {"available": True}),
+            ),
+            patch("activity_rewards.click_ratio_logged") as click,
+        ):
+            ok, _image, reason = activity_rewards._handle_token_exchange(
+                123,
+                image,
+                logger=MagicMock(),
+                dry_run=False,
+            )
+
+        self.assertFalse(ok)
+        self.assertIn("代币为 0", reason)
+        click.assert_not_called()
 
     @patch("activity_rewards._click_then_return")
     @patch("activity_rewards._read_texts_at", return_value=(["21"], {"available": True}))

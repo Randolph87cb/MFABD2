@@ -62,10 +62,11 @@ ACTIVITY_LIST_TEXT_REGION = _region(100, 100, 205, 516)
 ACTIVITY_LIST_END_REGION = _region(125, 335, 176, 281)
 ACTIVITY_DETAIL_IDENTITY_REGION = (0.250, 0.120, 0.660, 0.360)
 # Current-client calibration: identify this activity from the single-exchange
-# button on the left.  The adjacent 100-exchange button is only clicked after
-# the fixed top-right balance proves that at least 100 tokens are available.
+# button on the left.  The adjacent batch button dynamically uses the largest
+# available exchange count, so prefer it whenever the fixed top-right balance
+# proves that at least one token is available.
 TOKEN_EXCHANGE_REGION = (0.290, 0.660, 0.115, 0.100)
-TOKEN_EXCHANGE_HUNDRED_REGION = (0.405, 0.660, 0.115, 0.100)
+TOKEN_EXCHANGE_BATCH_REGION = (0.405, 0.660, 0.115, 0.100)
 TOKEN_CONFIRM_REGION = _region(665, 403, 85, 29)
 DICE_AUTO_REGION = _region(1068, 486, 87, 37)
 DICE_SWITCH_REGION = _region(1059, 517, 104, 47)
@@ -99,7 +100,7 @@ PAID_PURCHASE_REGION = _region(630, 358, 201, 136)
 # activity-entry target is offset on the current client.
 HOME_ACTIVITY_POINT = (0.467, 0.925)
 TOKEN_EXCHANGE_POINT = _center(TOKEN_EXCHANGE_REGION)
-TOKEN_EXCHANGE_HUNDRED_POINT = _center(TOKEN_EXCHANGE_HUNDRED_REGION)
+TOKEN_EXCHANGE_BATCH_POINT = _center(TOKEN_EXCHANGE_BATCH_REGION)
 TOKEN_CONFIRM_POINT = _center(TOKEN_CONFIRM_REGION)
 DICE_AUTO_POINT = _center(DICE_AUTO_REGION)
 DICE_SWITCH_POINT = _offset_center(DICE_SWITCH_CONTROL_REGION, 10, 4)
@@ -539,12 +540,9 @@ def _handle_token_exchange(
         key = "activity_token_exchange_1_balance_unreadable"
     elif balance <= 0:
         return False, image, "活动代币为 0，未点击兑换"
-    elif balance >= 100:
-        point = TOKEN_EXCHANGE_HUNDRED_POINT
-        key = "activity_token_exchange_100"
     else:
-        point = TOKEN_EXCHANGE_POINT
-        key = "activity_token_exchange_1"
+        point = TOKEN_EXCHANGE_BATCH_POINT
+        key = "activity_token_exchange_batch"
     click_ratio_logged(
         hwnd,
         image,
