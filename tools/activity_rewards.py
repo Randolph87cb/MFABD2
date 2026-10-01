@@ -133,6 +133,7 @@ MAX_SETTLEMENTS = 6
 MAX_SETTLEMENT_DISMISS_ATTEMPTS = 2
 MAX_ACTIVITY_SWIPES = 6
 MAX_ACTIVITY_ENTRY_CLICKS = 2
+MAX_ACTIVITY_REENTRIES = 3
 DICE_RUN_SETTLE_SECONDS = 15.0
 
 
@@ -982,7 +983,6 @@ def _finish_at_home(
         notification_name="活动",
     )
     if not returned:
-        logger.failure(reason)
         return False, reason
     if completed:
         return True, f"completed: processed {completed} marked activities; {reason}"
@@ -1082,6 +1082,7 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
 
     completed = 0
     swipes = 0
+    reentries = 0
     action_hits: dict[str, int] = {}
     for cycle in range(1, MAX_SCAN_CYCLES + 1):
         is_page, page_details = _is_activity_page(image)
@@ -1133,7 +1134,83 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             details=end_details,
         )
         if at_end:
-            return _finish_at_home(hwnd, logger=logger, completed=completed)
+            finished, reason = _finish_at_home(
+                hwnd,
+                logger=logger,
+                completed=completed,
+            )
+            if finished:
+                return True, reason
+
+            # The game can keep the homepage Activities badge after one list
+            # pass.  Upstream returns through Activities_InIndex in this state,
+            # because reopening the page refreshes the list and can expose the
+            # remaining marked entry.  Only retry when both fixed home OCR and
+            # the exact Activities badge independently confirm that state.
+            is_home, image, home_reason = prepare_actionable_home(
+                hwnd,
+                logger=logger,
+                dry_run=False,
+            )
+            home_details = {"reason": home_reason}
+            has_notification = False
+            notification_details: dict[str, Any] = {
+                "skipped": "fixed-position home OCR was not confirmed"
+            }
+            if is_home:
+                has_notification, notification_details = (
+                    detect_home_reward_notification(image, "events")
+                )
+            logger.event(
+                action="activity_completion_retry_check",
+                home=is_home,
+                home_details=home_details,
+                notification=has_notification,
+                notification_details=notification_details,
+                reentries=reentries,
+            )
+            if is_home and not has_notification:
+                prefix = "completed" if completed else "skipped"
+                return True, (
+                    f"{prefix}: homepage activity notification cleared "
+                    "after the completion wait"
+                )
+            if not (is_home and has_notification):
+                logger.failure(reason)
+                return False, reason
+            if reentries >= MAX_ACTIVITY_REENTRIES:
+                retry_reason = (
+                    "主页活动红点在重新扫描 "
+                    f"{MAX_ACTIVITY_REENTRIES} 次后仍存在，不能判定该环节完成"
+                )
+                logger.failure(retry_reason)
+                return False, retry_reason
+
+            click_ratio_logged(
+                hwnd,
+                image,
+                HOME_ACTIVITY_POINT,
+                key="home_activity_reentry",
+                logger=logger,
+            )
+            opened, image = _wait_for_image(
+                hwnd,
+                logger=logger,
+                label=f"activity-index-reopened-{reentries + 1}",
+                predicate=lambda candidate: _is_activity_page(candidate)[0],
+            )
+            if not opened:
+                retry_reason = "主页活动红点仍存在，但重新进入活动页未成功"
+                logger.failure(retry_reason)
+                return False, retry_reason
+            reentries += 1
+            swipes = 0
+            logger.event(
+                action="activity_scan_reentered",
+                reentries=reentries,
+                reason="homepage activity notification remained after a full list scan",
+            )
+            continue
         if swipes >= MAX_ACTIVITY_SWIPES:
             reason = (
                 f"活动列表已滑动 {MAX_ACTIVITY_SWIPES} 次，但未识别到列表底部文字，"

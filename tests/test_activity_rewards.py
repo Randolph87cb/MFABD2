@@ -898,6 +898,75 @@ class ActivityFlowTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(reason, "home text was not recognized")
 
+    def test_remaining_home_badge_reopens_activity_and_rescans(self) -> None:
+        image = Image.new("RGB", (1200, 675))
+        click = MagicMock()
+        return_home = MagicMock(
+            side_effect=[
+                (False, "已返回主页，但活动红点仍存在，不能判定该环节完成"),
+                (True, "已确认主页活动红点消失"),
+            ]
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch("activity_rewards.find_game_window", return_value=123),
+                patch("activity_rewards.safe_capture_client", return_value=image),
+                patch("activity_rewards.recognize_home_labels", return_value=(True, {})),
+                patch("activity_rewards.detect_home_reward_notification", return_value=(True, {})),
+                patch("activity_rewards._wait_for_image", return_value=(True, image)),
+                patch("activity_rewards._is_activity_page", return_value=(True, {})),
+                patch("activity_rewards.find_red_exclamation_badges", return_value=[]),
+                patch("activity_rewards._activity_list_at_end", return_value=(True, {})),
+                patch("activity_rewards.click_ratio_logged", click),
+                patch("activity_rewards.return_to_home", return_home),
+            ):
+                ok, reason = activity_rewards.run_activity_rewards(
+                    dry_run=False,
+                    log_root=Path(temporary),
+                )
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(return_home.call_count, 2)
+        self.assertEqual(
+            [entry.kwargs["key"] for entry in click.call_args_list],
+            ["home_activity", "home_activity_reentry"],
+        )
+
+    def test_remaining_home_badge_reentry_has_hard_limit(self) -> None:
+        image = Image.new("RGB", (1200, 675))
+        click = MagicMock()
+        with tempfile.TemporaryDirectory() as temporary:
+            with (
+                patch("activity_rewards.MAX_ACTIVITY_REENTRIES", 1),
+                patch("activity_rewards.find_game_window", return_value=123),
+                patch("activity_rewards.safe_capture_client", return_value=image),
+                patch("activity_rewards.recognize_home_labels", return_value=(True, {})),
+                patch("activity_rewards.detect_home_reward_notification", return_value=(True, {})),
+                patch("activity_rewards._wait_for_image", return_value=(True, image)),
+                patch("activity_rewards._is_activity_page", return_value=(True, {})),
+                patch("activity_rewards.find_red_exclamation_badges", return_value=[]),
+                patch("activity_rewards._activity_list_at_end", return_value=(True, {})),
+                patch("activity_rewards.click_ratio_logged", click),
+                patch(
+                    "activity_rewards.return_to_home",
+                    return_value=(
+                        False,
+                        "已返回主页，但活动红点仍存在，不能判定该环节完成",
+                    ),
+                ),
+            ):
+                ok, reason = activity_rewards.run_activity_rewards(
+                    dry_run=False,
+                    log_root=Path(temporary),
+                )
+
+        self.assertFalse(ok)
+        self.assertIn("重新扫描 1 次后仍存在", reason)
+        self.assertEqual(
+            [entry.kwargs["key"] for entry in click.call_args_list],
+            ["home_activity", "home_activity_reentry"],
+        )
+
     def test_processed_activity_uses_completed_prefix(self) -> None:
         image = Image.new("RGB", (1200, 675))
         badge = {"center": (0.2, 0.3)}
