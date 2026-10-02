@@ -567,7 +567,13 @@ class ActivityOcrTransitionTests(unittest.TestCase):
         self.assertGreater(region[1], badge["center"][1])
 
     @patch("activity_rewards._read_activity_card_identity", return_value=(["EVENTNAME"], {"available": True}))
-    @patch("activity_rewards._read_texts_at", return_value=(["EVENTNAME"], {"available": True}))
+    @patch(
+        "activity_rewards._read_texts_at",
+        side_effect=[
+            (["1234"], {"available": True}),
+            (["EVENTNAME"], {"available": True}),
+        ],
+    )
     @patch("activity_rewards.recognize_activity_kind", return_value=("regular", {}))
     @patch("activity_rewards._is_activity_page", return_value=(True, {}))
     @patch("activity_rewards.click_ratio_logged")
@@ -638,6 +644,67 @@ class ActivityOcrTransitionTests(unittest.TestCase):
             )
 
         self.assertTrue(ok)
+
+    @patch(
+        "activity_rewards._read_activity_card_identity",
+        return_value=(["Haestst", "活动兑换所"], {"available": True}),
+    )
+    @patch("activity_rewards.recognize_activity_kind", return_value=("token_exchange", {}))
+    @patch("activity_rewards._is_activity_page", return_value=(True, {}))
+    @patch("activity_rewards.click_ratio_logged")
+    def test_list_selection_rejects_stale_detail_that_already_matches_identity(
+        self,
+        _click: MagicMock,
+        _page: MagicMock,
+        _kind: MagicMock,
+        _card_identity: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1280, 720))
+        badge = {"center": (0.2, 0.3)}
+        stale_detail = [
+            "每日登录11",
+            "请每天登录游戏。",
+            "Hanest",
+            "结算格鲁菲餐厅营业额11",
+            "兑换所硬币获取",
+            "助力任务",
+        ]
+        selected_detail = [
+            "Harvest Moon",
+            "非饶之月",
+            "兑换所活动",
+            "兑换1次",
+            "兑换35次",
+        ]
+        predicate_results: list[bool] = []
+
+        def evaluate(_hwnd: int, **kwargs: object) -> tuple[bool, Image.Image]:
+            predicate = kwargs["predicate"]
+            predicate_results.append(bool(predicate(image)))  # type: ignore[operator]
+            predicate_results.append(bool(predicate(image)))  # type: ignore[operator]
+            return predicate_results[-1], image
+
+        with (
+            patch(
+                "activity_rewards._read_texts_at",
+                side_effect=[
+                    (stale_detail, {"available": True}),
+                    (stale_detail, {"available": True}),
+                    (selected_detail, {"available": True}),
+                ],
+            ),
+            patch("activity_rewards._wait_for_image", side_effect=evaluate),
+        ):
+            ok, _image, _reason = activity_rewards._click_marked_activity(
+                123,
+                image,
+                badge,
+                logger=MagicMock(),
+                dry_run=False,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(predicate_results, [False, True])
 
     @patch("activity_rewards._return_to_activity_index")
     @patch("activity_rewards.recognize_reward_overlay_labels", return_value=(True, {}))

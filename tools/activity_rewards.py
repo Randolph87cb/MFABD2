@@ -933,6 +933,10 @@ def _click_marked_activity(
         texts=before_detail_texts,
         details=before_detail_details,
     )
+    before_identity_matched = _activity_identity_matches(
+        expected_identity,
+        before_detail_texts,
+    )
     point = (max(0.0, badge_x - 50 / 1280), min(1.0, badge_y + 10 / 720))
     click_ratio_logged(
         hwnd, image, point, key="activity_marked_list_entry", logger=logger, dry_run=dry_run
@@ -945,11 +949,15 @@ def _click_marked_activity(
             return False
         detail_texts, _details = _read_texts_at(candidate, ACTIVITY_DETAIL_IDENTITY_REGION)
         identity_matched = _activity_identity_matches(expected_identity, detail_texts)
+        # A related activity can expose the same event name and words such as
+        # “兑换所” before the clicked card has finished loading.  Only a new
+        # match can prove selection; otherwise require the detail OCR to move.
+        identity_newly_matched = identity_matched and not before_identity_matched
         detail_progressed = _activity_detail_progressed(
             before_detail_texts,
             detail_texts,
         )
-        if not (identity_matched or detail_progressed):
+        if not (identity_newly_matched or detail_progressed):
             return False
         kind, _details = recognize_activity_kind(candidate)
         return kind != "unknown"
