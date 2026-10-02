@@ -306,6 +306,27 @@ def _activity_identity_matches(list_texts: list[str], detail_texts: list[str]) -
     return False
 
 
+def _repeatable_selected_activity_kind(card_texts: list[str]) -> str | None:
+    """Return a kind whose exact card label safely permits same-page reuse."""
+    labels = {_normalized_ui_text(text) for text in card_texts}
+    if "活动兑换所" in labels:
+        return "token_exchange"
+    return None
+
+
+def _distinct_activity_identity_matches(
+    card_texts: list[str],
+    detail_texts: list[str],
+) -> bool:
+    """Match an event name while excluding the generic exchange-card label."""
+    distinctive = [
+        text
+        for text in card_texts
+        if _normalized_ui_text(text) != "活动兑换所"
+    ]
+    return _activity_identity_matches(distinctive, detail_texts)
+
+
 def _activity_list_identity(image: Image.Image) -> tuple[str, ...]:
     """Read stable activity names from the fixed left-hand list area."""
     texts, _details = _read_texts_at(image, ACTIVITY_LIST_TEXT_REGION)
@@ -937,6 +958,15 @@ def _click_marked_activity(
         expected_identity,
         before_detail_texts,
     )
+    repeatable_kind = _repeatable_selected_activity_kind(expected_identity)
+    before_kind = "unknown"
+    before_distinct_identity_matched = False
+    if before_identity_matched and repeatable_kind is not None:
+        before_kind, _details = recognize_activity_kind(image)
+        before_distinct_identity_matched = _distinct_activity_identity_matches(
+            expected_identity,
+            before_detail_texts,
+        )
     point = (max(0.0, badge_x - 50 / 1280), min(1.0, badge_y + 10 / 720))
     click_ratio_logged(
         hwnd, image, point, key="activity_marked_list_entry", logger=logger, dry_run=dry_run
@@ -957,10 +987,21 @@ def _click_marked_activity(
             before_detail_texts,
             detail_texts,
         )
-        if not (identity_newly_matched or detail_progressed):
-            return False
         kind, _details = recognize_activity_kind(candidate)
-        return kind != "unknown"
+        same_activity_remains_selected = (
+            repeatable_kind is not None
+            and before_kind == repeatable_kind == kind
+            and before_distinct_identity_matched
+            and _distinct_activity_identity_matches(expected_identity, detail_texts)
+        )
+        return bool(
+            kind != "unknown"
+            and (
+                identity_newly_matched
+                or detail_progressed
+                or same_activity_remains_selected
+            )
+        )
 
     changed, current = _wait_for_image(
         hwnd,

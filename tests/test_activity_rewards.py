@@ -649,7 +649,14 @@ class ActivityOcrTransitionTests(unittest.TestCase):
         "activity_rewards._read_activity_card_identity",
         return_value=(["Haestst", "活动兑换所"], {"available": True}),
     )
-    @patch("activity_rewards.recognize_activity_kind", return_value=("token_exchange", {}))
+    @patch(
+        "activity_rewards.recognize_activity_kind",
+        side_effect=[
+            ("regular", {}),
+            ("regular", {}),
+            ("token_exchange", {}),
+        ],
+    )
     @patch("activity_rewards._is_activity_page", return_value=(True, {}))
     @patch("activity_rewards.click_ratio_logged")
     def test_list_selection_rejects_stale_detail_that_already_matches_identity(
@@ -705,6 +712,67 @@ class ActivityOcrTransitionTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(predicate_results, [False, True])
+
+    @patch(
+        "activity_rewards._read_activity_card_identity",
+        return_value=(["Moon", "活动兑换所"], {"available": True}),
+    )
+    @patch(
+        "activity_rewards.recognize_activity_kind",
+        side_effect=[("token_exchange", {}), ("token_exchange", {})],
+    )
+    @patch("activity_rewards._is_activity_page", return_value=(True, {}))
+    @patch("activity_rewards.click_ratio_logged")
+    def test_selected_token_exchange_can_be_processed_again_without_page_change(
+        self,
+        _click: MagicMock,
+        _page: MagicMock,
+        _kind: MagicMock,
+        _card_identity: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1280, 720))
+        badge = {"center": (0.2, 0.3)}
+        detail = [
+            "第6次",
+            "帮助",
+            "剩余数量：100/195",
+            "即刻刷新",
+            "Havest",
+            "Moon",
+            "兑换所活动",
+            "兑换95次",
+        ]
+
+        def evaluate(_hwnd: int, **kwargs: object) -> tuple[bool, Image.Image]:
+            predicate = kwargs["predicate"]
+            return bool(predicate(image)), image  # type: ignore[operator]
+
+        with (
+            patch(
+                "activity_rewards._read_texts_at",
+                side_effect=[
+                    (detail, {"available": True}),
+                    (detail, {"available": True}),
+                ],
+            ),
+            patch("activity_rewards._wait_for_image", side_effect=evaluate),
+        ):
+            ok, _image, _reason = activity_rewards._click_marked_activity(
+                123,
+                image,
+                badge,
+                logger=MagicMock(),
+                dry_run=False,
+            )
+
+        self.assertTrue(ok)
+
+    def test_paid_exchange_card_is_not_repeatable_as_token_exchange(self) -> None:
+        self.assertIsNone(
+            activity_rewards._repeatable_selected_activity_kind(
+                ["满月付费钻石兑换所活动"],
+            )
+        )
 
     @patch("activity_rewards._return_to_activity_index")
     @patch("activity_rewards.recognize_reward_overlay_labels", return_value=(True, {}))
