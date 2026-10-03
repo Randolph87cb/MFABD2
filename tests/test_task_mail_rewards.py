@@ -480,6 +480,36 @@ class MailRewardTests(unittest.TestCase):
         self.prepare_home = prepare_home_patch.start()
         self.addCleanup(prepare_home_patch.stop)
 
+    def test_product_badge_region_covers_current_client_position(self) -> None:
+        image = Image.new("RGB", (1000, 600))
+        draw = ImageDraw.Draw(image)
+        center_x, center_y = 223, 116
+        radius = 7
+        draw.polygon(
+            (
+                (center_x, center_y - radius),
+                (center_x + radius, center_y),
+                (center_x, center_y + radius),
+                (center_x - radius, center_y),
+            ),
+            fill=(220, 25, 45),
+        )
+        draw.rectangle((center_x, center_y - 3, center_x, center_y), fill="white")
+        draw.point((center_x, center_y + 3), fill="white")
+
+        found, _details = mail_rewards.detect_red_exclamation_badge(
+            image,
+            mail_rewards.PRODUCT_BADGE_REGION,
+        )
+
+        self.assertTrue(found)
+
+        general_found, _details = mail_rewards.detect_red_exclamation_badge(
+            image,
+            mail_rewards.GENERAL_BADGE_REGION,
+        )
+        self.assertFalse(general_found)
+
     @patch("mail_rewards.recognize_home_labels", return_value=(True, {"available": True}))
     @patch("mail_rewards._wait_for_mail_page")
     @patch("mail_rewards.click_ratio_logged")
