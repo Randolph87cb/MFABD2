@@ -178,6 +178,27 @@ class PassRewardEntryTests(unittest.TestCase):
             (pass_rewards.PASS_CARD_SELECT_X, 0.463),
         )
 
+    @patch(
+        "pass_rewards._read_texts_at",
+        return_value=(["角色通行证"], {"available": True}),
+    )
+    def test_card_identity_region_starts_below_badge_to_capture_current_title(
+        self,
+        read_texts: MagicMock,
+    ) -> None:
+        image = _image()
+
+        texts, _details = pass_rewards._read_pass_card_identity(
+            image,
+            {"center": (0.266, 0.463)},
+        )
+
+        self.assertEqual(texts, ["角色通行证"])
+        read_texts.assert_called_once_with(
+            image,
+            (0.130, 0.453, 0.160, 0.075),
+        )
+
     def test_select_action_uses_fixed_card_x_and_passes_identity_to_confirmation(self) -> None:
         badge = _badge(0.463)
         click = MagicMock()

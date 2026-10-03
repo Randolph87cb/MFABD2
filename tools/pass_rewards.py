@@ -319,7 +319,10 @@ def _read_pass_card_identity(
     badge: dict[str, Any],
 ) -> tuple[list[str], dict[str, Any]]:
     _x, center_y = badge["center"]
-    region = (0.130, max(0.120, float(center_y) - 0.050), 0.160, 0.100)
+    # The badge sits near the card's top-right corner, while its identity text
+    # is below it.  Centering the OCR region on the badge mixes in the previous
+    # card and clips the current title at the lower edge.
+    region = (0.130, max(0.120, float(center_y) - 0.010), 0.160, 0.075)
     return _read_texts_at(image, region)
 
 
