@@ -497,12 +497,14 @@ class MailRewardTests(unittest.TestCase):
         draw.rectangle((center_x, center_y - 3, center_x, center_y), fill="white")
         draw.point((center_x, center_y + 3), fill="white")
 
-        found, _details = mail_rewards.detect_red_exclamation_badge(
+        found, details = mail_rewards.detect_red_exclamation_badge(
             image,
             mail_rewards.PRODUCT_BADGE_REGION,
         )
 
         self.assertTrue(found)
+        self.assertAlmostEqual(details["center"][0], 0.223, places=3)
+        self.assertAlmostEqual(details["center"][1], 0.193, places=3)
 
         general_found, _details = mail_rewards.detect_red_exclamation_badge(
             image,
@@ -668,7 +670,7 @@ class MailRewardTests(unittest.TestCase):
         overlay.side_effect = lambda image: (named(image).startswith("overlay"), {})
         product_badge.side_effect = [
             (True, {"stage": "general"}),
-            (True, {"stage": "product-before"}),
+            (True, {"stage": "product-before", "center": (0.223, 0.193)}),
             (False, {"stage": "product-after"}),
         ]
 
@@ -694,6 +696,12 @@ class MailRewardTests(unittest.TestCase):
                 "mail_product_claim_all",
             ],
         )
+        product_tab_click = next(
+            entry
+            for entry in click.call_args_list
+            if entry.kwargs["key"] == "product_mail_tab"
+        )
+        self.assertEqual(product_tab_click.args[2], (0.223, 0.193))
         return_home.assert_called_once()
 
     @patch("mail_rewards.click_ratio_logged")

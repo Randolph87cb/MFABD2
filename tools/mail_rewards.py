@@ -24,7 +24,6 @@ GENERAL_BADGE_REGION = (0.205, 0.105, 0.035, 0.055)
 # Current desktop evidence places the product-mail badge above the upstream
 # tab rectangle, near its top-right corner.
 PRODUCT_BADGE_REGION = (0.205, 0.160, 0.035, 0.070)
-PRODUCT_TAB_CLICK = (0.216, 0.246)
 # OCR can take more than five seconds on its first call.  Keep enough wall-clock
 # budget for a transition frame to be rejected and a settled frame to be read.
 STEP_TIMEOUT = 20.0
@@ -375,10 +374,11 @@ def run_mail_rewards(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         product, product_details = detect_red_exclamation_badge(image, PRODUCT_BADGE_REGION)
         logger.event(action="detect_notification", target="product_mail", found=product, details=product_details)
         if product:
+            product_badge_center = tuple(product_details["center"])
             click_ratio_logged(
                 hwnd,
                 image,
-                PRODUCT_TAB_CLICK,
+                product_badge_center,
                 key="product_mail_tab",
                 logger=logger,
             )
