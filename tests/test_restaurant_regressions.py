@@ -312,6 +312,51 @@ class RestaurantFlowRegressionTests(unittest.TestCase):
         verify = click_with_retry.call_args.kwargs["verify"]
         self.assertTrue(verify("restaurant_regular_customer_mode", restaurant_image))
 
+    @patch("business_management.wait_for_state")
+    @patch("business_management.click_with_fixed_retry")
+    @patch(
+        "business_management.classify_state",
+        return_value=("business_management_dialog", {}),
+    )
+    @patch("business_management.safe_capture_client")
+    @patch("business_management.find_game_window", return_value=123)
+    def test_restaurant_entry_waits_through_home_transition(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        _classify_state: MagicMock,
+        click_with_retry: MagicMock,
+        wait_for_state: MagicMock,
+    ) -> None:
+        dialog_image = Image.new("RGB", (2000, 1000))
+        home_image = Image.new("RGB", (2000, 1000), color=(80, 80, 80))
+        restaurant_image = Image.new("RGB", (2000, 1000), color=(160, 160, 160))
+        capture_client.return_value = dialog_image
+
+        def click_effect(
+            *_args: object,
+            **kwargs: object,
+        ) -> tuple[bool, str, Image.Image, str]:
+            accepted = kwargs["verify"]("real_home", home_image)
+            return accepted, "real_home", home_image, "restaurant transition"
+
+        click_with_retry.side_effect = click_effect
+        wait_for_state.return_value = ("restaurant_home", restaurant_image)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            ok, reason = enter_restaurant(dry_run=False, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "restaurant home reached")
+        wait_for_state.assert_called_once_with(
+            123,
+            ANY,
+            expected={"restaurant_home", "restaurant_regular_customer_mode"},
+            timeout=90.0,
+            interval=3.0,
+            label="restaurant-transition",
+        )
+
     @patch("business_management.click_with_fixed_retry")
     @patch(
         "business_management.classify_state",

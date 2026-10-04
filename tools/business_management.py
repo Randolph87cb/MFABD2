@@ -341,12 +341,13 @@ def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         return False, reason
 
     interactive_states = {"restaurant_home", "restaurant_regular_customer_mode"}
+    transition_states = {"restaurant_loading", "real_home"}
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
         image,
         "business_management_restaurant",
         verify=lambda next_state, _image: next_state
-        in interactive_states | {"restaurant_loading"},
+        in interactive_states | transition_states,
         description="enter restaurant from business management",
         dry_run=dry_run,
         logger=logger,
@@ -357,14 +358,14 @@ def enter_restaurant(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     if dry_run:
         return True, reason
 
-    if state == "restaurant_loading":
+    if state in transition_states:
         state, image = wait_for_state(
             hwnd,
             logger,
             expected=interactive_states,
             timeout=90.0,
             interval=3.0,
-            label="restaurant-loading",
+            label="restaurant-transition",
         )
     if state not in interactive_states:
         reason = f"restaurant entry ended at unexpected state: {state}"
