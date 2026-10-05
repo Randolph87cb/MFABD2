@@ -1326,7 +1326,7 @@ def recognize_reward_overlay_labels(
     *,
     session: LabelRecognitionSession | None = None,
 ) -> tuple[bool, dict[str, Any]]:
-    """Recognize any reward overlay from its shared heading and return hint."""
+    """Recognize a reward overlay from its shared click-to-return hint."""
     grouped_texts, matches, error = _recognize_with_session(
         image,
         REWARD_OVERLAY_LABEL_GROUPS,
@@ -1334,13 +1334,13 @@ def recognize_reward_overlay_labels(
     )
     if error is not None:
         return False, error
-    is_reward_overlay = bool(matches["header"]) and "点击画面即可返回" in matches["footer"]
+    is_reward_overlay = "点击画面即可返回" in matches["footer"]
     return is_reward_overlay, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {
-            "header": 1,
+            "header": "optional reward title",
             "footer": 1,
         },
     }

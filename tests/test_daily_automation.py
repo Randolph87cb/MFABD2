@@ -577,6 +577,30 @@ class PositionedTextRecognitionTests(unittest.TestCase):
 
         self.assertTrue(matched)
 
+    def test_business_settlement_return_hint_is_an_actionable_overlay_without_title(
+        self,
+    ) -> None:
+        session = MagicMock()
+        session.recognize.return_value = (
+            {
+                "header": ["结算格鲁菲餐厅营业额1/1完成！"],
+                "footer": ["点击画面即可返回。"],
+            },
+            {
+                "header": [],
+                "footer": ["点击画面即可返回"],
+            },
+            None,
+        )
+
+        matched, details = recognize_reward_overlay_labels(
+            Image.new("RGB", (80, 45)),
+            session=session,
+        )
+
+        self.assertTrue(matched)
+        self.assertEqual(details["matches"]["header"], [])
+
     def test_terms_dialog_requires_all_three_positioned_labels(self) -> None:
         session = MagicMock()
         session.recognize.return_value = (
