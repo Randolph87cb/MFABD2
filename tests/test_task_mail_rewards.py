@@ -634,6 +634,7 @@ class MailRewardTests(unittest.TestCase):
     @patch("mail_rewards.return_to_home", return_value=(True, "returned home"))
     @patch("mail_rewards.recognize_reward_overlay_labels")
     @patch("mail_rewards._recognize_claim_all")
+    @patch("mail_rewards._recognize_product_mail_page")
     @patch("mail_rewards._recognize_mail_page")
     @patch("mail_rewards.recognize_home_labels", return_value=(True, {}))
     @patch("mail_rewards.safe_capture_client")
@@ -644,6 +645,7 @@ class MailRewardTests(unittest.TestCase):
         capture: MagicMock,
         _home: MagicMock,
         mail_page: MagicMock,
+        product_page: MagicMock,
         claim: MagicMock,
         overlay: MagicMock,
         return_home: MagicMock,
@@ -666,12 +668,13 @@ class MailRewardTests(unittest.TestCase):
             named(image) in {"general", "general-after", "product", "product-after"},
             {},
         )
+        product_page.side_effect = lambda image: (named(image) == "product", {})
         claim.side_effect = lambda image: (named(image) in {"general", "product"}, {})
         overlay.side_effect = lambda image: (named(image).startswith("overlay"), {})
         product_badge.side_effect = [
             (True, {"stage": "general"}),
             (True, {"stage": "product-before", "center": (0.223, 0.193)}),
-            (False, {"stage": "product-after"}),
+            (True, {"stage": "product-after"}),
         ]
 
         with tempfile.TemporaryDirectory() as temporary, patch(
@@ -826,21 +829,17 @@ class MailRewardTests(unittest.TestCase):
         self.assertIn("点击未生效", failure)
 
     @patch("mail_rewards.time.sleep")
-    @patch("mail_rewards.detect_red_exclamation_badge")
-    @patch("mail_rewards._recognize_mail_page", return_value=(True, {}))
-    @patch("mail_rewards.safe_capture_client")
-    def test_product_tab_waits_until_notification_clears(
+    @patch("mail_rewards.detect_red_exclamation_badge", return_value=(True, {}))
+    @patch("mail_rewards._recognize_product_mail_page", return_value=(True, {}))
+    @patch("mail_rewards.safe_capture_client", return_value=frame("product-mail"))
+    def test_product_tab_accepts_confirmed_page_while_notification_remains(
         self,
         capture: MagicMock,
         _page: MagicMock,
-        badge: MagicMock,
+        _badge: MagicMock,
         sleep: MagicMock,
     ) -> None:
-        capture.side_effect = [frame("same-mail-page"), frame("product-mail")]
-        badge.side_effect = [(True, {}), (False, {})]
-        with tempfile.TemporaryDirectory() as temporary, patch(
-            "mail_rewards.time.monotonic", side_effect=[0.0, 1.0]
-        ):
+        with tempfile.TemporaryDirectory() as temporary:
             logger = mail_rewards.RunLogger(Path(temporary))
             ok, _image, reason = mail_rewards._wait_for_product_tab(
                 123,
@@ -849,10 +848,10 @@ class MailRewardTests(unittest.TestCase):
             )
             events = (Path(temporary) / "events.jsonl").read_text(encoding="utf-8")
         self.assertTrue(ok, reason)
-        self.assertEqual(capture.call_count, 2)
-        sleep.assert_called()
+        capture.assert_called_once()
+        sleep.assert_called_once()
         self.assertIn('"before_red": true', events)
-        self.assertIn('"after_red": false', events)
+        self.assertIn('"after_red": true', events)
 
     @patch("mail_rewards.click_ratio_logged")
     @patch("mail_rewards.detect_home_reward_notification", return_value=(True, {}))

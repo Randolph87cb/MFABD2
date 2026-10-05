@@ -39,6 +39,10 @@ def _recognize_mail_page(image: Image.Image) -> tuple[bool, dict[str, object]]:
     return recognize_text_at(image, MAIL_PAGE_REGION, ("邮箱", "郵箱", "记录", "記錄"))
 
 
+def _recognize_product_mail_page(image: Image.Image) -> tuple[bool, dict[str, object]]:
+    return recognize_text_at(image, MAIL_PAGE_REGION, ("商品邮箱", "商品郵箱"))
+
+
 def _recognize_claim_all(image: Image.Image) -> tuple[bool, dict[str, object]]:
     return recognize_text_at(image, MAIL_CLAIM_REGION, ("全部领取", "全部領取", "全部获得", "全部獲得"))
 
@@ -274,7 +278,7 @@ def _wait_for_product_tab(
     logger: RunLogger,
     timeout: float = STEP_TIMEOUT,
 ) -> tuple[bool, Image.Image, str]:
-    """Require a settled mail page whose product-tab notification has cleared."""
+    """Require the product-mail title; its reward notification remains until claimed."""
     if CLICK_SETTLE_SECONDS:
         time.sleep(CLICK_SETTLE_SECONDS)
     deadline = time.monotonic() + timeout
@@ -283,7 +287,7 @@ def _wait_for_product_tab(
     while True:
         sample += 1
         image = _capture_logged(hwnd, logger, "product-mail-switch", sample)
-        page, page_details = _recognize_mail_page(image)
+        page, page_details = _recognize_product_mail_page(image)
         red, red_details = detect_red_exclamation_badge(image, PRODUCT_BADGE_REGION)
         logger.event(
             action="product_tab_switch_state",
@@ -294,8 +298,8 @@ def _wait_for_product_tab(
             red_details=red_details,
             sample=sample,
         )
-        if page and not red:
-            return True, image, "product mail tab settled and red notification cleared"
+        if page:
+            return True, image, "product mail tab OCR-confirmed"
         now = time.monotonic()
         if now >= deadline:
             return False, image, f"product mail tab did not settle within {timeout:.0f} seconds"
