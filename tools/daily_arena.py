@@ -507,7 +507,19 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
             )
             poll.reset()
             continue
-        if current_state == "loading":
+        arena_loading_progress = bool(
+            current_details.get("game_loading_text", {}).get("has_progress")
+        )
+        if current_state == "gacha_animation" and arena_loading_progress:
+            logger.event(
+                action="classify_fallback",
+                state="loading",
+                original_state=current_state,
+                reason="arena cartridge transition shows loading percentage",
+            )
+        if current_state == "loading" or (
+            current_state == "gacha_animation" and arena_loading_progress
+        ):
             last_progress_at = time.monotonic()
             continue
         if current_state == "arena_cartridge_bar":

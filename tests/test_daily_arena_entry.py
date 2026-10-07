@@ -145,6 +145,53 @@ class BattlefieldRestaurantRouteTests(unittest.TestCase):
     @patch("daily_arena.classify_state")
     @patch("daily_arena.safe_capture_client")
     @patch("daily_arena.find_game_window", return_value=123)
+    def test_cartridge_selection_waits_when_loading_is_misclassified_as_gacha_animation(
+        self,
+        _find_window: MagicMock,
+        capture_client: MagicMock,
+        classify: MagicMock,
+        click_with_retry: MagicMock,
+        _gameplay_selected: MagicMock,
+        _click_ratio_mock: MagicMock,
+        _sleep: MagicMock,
+    ) -> None:
+        bar_image = Image.new("RGB", (2000, 1000))
+        selected_image = Image.new("RGB", (2000, 1000))
+        loading_image = Image.new("RGB", (2000, 1000))
+        lobby_image = Image.new("RGB", (2000, 1000))
+        capture_client.side_effect = [bar_image, loading_image, lobby_image]
+        classify.side_effect = [
+            ("arena_cartridge_bar", {}),
+            (
+                "gacha_animation",
+                {"game_loading_text": {"has_progress": True}},
+            ),
+            ("arena_lobby", {}),
+        ]
+        click_with_retry.return_value = (
+            True,
+            "arena_cartridge_bar",
+            selected_image,
+            "selected gameplay category",
+        )
+
+        with tempfile.TemporaryDirectory() as temporary:
+            log_root = Path(temporary)
+            ok, reason = enter_arena_from_plaza(dry_run=False, log_root=log_root)
+            events = (log_root / "events.jsonl").read_text(encoding="utf-8")
+
+        self.assertTrue(ok)
+        self.assertIn("arena lobby reached", reason)
+        self.assertIn('"action": "classify_fallback"', events)
+        self.assertIn('"original_state": "gacha_animation"', events)
+
+    @patch("daily_arena.time.sleep")
+    @patch("daily_arena._click_ratio")
+    @patch("daily_arena.is_gameplay_tab_selected", return_value=True)
+    @patch("daily_arena.click_with_fixed_retry")
+    @patch("daily_arena.classify_state")
+    @patch("daily_arena.safe_capture_client")
+    @patch("daily_arena.find_game_window", return_value=123)
     def test_cartridge_selection_dismisses_season_reward_overlay(
         self,
         _find_window: MagicMock,
