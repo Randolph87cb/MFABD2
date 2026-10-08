@@ -479,7 +479,49 @@ class RewardFlowTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("45秒内", reason)
         click.assert_called_once()
-        self.assertEqual(wait.call_args.kwargs["timeout"], 45.0)
+        self.assertEqual(wait.call_count, 2)
+        self.assertEqual(wait.call_args_list[0].kwargs["timeout"], 20.0)
+        self.assertGreater(wait.call_args_list[1].kwargs["timeout"], 0.0)
+        self.assertLessEqual(wait.call_args_list[1].kwargs["timeout"], 45.0)
+
+    @patch("reward_flow.time.monotonic", side_effect=[0.0, 0.0, 20.0])
+    @patch("reward_flow.wait_for_recognition")
+    @patch("reward_flow.click_ratio_logged")
+    @patch("reward_flow.safe_capture_client", return_value=Image.new("RGB", (1000, 600)))
+    def test_return_home_retries_dropped_click_only_when_source_remains(
+        self,
+        _capture: MagicMock,
+        click: MagicMock,
+        wait: MagicMock,
+        _monotonic: MagicMock,
+    ) -> None:
+        source_image = Image.new("RGB", (1000, 600))
+        home_image = Image.new("RGB", (1000, 600))
+        wait.side_effect = [
+            (False, source_image, {"source_found": True, "source": {"texts": ["每日任务"]}}),
+            (True, home_image, {"source_found": False}),
+        ]
+        logger = MagicMock()
+
+        ok, reason = return_to_home(
+            123,
+            logger=logger,
+            recognize_source=MagicMock(return_value=(True, {"available": True})),
+            source_name="任务页面",
+        )
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(click.call_count, 2)
+        self.assertIs(click.call_args_list[1].args[1], source_image)
+        self.assertEqual(wait.call_count, 2)
+        self.assertEqual(wait.call_args_list[0].kwargs["timeout"], 20.0)
+        self.assertEqual(wait.call_args_list[1].kwargs["timeout"], 25.0)
+        logger.event.assert_any_call(
+            action="retry_click",
+            key="reward_back",
+            attempt=2,
+            reason="OCR-confirmed 任务页面 remained after the click",
+        )
 
 
 class SwipeClientTests(unittest.TestCase):

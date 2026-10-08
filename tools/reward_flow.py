@@ -22,6 +22,7 @@ from win32_windowpos_click import click_client, swipe_client, swipe_client_foreg
 NormalizedRegion = tuple[float, float, float, float]
 Recognition = Callable[[Image.Image], tuple[bool, dict[str, Any]]]
 RETURN_HOME_TIMEOUT = 45.0
+RETURN_HOME_RETRY_TIMEOUT = 20.0
 MAX_REWARD_DISMISS_ATTEMPTS = 2
 AD_OPTION_REGION: NormalizedRegion = (846 / 1280, 143 / 720, 142 / 1280, 36 / 720)
 AD_OPTION_LABELS = ("7天内不再显示", "7天內不再顯示", "7日期間不再觀看")
@@ -355,7 +356,7 @@ def return_to_home(
     notification_target: str | None = None,
     notification_name: str | None = None,
 ) -> tuple[bool, str]:
-    """Prefer the verified source page, then return once and require fixed home OCR."""
+    """Return from a verified source page, retrying only if that page remains open."""
     image = safe_capture_client(hwnd, logger=logger)
     is_source, source_details = recognize_source(image)
     logger.event(
@@ -378,13 +379,6 @@ def return_to_home(
             )
         return False, f"未识别到{source_name}，为避免误点未执行返回"
 
-    click_ratio_logged(
-        hwnd,
-        image,
-        (0.075, 0.045),
-        key="reward_back",
-        logger=logger,
-    )
     def home_after_source_closed(candidate: Image.Image) -> tuple[bool, dict[str, Any]]:
         is_home, home_details = _recognize_actionable_home(candidate)
         source_still_open, current_source_details = recognize_source(candidate)
@@ -396,13 +390,53 @@ def return_to_home(
             "requirements": "fixed home text is present and the source page is absent",
         }
 
-    reached_home, _image, _details = wait_for_recognition(
+    deadline = time.monotonic() + RETURN_HOME_TIMEOUT
+    click_ratio_logged(
+        hwnd,
+        image,
+        (0.075, 0.045),
+        key="reward_back",
+        logger=logger,
+    )
+    first_wait = min(RETURN_HOME_RETRY_TIMEOUT, max(0.0, deadline - time.monotonic()))
+    reached_home, image, details = wait_for_recognition(
         hwnd,
         logger=logger,
         label="reward-back-home",
         recognize=home_after_source_closed,
-        timeout=RETURN_HOME_TIMEOUT,
+        timeout=first_wait,
     )
+    if not reached_home:
+        source_still_open = details.get("source_found") is True
+        logger.event(
+            action="reward_back_retry_check",
+            source=source_name,
+            found=source_still_open,
+            details=details.get("source", {}),
+        )
+        if source_still_open:
+            logger.event(
+                action="retry_click",
+                key="reward_back",
+                attempt=2,
+                reason=f"OCR-confirmed {source_name} remained after the click",
+            )
+            click_ratio_logged(
+                hwnd,
+                image,
+                (0.075, 0.045),
+                key="reward_back",
+                logger=logger,
+            )
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining:
+            reached_home, image, details = wait_for_recognition(
+                hwnd,
+                logger=logger,
+                label="reward-back-home-final",
+                recognize=home_after_source_closed,
+                timeout=remaining,
+            )
     if reached_home:
         if notification_target is None:
             return True, f"已从{source_name}返回主页"
