@@ -3050,6 +3050,12 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertTrue(succeeded)
 
+    def test_unknown_frame_does_not_complete_overlay_dismissal(self) -> None:
+        before = Image.new("RGB", (1280, 720), "black")
+        after = Image.new("RGB", (1280, 720), "white")
+
+        self.assertFalse(overlay_transition_succeeded(before, "unknown", after))
+
     def test_gacha_page_is_a_non_clicking_confirm_transition(self) -> None:
         self.assertTrue(is_free_gacha_confirm_transition("gacha_page"))
         self.assertTrue(is_free_gacha_confirm_transition("gacha_animation"))

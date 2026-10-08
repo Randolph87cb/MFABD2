@@ -503,10 +503,11 @@ def classify_daily_entry_context(
 
 
 def overlay_transition_succeeded(before: Any, next_state: str, after: Any) -> bool:
-    return (
-        next_state not in {"home_overlay", "blocking_ad_overlay"}
-        or _mean_region_difference(before, after) >= 2.5
-    )
+    if next_state in {"real_home", "plaza", "loading"}:
+        return True
+    if next_state in {"home_overlay", "blocking_ad_overlay"}:
+        return _mean_region_difference(before, after) >= 2.5
+    return False
 
 
 def startup_promotion_transition_succeeded(
