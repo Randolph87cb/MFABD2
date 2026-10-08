@@ -22,7 +22,7 @@ python -m pip install -r requirements.txt
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 ```
 
-安装脚本会创建项目内 `.venv`、安装 `requirements.txt`，并注册每天 `08:30` 运行的
+安装脚本会创建项目内 `.venv`、安装 `requirements.txt`，并注册每天 `17:00` 运行的
 `BrownDust2DailyAutomation`。网络检查仍会无限等待网络恢复，不设置任务执行时限。
 
 每轮运行由 `tools\daily_supervisor.py` 监督：
