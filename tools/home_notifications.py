@@ -187,7 +187,9 @@ def find_red_exclamation_badges(
         if not 0.32 <= fill_ratio <= 0.68:
             continue
 
-        maximum_tip = max(4, round(shorter * 0.35))
+        # Unselected activity cards can render one diamond edge slightly flat:
+        # the current 21 px badge has an 8 px bottom edge after antialiasing.
+        maximum_tip = max(4, round(shorter * 0.40))
         if (
             int(component[0].sum()) > maximum_tip
             or int(component[-1].sum()) > maximum_tip

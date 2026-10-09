@@ -41,6 +41,30 @@ class ActivityDispatchTests(unittest.TestCase):
 
         self.assertEqual(len(badges), 1)
 
+    def test_unselected_activity_badge_accepts_antialiased_flat_tip(self) -> None:
+        image = Image.new("RGB", (1000, 600), color=(18, 20, 24))
+        draw = ImageDraw.Draw(image)
+        center_x, center_y = 266, 401
+        draw.polygon(
+            (
+                (center_x, center_y - 10),
+                (center_x + 10, center_y),
+                (center_x + 4, center_y + 10),
+                (center_x - 3, center_y + 10),
+                (center_x - 10, center_y),
+            ),
+            fill=(220, 25, 45),
+        )
+        draw.rectangle((center_x, center_y - 4, center_x, center_y + 1), fill="white")
+        draw.point((center_x, center_y + 4), fill="white")
+
+        badges = activity_rewards.find_red_exclamation_badges(
+            image,
+            activity_rewards.ACTIVITY_LIST_BADGE_REGION,
+        )
+
+        self.assertEqual(len(badges), 1)
+
     def test_fixed_coordinates_use_reference_canvas_and_calibrated_scroll(self) -> None:
         self.assertEqual(activity_rewards.HOME_ACTIVITY_POINT, (0.467, 0.925))
         self.assertEqual(
