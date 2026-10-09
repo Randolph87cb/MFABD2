@@ -311,6 +311,8 @@ def _repeatable_selected_activity_kind(card_texts: list[str]) -> str | None:
     labels = {_normalized_ui_text(text) for text in card_texts}
     if "活动兑换所" in labels:
         return "token_exchange"
+    if "Pickup活动任务" in labels:
+        return "regular"
     return None
 
 
