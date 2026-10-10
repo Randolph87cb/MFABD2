@@ -1199,6 +1199,27 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         _normalize_text(text)
         for text in grouped_texts["confirm_button"]
     ]
+    status_matches = {
+        _normalize_text(text)
+        for text in matches["status"]
+    }
+    provider_markers = {
+        "SIGNINWITHGOOGLE",
+        "SIGNINWITHAPPLE",
+        "SIGNINWITHEMAIL",
+    }
+    has_email_fields = any(
+        marker in text
+        for text in normalized
+        for marker in ("邮箱登录", "请输入邮箱")
+    )
+    has_cancel = any("取消" in text for text in normalized)
+    has_confirm = any("确认" in text for text in normalized)
+    has_login_dialog = has_email_fields or (has_cancel and has_confirm)
+    provider_selection = (
+        provider_markers.issubset(status_matches)
+        and not has_login_dialog
+    )
     requires_login = any(
         marker in text
         for text in normalized
@@ -1211,7 +1232,9 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         )
     )
     has_download_context = any("下载" in text for text in normalized)
-    if requires_login:
+    if provider_selection:
+        state = "login_provider_selection"
+    elif requires_login:
         state = "login_required"
     elif any("TOUCHTOSTART" in text for text in normalized):
         state = "touch_ready"

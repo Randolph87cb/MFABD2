@@ -23,6 +23,7 @@ from daily_automation import (
     DAILY_READY_STATES,
     DesktopActivityGuard,
     DOWNLOAD_CONFIRM_CLICK,
+    GOOGLE_SIGN_IN_CLICK,
     MAX_UNKNOWN_ENTRY_FRAMES,
     MasterLogger,
     can_finish_entry_phase,
@@ -1495,7 +1496,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(state, "startup_waiting")
 
     @patch("game_text_recognition._recognize_label_groups")
-    def test_account_provider_screen_requires_manual_login(
+    def test_account_provider_screen_offers_google_login(
         self,
         recognize_label_groups: MagicMock,
     ) -> None:
@@ -1523,8 +1524,8 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         state, details = recognize_entry_status(Image.new("RGB", (2000, 1000)))
 
-        self.assertEqual(state, "login_required")
-        self.assertEqual(details["state"], "login_required")
+        self.assertEqual(state, "login_provider_selection")
+        self.assertEqual(details["state"], "login_provider_selection")
 
     @patch("game_text_recognition._recognize_label_groups")
     def test_email_login_dialog_requires_manual_login(
@@ -1548,6 +1549,11 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         state, _details = recognize_entry_status(Image.new("RGB", (2000, 1000)))
 
         self.assertEqual(state, "login_required")
+
+    def test_google_sign_in_click_stays_in_the_first_provider_button(self) -> None:
+        x, y = GOOGLE_SIGN_IN_CLICK
+        self.assertTrue(0.68 <= x <= 0.77)
+        self.assertTrue(0.50 <= y <= 0.60)
 
     @patch("game_text_recognition._recognize_label_groups")
     def test_pickup_promotion_text_is_actionable(
@@ -2811,6 +2817,44 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertIn("login is required", reason)
         click_touch.assert_not_called()
         click_with_retry.assert_not_called()
+
+    @patch("builtins.print")
+    def test_enter_game_selects_google_once_and_waits_for_login(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2304, 1296))
+        contexts = iter(
+            (
+                ("entry_screen", {}, "login_provider_selection", {}),
+                ("entry_screen", {}, "login_provider_selection", {}),
+                ("real_home", {}, "unknown", {}),
+            )
+        )
+
+        with (
+            patch("daily_automation.find_game_window", return_value=123),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.RunLogger"),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_daily_entry_context",
+                side_effect=lambda _image: next(contexts),
+            ),
+            patch("daily_automation._click_logged_ratio") as click_logged,
+        ):
+            ok, reason = enter_game_logged(
+                timeout=30.0,
+                log_root=Path("unused"),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "game is ready at state=real_home")
+        click_logged.assert_called_once()
+        self.assertEqual(click_logged.call_args.args[2], GOOGLE_SIGN_IN_CLICK)
+        self.assertEqual(click_logged.call_args.kwargs["key"], "google_sign_in")
 
     @patch("builtins.print")
     def test_enter_game_timeout_tracks_progress_not_total_duration(

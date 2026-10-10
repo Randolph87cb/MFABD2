@@ -71,6 +71,7 @@ ERROR_ALREADY_EXISTS = 183
 MOUSEEVENTF_MOVE = 0x0001
 DESKTOP_ACTIVITY_INTERVAL_SECONDS = 30.0
 GOOGLE_CONNECTIVITY_URL = "https://www.google.com/generate_204"
+GOOGLE_SIGN_IN_CLICK = (0.725, 0.560)
 DOWNLOAD_CONFIRM_CLICK = (0.548, 0.725)
 STARTUP_PROMOTION_TRANSITION_MIN_DIFF = 12.0
 DAILY_READY_STATES = {
@@ -575,6 +576,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     next_mute_attempt = 0.0
     unknown_entry_frames = 0
     terms_agreement_attempts = 0
+    google_sign_in_clicked = False
     poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
         if not audio_muted and time.monotonic() >= next_mute_attempt:
@@ -624,6 +626,34 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             )
             logger.failure(reason)
             return False, reason
+
+        if entry_state == "login_provider_selection":
+            if google_sign_in_clicked:
+                logger.event(
+                    action="wait_google_sign_in",
+                    reason="Google sign-in was selected; waiting for authentication",
+                    screenshot=str(path),
+                )
+                time.sleep(poll.next_delay())
+                continue
+            _click_logged_ratio(
+                hwnd,
+                image,
+                GOOGLE_SIGN_IN_CLICK,
+                key="google_sign_in",
+                logger=logger,
+                attempt=1,
+            )
+            google_sign_in_clicked = True
+            last_progress_at = time.monotonic()
+            poll.reset()
+            logger.event(
+                action="progress",
+                reason="google_sign_in_selected",
+                stall_timeout=timeout,
+            )
+            time.sleep(poll.next_delay())
+            continue
 
         if entry_state == "touch_ready":
             touch_screen_seen = True
