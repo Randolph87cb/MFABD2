@@ -1495,6 +1495,61 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(state, "startup_waiting")
 
     @patch("game_text_recognition._recognize_label_groups")
+    def test_account_provider_screen_requires_manual_login(
+        self,
+        recognize_label_groups: MagicMock,
+    ) -> None:
+        recognize_label_groups.return_value = (
+            {
+                "status": [
+                    "Sign in with Google",
+                    "Sign in with Apple",
+                    "Sign in with E-mail",
+                ],
+                "confirm_button": [],
+                "download_progress": [],
+            },
+            {
+                "status": [
+                    "Sign in with Google",
+                    "Sign in with Apple",
+                    "Sign in with E-mail",
+                ],
+                "confirm_button": [],
+                "download_progress": [],
+            },
+            None,
+        )
+
+        state, details = recognize_entry_status(Image.new("RGB", (2000, 1000)))
+
+        self.assertEqual(state, "login_required")
+        self.assertEqual(details["state"], "login_required")
+
+    @patch("game_text_recognition._recognize_label_groups")
+    def test_email_login_dialog_requires_manual_login(
+        self,
+        recognize_label_groups: MagicMock,
+    ) -> None:
+        recognize_label_groups.return_value = (
+            {
+                "status": ["Sign in with Google"],
+                "confirm_button": ["邮箱登录", "请输入邮箱", "取消", "确认"],
+                "download_progress": [],
+            },
+            {
+                "status": ["Sign in with Google"],
+                "confirm_button": [],
+                "download_progress": [],
+            },
+            None,
+        )
+
+        state, _details = recognize_entry_status(Image.new("RGB", (2000, 1000)))
+
+        self.assertEqual(state, "login_required")
+
+    @patch("game_text_recognition._recognize_label_groups")
     def test_pickup_promotion_text_is_actionable(
         self,
         recognize_label_groups: MagicMock,
@@ -2726,6 +2781,36 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(reason, "game is ready at state=real_home")
         self.assertEqual(click_logged.call_args.kwargs["key"], "terms_all_agree")
         self.assertEqual(click_with_retry.call_args.args[2], "terms_start")
+
+    @patch("builtins.print")
+    def test_enter_game_stops_without_clicking_when_login_is_required(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+
+        with (
+            patch("daily_automation.find_game_window", return_value=123),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.RunLogger"),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_daily_entry_context",
+                return_value=("entry_screen", {}, "login_required", {}),
+            ),
+            patch("daily_automation._click_touch") as click_touch,
+            patch("daily_automation.click_with_fixed_retry") as click_with_retry,
+        ):
+            ok, reason = enter_game_logged(
+                timeout=30.0,
+                log_root=Path("unused"),
+            )
+
+        self.assertFalse(ok)
+        self.assertIn("login is required", reason)
+        click_touch.assert_not_called()
+        click_with_retry.assert_not_called()
 
     @patch("builtins.print")
     def test_enter_game_timeout_tracks_progress_not_total_duration(

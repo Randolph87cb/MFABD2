@@ -354,6 +354,9 @@ ENTRY_STATUS_LABEL_GROUPS = {
         "region": (0.52, 0.46, 0.42, 0.38),
         "labels": (
             "TOUCH TO START",
+            "Sign in with Google",
+            "Sign in with Apple",
+            "Sign in with E-mail",
             "正在确认下载容量",
             "正在下载",
             "下载中",
@@ -1196,8 +1199,21 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         _normalize_text(text)
         for text in grouped_texts["confirm_button"]
     ]
+    requires_login = any(
+        marker in text
+        for text in normalized
+        for marker in (
+            "SIGNINWITHGOOGLE",
+            "SIGNINWITHAPPLE",
+            "SIGNINWITHEMAIL",
+            "邮箱登录",
+            "请输入邮箱",
+        )
+    )
     has_download_context = any("下载" in text for text in normalized)
-    if any("TOUCHTOSTART" in text for text in normalized):
+    if requires_login:
+        state = "login_required"
+    elif any("TOUCHTOSTART" in text for text in normalized):
         state = "touch_ready"
     elif any(
         marker in text

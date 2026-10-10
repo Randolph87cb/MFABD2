@@ -617,6 +617,14 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             entry_details=entry_details,
         )
 
+        if entry_state == "login_required":
+            reason = (
+                "game account login is required; complete sign-in manually "
+                "before retrying"
+            )
+            logger.failure(reason)
+            return False, reason
+
         if entry_state == "touch_ready":
             touch_screen_seen = True
 
