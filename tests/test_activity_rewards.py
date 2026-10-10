@@ -79,6 +79,14 @@ class ActivityDispatchTests(unittest.TestCase):
             activity_rewards.TOKEN_EXCHANGE_REGION,
             (0.290, 0.660, 0.115, 0.100),
         )
+        self.assertEqual(
+            activity_rewards.PUZZLE_UNLOCK_REGION,
+            (930 / 1280, 475 / 720, 120 / 1280, 49 / 720),
+        )
+        self.assertEqual(
+            activity_rewards.PUZZLE_UNLOCK_POINT,
+            ((930 + 120 / 2) / 1280, (475 + 49 / 2) / 720),
+        )
         self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[0], 0.3475)
         self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_POINT[1], 0.7100)
         self.assertAlmostEqual(activity_rewards.TOKEN_EXCHANGE_BATCH_POINT[0], 0.4625)

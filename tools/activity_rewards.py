@@ -71,7 +71,10 @@ TOKEN_CONFIRM_REGION = _region(665, 403, 85, 29)
 DICE_AUTO_REGION = _region(1068, 486, 87, 37)
 DICE_SWITCH_REGION = _region(1059, 517, 104, 47)
 DICE_SWITCH_CONTROL_REGION = _region(1076, 534, 11, 13)
-PUZZLE_UNLOCK_REGION = _region(1002, 514, 120, 49)
+# Current desktop client renders the puzzle action above and left of the
+# upstream Android position.  Keep the original button dimensions while using
+# the position measured from the failed-run screenshot.
+PUZZLE_UNLOCK_REGION = _region(930, 475, 120, 49)
 BINGO_UNLOCK_REGION = _region(533, 518, 119, 54)
 # Current roulette layout: the single-spin control is left of the ten-spin
 # control.  The reference flow only handles tens; this project also consumes
