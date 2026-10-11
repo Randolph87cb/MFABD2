@@ -955,7 +955,7 @@ class DailyAutomationStateTests(unittest.TestCase):
         self.assertIn("Get-Command python.exe", script)
         self.assertNotIn("pythonw.exe", script)
         self.assertIn("New-ScheduledTaskTrigger -Daily -At $At", script)
-        self.assertIn('[string]$At = "17:00"', script)
+        self.assertIn('[string]$At = "08:30"', script)
 
     def test_scheduled_runner_can_force_one_available_phase(self) -> None:
         script = (TOOLS_DIR / "run_daily_task.ps1").read_text(encoding="utf-8")

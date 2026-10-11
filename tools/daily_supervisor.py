@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -25,6 +26,7 @@ if str(TOOLS_DIR) not in sys.path:
 from daily_plan import FAST_PRESET, get_current_stages  # noqa: E402
 from daily_processes import cleanup_after_attempt, snapshot_run_helpers  # noqa: E402
 from daily_state import read_state_file  # noqa: E402
+from maintenance import MAINTENANCE_EXIT_CODE  # noqa: E402
 
 
 SUPERVISOR_MUTEX = r"Local\BrownDust2DailySupervisor"
@@ -406,6 +408,30 @@ def run_automation_attempt(
     return result, cleanup
 
 
+def wait_for_maintenance_retry(summary_path: Path | None, *, logger: SupervisorLogger) -> None:
+    """Keep the game closed until the announced end plus one hour."""
+    try:
+        summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path else {}
+        if summary.get("result") != "maintenance_deferred":
+            raise ValueError("missing maintenance summary")
+        retry_at = datetime.fromisoformat(summary["maintenance"]["retry_at"])
+        if retry_at.tzinfo is None:
+            raise ValueError("retry time must include timezone")
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise SupervisorError(f"无法读取维护重试时间：{exc}") from exc
+    logger.event(
+        "maintenance_wait",
+        f"游戏已退出，等待至 {retry_at.isoformat(timespec='seconds')} 再登录",
+        **summary["maintenance"],
+    )
+    while True:
+        remaining = retry_at.timestamp() - time.time()
+        if remaining <= 0:
+            break
+        time.sleep(min(60.0, remaining))
+    logger.event("maintenance_retry", "维护等待结束，重新登录并从断点继续")
+
+
 def supervise(args: argparse.Namespace) -> int:
     project_root = args.project_root.resolve()
     stamp = datetime.now().astimezone()
@@ -442,14 +468,27 @@ def supervise(args: argparse.Namespace) -> int:
     latest_cleanup: dict[str, Any] = {"ok": False}
 
     for attempt in range(args.max_repair_rounds + 1):
-        latest_result, latest_cleanup = run_automation_attempt(
-            python_path=args.python_path,
-            project_root=project_root,
-            logger=logger,
-            force=args.force if attempt == 0 else False,
-            force_phase=args.force_phase if attempt == 0 else None,
-            attempt=attempt + 1,
-        )
+        maintenance_retries = 0
+        while True:
+            latest_result, latest_cleanup = run_automation_attempt(
+                python_path=args.python_path,
+                project_root=project_root,
+                logger=logger,
+                force=args.force if attempt == 0 and maintenance_retries == 0 else False,
+                force_phase=args.force_phase if attempt == 0 else None,
+                attempt=attempt + 1,
+            )
+            if latest_result.returncode != MAINTENANCE_EXIT_CODE:
+                break
+            if not latest_cleanup.get("ok"):
+                logger.event(
+                    "maintenance_cleanup_failed",
+                    "维护期间关闭游戏失败，停止重试",
+                    cleanup=latest_cleanup,
+                )
+                return 2
+            wait_for_maintenance_retry(latest_summary(project_root), logger=logger)
+            maintenance_retries += 1
         latest_report = completion_report(project_root)
         summary_path = latest_summary(project_root)
         logger.event(

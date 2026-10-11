@@ -10,6 +10,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from maintenance import maintenance_notice
+
 
 HOME_LABEL_GROUPS = {
     "left_menu": {
@@ -350,6 +352,10 @@ REGULAR_CUSTOMER_NOTES_LABEL_GROUPS = {
 }
 
 ENTRY_STATUS_LABEL_GROUPS = {
+    "maintenance_notice": {
+        "region": (0.34, 0.20, 0.32, 0.59),
+        "labels": (),
+    },
     "status": {
         "region": (0.52, 0.46, 0.42, 0.38),
         "labels": (
@@ -1184,6 +1190,16 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
     grouped_texts, matches, error = _recognize_label_groups(image, ENTRY_STATUS_LABEL_GROUPS)
     if error is not None:
         return "unknown", error
+
+    maintenance = maintenance_notice(grouped_texts.get("maintenance_notice", []))
+    if maintenance is not None:
+        return "maintenance", {
+            "available": True,
+            "texts": grouped_texts,
+            "matches": matches,
+            "state": "maintenance",
+            "maintenance": maintenance,
+        }
 
     normalized = [
         _normalize_text(text)

@@ -63,6 +63,7 @@ from daily_plan import (  # noqa: E402
     get_daily_plan,
 )
 from daily_state import DailyStateStore  # noqa: E402
+from maintenance import MAINTENANCE_EXIT_CODE, MaintenanceDeferred  # noqa: E402
 
 
 TASK_NAME = "BrownDust2DailyAutomation"
@@ -619,6 +620,11 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             entry_details=entry_details,
         )
 
+        if entry_state == "maintenance":
+            maintenance = entry_details["text"]["maintenance"]
+            logger.event(action="maintenance", screenshot=str(path), **maintenance)
+            raise MaintenanceDeferred(maintenance)
+
         if entry_state == "login_required":
             reason = (
                 "game account login is required; complete sign-in manually "
@@ -1045,6 +1051,8 @@ def _require_phase(
     master.event(stage, "start", "开始执行", log_root=str(log_root))
     try:
         ok, reason = operation(log_root=log_root)
+    except MaintenanceDeferred:
+        raise
     except Exception as exc:
         stage_name = MASTER_STAGE_NAMES.get(stage, stage)
         reason = f"未处理异常：{exc!r}"
@@ -1367,6 +1375,15 @@ def run_daily(
             state=store.state,
         )
         return 0
+    except MaintenanceDeferred as exc:
+        master.event("daily", "maintenance", str(exc), **exc.details)
+        master.summary(
+            result="maintenance_deferred",
+            maintenance=exc.details,
+            run_root=str(run_root),
+            state=store.state,
+        )
+        return MAINTENANCE_EXIT_CODE
     except Exception as exc:  # noqa: BLE001 - fatal errors must be persisted.
         reason = str(exc)
         if active_phase is not None:

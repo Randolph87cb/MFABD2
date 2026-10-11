@@ -22,11 +22,14 @@ python -m pip install -r requirements.txt
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 ```
 
-安装脚本会创建项目内 `.venv`、安装 `requirements.txt`，并注册每天 `17:00` 运行的
+安装脚本会创建项目内 `.venv`、安装 `requirements.txt`，并注册每天 `08:30` 运行的
 `BrownDust2DailyAutomation`。网络检查仍会无限等待网络恢复，不设置任务执行时限。
 
 每轮运行由 `tools\daily_supervisor.py` 监督：
 
+- 登录时检测维护公告，关闭游戏和本轮启动器，等待公告结束时间后一小时再登录并续跑；
+  例如公告为 `07:50～11:30`，则在 `12:30` 重试。结束时间无法识别或已过期时，关闭后每小时重试；
+  维护等待不占用自动修复次数，等待期间计划任务保持运行，避免并发启动；
 - 正常流程结束后关闭精确识别到的游戏进程，以及本轮新建的官方启动器进程；
 - 不启动识别标注网站；
 - 仅保留 `logs\daily`、`daily-check`、`supervisor`、`recovery` 中最近 7 天的日期日志；

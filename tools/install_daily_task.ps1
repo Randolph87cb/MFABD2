@@ -1,6 +1,6 @@
 param(
     [string]$TaskName = "BrownDust2DailyAutomation",
-    [string]$At = "17:00",
+    [string]$At = "08:30",
     [switch]$SkipDependencyInstall
 )
 
