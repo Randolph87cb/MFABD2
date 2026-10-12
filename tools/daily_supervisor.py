@@ -241,6 +241,47 @@ def latest_summary(project_root: Path) -> Path | None:
     return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
+def notify_success(
+    project_root: Path,
+    *,
+    report: dict[str, Any],
+    logger: SupervisorLogger,
+) -> bool:
+    """Reuse the local Codex ntfy Stop hook without starting a Codex turn."""
+    codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
+    hook_path = codex_home / "hooks" / "ntfy-stop.ps1"
+    statuses = report.get("statuses", {})
+    completed = sum(status == "completed" for status in statuses.values())
+    skipped = sum(status == "skipped" for status in statuses.values())
+    message = (
+        "棕尘2每日任务正常完成。\n"
+        f"游戏日：{report.get('game_day', '未知')}\n"
+        f"当前可运行阶段：完成 {completed} 项，跳过 {skipped} 项。\n"
+        "游戏与本轮辅助进程已收尾。"
+    )
+    try:
+        if not hook_path.is_file():
+            raise FileNotFoundError(f"通知 hook 不存在：{hook_path}")
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(hook_path)],
+            cwd=str(project_root),
+            input=json.dumps({"cwd": str(project_root), "last_assistant_message": message}),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SupervisorError(result.stderr.strip() or f"通知 hook 退出码 {result.returncode}")
+    except (OSError, subprocess.TimeoutExpired, SupervisorError) as exc:
+        logger.event("notification_failed", "每日流程已完成，但完成通知发送失败", error=str(exc))
+        return False
+    logger.event("notification_sent", "每日完成通知已通过 Codex ntfy hook 发送")
+    return True
+
+
 def git_status(project_root: Path) -> tuple[bool, str]:
     result = subprocess.run(
         ["git", "-C", str(project_root), "status", "--porcelain"],
@@ -514,6 +555,7 @@ def supervise(args: argparse.Namespace) -> int:
                 if not final_turn.ok:
                     return 2
             logger.event("success", "当前可运行的全部每日流程均已完成")
+            notify_success(project_root, report=latest_report, logger=logger)
             return 0
 
         if attempt >= args.max_repair_rounds:

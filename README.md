@@ -31,6 +31,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
   例如公告为 `07:50～11:30`，则在 `12:30` 重试。结束时间无法识别或已过期时，关闭后每小时重试；
   维护等待不占用自动修复次数，等待期间计划任务保持运行，避免并发启动；
 - 正常流程结束后关闭精确识别到的游戏进程，以及本轮新建的官方启动器进程；
+- 全部可运行阶段完成并成功收尾后，复用本机 Codex 的 `hooks/ntfy-stop.ps1`
+  发送完成通知，使用与线程结束 hook 相同的 ntfy 配置；默认从 `~/.codex`
+  查找，设置了 `CODEX_HOME` 时从该目录查找。发送失败会记录在监督日志中，
+  不改变每日任务完成结果，也不触发游戏重跑；
 - 不启动识别标注网站；
 - 仅保留 `logs\daily`、`daily-check`、`supervisor`、`recovery` 中最近 7 天的日期日志；
 - 当前可运行阶段没有全部完成时，在当前目录创建 Codex 线程，读取日志并参考

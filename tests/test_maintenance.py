@@ -151,6 +151,7 @@ class MaintenanceTests(unittest.TestCase):
             patch("daily_supervisor.latest_summary", return_value=None),
             patch("daily_supervisor.completion_report", return_value={"complete": True}),
             patch("daily_supervisor.run_codex_turn") as repair,
+            patch("daily_supervisor.notify_success") as notify,
             patch("builtins.print"),
         ):
             def confirm_cleanup(*args, **kwargs):
@@ -165,6 +166,7 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(cleanup.call_count, 3)
         self.assertEqual(wait.call_count, 2)
         repair.assert_not_called()
+        notify.assert_called_once()
 
     def test_failed_cleanup_prevents_delayed_login(self) -> None:
         with (

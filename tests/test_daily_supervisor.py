@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -19,17 +20,108 @@ from daily_supervisor import (  # noqa: E402
     CURRENT_PHASE_IDS,
     _parse_codex_events,
     completion_report,
+    build_parser,
     finalize_prompt,
     followup_prompt,
     prune_old_logs,
     repair_prompt,
     run_codex_turn,
+    notify_success,
+    supervise,
+    CodexTurn,
     CommandResult,
     SupervisorLogger,
 )
 
 
 class DailySupervisorTests(unittest.TestCase):
+    def test_success_notification_reuses_hook_and_preserves_chinese_input(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch.dict(os.environ, {"CODEX_HOME": temporary}),
+            patch("daily_supervisor.subprocess.run") as run,
+        ):
+            root = Path(temporary) / "棕尘2小助手"
+            hook = Path(temporary) / "hooks" / "ntfy-stop.ps1"
+            hook.parent.mkdir()
+            hook.touch()
+            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            logger = MagicMock()
+            self.assertTrue(notify_success(root, report={
+                "game_day": "2026-10-12",
+                "statuses": {"start": "completed", "arena": "skipped"},
+            }, logger=logger))
+
+        self.assertEqual(Path(run.call_args.args[0][-1]), hook)
+        payload = json.loads(run.call_args.kwargs["input"])
+        self.assertEqual(payload["cwd"], str(root))
+        self.assertIn("游戏日：2026-10-12", payload["last_assistant_message"])
+        self.assertIn("完成 1 项，跳过 1 项", payload["last_assistant_message"])
+        self.assertEqual(logger.event.call_args.args[0], "notification_sent")
+
+    def test_notification_errors_are_logged_without_raising(self) -> None:
+        for failure in ("missing", "exit", "timeout"):
+            with (
+                self.subTest(failure=failure),
+                patch("daily_supervisor.Path.is_file", return_value=failure != "missing"),
+                patch("daily_supervisor.subprocess.run") as run,
+            ):
+                run.return_value = subprocess.CompletedProcess([], 1, "", "delivery failed")
+                if failure == "timeout":
+                    run.side_effect = subprocess.TimeoutExpired("powershell.exe", 30)
+                logger = MagicMock()
+                self.assertFalse(notify_success(Path.cwd(), report={}, logger=logger))
+                self.assertEqual(logger.event.call_args.args[0], "notification_failed")
+                if failure == "missing":
+                    run.assert_not_called()
+
+    def test_supervisor_notifies_only_after_complete_successful_cleanup(self) -> None:
+        for exit_code, complete, cleanup_ok in ((0, True, True), (1, True, True), (0, False, True), (0, True, False)):
+            with (
+                self.subTest(exit_code=exit_code, complete=complete, cleanup_ok=cleanup_ok),
+                tempfile.TemporaryDirectory() as temporary,
+                patch("daily_supervisor.prune_old_logs", return_value=[]),
+                patch("daily_supervisor.git_status", return_value=(True, "")),
+                patch("daily_supervisor.run_automation_attempt", return_value=(CommandResult(exit_code, [], []), {"ok": cleanup_ok})),
+                patch("daily_supervisor.completion_report", return_value={"complete": complete}),
+                patch("daily_supervisor.latest_summary", return_value=None),
+                patch("daily_supervisor.notify_success", return_value=False) as notify,
+                patch("builtins.print"),
+            ):
+                args = build_parser().parse_args(["--project-root", temporary, "--codex-path", "codex.cmd", "--max-repair-rounds", "0"])
+                result = supervise(args)
+                if exit_code == 0 and complete and cleanup_ok:
+                    notify.assert_called_once()
+                    self.assertEqual(result, 0)  # Notification failure must not replay game tasks.
+                else:
+                    notify.assert_not_called()
+                    self.assertEqual(result, 2)
+
+    def test_repaired_run_notifies_once_after_successful_final_review(self) -> None:
+        for final_ok in (True, False):
+            with (
+                self.subTest(final_ok=final_ok),
+                tempfile.TemporaryDirectory() as temporary,
+                patch("daily_supervisor.prune_old_logs", return_value=[]),
+                patch("daily_supervisor.git_status", return_value=(True, "")),
+                patch("daily_supervisor.reference_is_ready", return_value=(True, "")),
+                patch("daily_supervisor.run_automation_attempt", side_effect=[
+                    (CommandResult(1, [], []), {"ok": True}),
+                    (CommandResult(0, [], []), {"ok": True}),
+                ]),
+                patch("daily_supervisor.completion_report", side_effect=[{"complete": False}, {"complete": True}]),
+                patch("daily_supervisor.latest_summary", return_value=None),
+                patch("daily_supervisor.run_codex_turn", side_effect=[
+                    CodexTurn(True, "thread-1", 0, None),
+                    CodexTurn(final_ok, "thread-1", 0 if final_ok else 1, None),
+                ]),
+                patch("daily_supervisor.notify_success") as notify,
+                patch("builtins.print"),
+            ):
+                args = build_parser().parse_args(["--project-root", temporary, "--codex-path", "codex.cmd"])
+                self.assertEqual(supervise(args), 0 if final_ok else 2)
+                self.assertEqual(notify.call_count, 1 if final_ok else 0)
+
     def test_completion_requires_every_current_phase_to_finish(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
