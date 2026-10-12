@@ -16,6 +16,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable, Sequence
+from urllib.request import Request, urlopen
 
 
 TOOLS_DIR = Path(__file__).resolve().parent
@@ -247,9 +248,8 @@ def notify_success(
     report: dict[str, Any],
     logger: SupervisorLogger,
 ) -> bool:
-    """Reuse the local Codex ntfy Stop hook without starting a Codex turn."""
-    codex_home = Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex")
-    hook_path = codex_home / "hooks" / "ntfy-stop.ps1"
+    """Send to the daily task's independent ntfy topic from local configuration."""
+    config_path = project_root / "state" / "ntfy.config.json"
     statuses = report.get("statuses", {})
     completed = sum(status == "completed" for status in statuses.values())
     skipped = sum(status == "skipped" for status in statuses.values())
@@ -260,25 +260,35 @@ def notify_success(
         "游戏与本轮辅助进程已收尾。"
     )
     try:
-        if not hook_path.is_file():
-            raise FileNotFoundError(f"通知 hook 不存在：{hook_path}")
-        result = subprocess.run(
-            ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(hook_path)],
-            cwd=str(project_root),
-            input=json.dumps({"cwd": str(project_root), "last_assistant_message": message}),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-            check=False,
+        config = json.loads(config_path.read_text(encoding="utf-8-sig"))
+        ntfy_url = str(config.get("ntfyUrl") or "").strip()
+        ntfy_topic = str(config.get("ntfyTopic") or "").strip()
+        if not ntfy_url or not ntfy_topic:
+            raise ValueError("state/ntfy.config.json 必须设置 ntfyUrl 和 ntfyTopic")
+        payload = {
+            "topic": ntfy_topic,
+            "title": "棕尘2每日任务",
+            "message": message,
+            "priority": 4,
+            "tags": ["computer"],
+        }
+        request = Request(
+            ntfy_url,
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "User-Agent": "BrownDust2DailyAutomation/1.0",
+            },
+            method="POST",
         )
-        if result.returncode != 0:
-            raise SupervisorError(result.stderr.strip() or f"通知 hook 退出码 {result.returncode}")
-    except (OSError, subprocess.TimeoutExpired, SupervisorError) as exc:
+        with urlopen(request, timeout=10) as response:
+            result = json.load(response)
+        if result.get("event") != "message":
+            raise SupervisorError("ntfy 未确认通知发送成功")
+    except (OSError, ValueError, SupervisorError) as exc:
         logger.event("notification_failed", "每日流程已完成，但完成通知发送失败", error=str(exc))
         return False
-    logger.event("notification_sent", "每日完成通知已通过 Codex ntfy hook 发送")
+    logger.event("notification_sent", "每日完成通知已发送到专用 ntfy topic", notification_id=result.get("id"))
     return True
 
 

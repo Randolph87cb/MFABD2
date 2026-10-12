@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
+import io
 import sys
 import tempfile
 import unittest
@@ -35,45 +35,53 @@ from daily_supervisor import (  # noqa: E402
 
 
 class DailySupervisorTests(unittest.TestCase):
-    def test_success_notification_reuses_hook_and_preserves_chinese_input(self) -> None:
+    def test_success_notification_uses_independent_topic_and_chinese_title(self) -> None:
         with (
             tempfile.TemporaryDirectory() as temporary,
-            patch.dict(os.environ, {"CODEX_HOME": temporary}),
-            patch("daily_supervisor.subprocess.run") as run,
+            patch("daily_supervisor.urlopen") as send,
         ):
             root = Path(temporary) / "棕尘2小助手"
-            hook = Path(temporary) / "hooks" / "ntfy-stop.ps1"
-            hook.parent.mkdir()
-            hook.touch()
-            run.return_value = subprocess.CompletedProcess([], 0, "", "")
+            config = root / "state" / "ntfy.config.json"
+            config.parent.mkdir(parents=True)
+            config.write_text(json.dumps({"ntfyUrl": "https://ntfy.example", "ntfyTopic": "daily-only"}), encoding="utf-8-sig")
+            send.return_value.__enter__.return_value = io.BytesIO(b'{"event":"message","id":"test-1"}')
             logger = MagicMock()
             self.assertTrue(notify_success(root, report={
                 "game_day": "2026-10-12",
                 "statuses": {"start": "completed", "arena": "skipped"},
             }, logger=logger))
 
-        self.assertEqual(Path(run.call_args.args[0][-1]), hook)
-        payload = json.loads(run.call_args.kwargs["input"])
-        self.assertEqual(payload["cwd"], str(root))
-        self.assertIn("游戏日：2026-10-12", payload["last_assistant_message"])
-        self.assertIn("完成 1 项，跳过 1 项", payload["last_assistant_message"])
+        request = send.call_args.args[0]
+        self.assertEqual(request.full_url, "https://ntfy.example")
+        payload = json.loads(request.data.decode("utf-8"))
+        self.assertEqual(payload["topic"], "daily-only")
+        self.assertEqual(payload["title"], "棕尘2每日任务")
+        self.assertIn("游戏日：2026-10-12", payload["message"])
+        self.assertIn("完成 1 项，跳过 1 项", payload["message"])
         self.assertEqual(logger.event.call_args.args[0], "notification_sent")
 
     def test_notification_errors_are_logged_without_raising(self) -> None:
-        for failure in ("missing", "exit", "timeout"):
+        for failure in ("missing", "invalid", "empty_topic", "rejected", "timeout"):
             with (
                 self.subTest(failure=failure),
-                patch("daily_supervisor.Path.is_file", return_value=failure != "missing"),
-                patch("daily_supervisor.subprocess.run") as run,
+                patch("daily_supervisor.Path.read_text") as read,
+                patch("daily_supervisor.urlopen") as send,
             ):
-                run.return_value = subprocess.CompletedProcess([], 1, "", "delivery failed")
+                read.return_value = json.dumps({"ntfyUrl": "https://ntfy.example", "ntfyTopic": "daily-only"})
+                send.return_value.__enter__.return_value = io.BytesIO(b'{"event":"error"}')
+                if failure == "missing":
+                    read.side_effect = FileNotFoundError("config missing")
+                elif failure == "invalid":
+                    read.return_value = "invalid json"
+                elif failure == "empty_topic":
+                    read.return_value = '{"ntfyUrl":"https://ntfy.example"}'
                 if failure == "timeout":
-                    run.side_effect = subprocess.TimeoutExpired("powershell.exe", 30)
+                    send.side_effect = TimeoutError("delivery timed out")
                 logger = MagicMock()
                 self.assertFalse(notify_success(Path.cwd(), report={}, logger=logger))
                 self.assertEqual(logger.event.call_args.args[0], "notification_failed")
-                if failure == "missing":
-                    run.assert_not_called()
+                if failure in ("missing", "invalid", "empty_topic"):
+                    send.assert_not_called()
 
     def test_supervisor_notifies_only_after_complete_successful_cleanup(self) -> None:
         for exit_code, complete, cleanup_ok in ((0, True, True), (1, True, True), (0, False, True), (0, True, False)):
