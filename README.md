@@ -49,6 +49,23 @@ $CodexPath = (Get-Command codex.cmd).Source
 python tools\daily_supervisor.py --check --codex-path $CodexPath
 ```
 
+### 完成通知配置与订阅
+
+新机器需要先创建 `state/ntfy.config.json`，填入自己的服务器地址和每日任务专用 topic：
+
+```json
+{
+  "ntfyUrl": "https://ntfy.example.com",
+  "ntfyTopic": "browndust2-daily-example"
+}
+```
+
+上面的值仅为示例，应替换为实际配置。该配置独立于 Codex 线程通知，保留在本机。
+
+在手机 ntfy 首页点“＋”添加订阅，选择自定义服务器：服务器填写 `ntfyUrl`，
+仅包含服务器地址；主题（topic）单独填写 `ntfyTopic`。显示名称可设为“棕尘2每日任务”。
+保存订阅后，每日流程正常完成且游戏收尾成功时会发送通知。
+
 ## 已实现
 
 打开游戏：
