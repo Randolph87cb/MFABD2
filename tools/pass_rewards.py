@@ -331,6 +331,7 @@ def _wait_for_pass_selection(
     badge: dict[str, Any],
     *,
     expected_identity: list[str],
+    previous_state: str = "unknown",
     logger: RunLogger,
     step: int,
     attempt: int = 1,
@@ -344,15 +345,21 @@ def _wait_for_pass_selection(
         detail_texts, identity_details = _read_texts_at(candidate, PASS_DETAIL_IDENTITY_REGION)
         identity_matches = _pass_identity_matches(expected_identity, detail_texts)
         state = "overview" if has_panel else "task_page" if has_task_page else "unknown"
-        return is_page and state != "unknown" and identity_matches, {
+        state_transition_matches = previous_state == "task_page" and state == "overview"
+        return is_page and state != "unknown" and (identity_matches or state_transition_matches), {
             "page": page_details,
             "panel": panel_details,
             "task_page": task_details,
             "state": state,
+            "previous_state": previous_state,
             "expected_identity": expected_identity,
             "detail_identity": identity_details,
             "identity_matches": identity_matches,
-            "requirements": "fixed pass/page state text and matching card/detail identity text",
+            "state_transition_matches": state_transition_matches,
+            "requirements": (
+                "fixed pass/page state text and either matching card/detail identity text "
+                "or a task-page to overview transition"
+            ),
         }
 
     return _capture_until(
@@ -369,6 +376,7 @@ def _select_pass_card(
     badge: dict[str, Any],
     *,
     expected_identity: list[str],
+    previous_state: str = "unknown",
     logger: RunLogger,
     step: int,
 ) -> tuple[bool, Image.Image, dict[str, Any]]:
@@ -388,6 +396,7 @@ def _select_pass_card(
             hwnd,
             current_badge,
             expected_identity=expected_identity,
+            previous_state=previous_state if attempt == 1 else "unknown",
             logger=logger,
             step=step,
             attempt=attempt,
@@ -509,6 +518,7 @@ def _collect_from_pass_page(
         if actionable:
             badge = actionable[0]
             fingerprint = _badge_fingerprint(badge)
+            previous_state = "task_page" if _confirm_pass_task_page(current)[0] else "unknown"
             expected_identity, identity_details = _read_pass_card_identity(current, badge)
             logger.event(
                 action="recognize_pass_card_identity",
@@ -523,6 +533,7 @@ def _collect_from_pass_page(
                 current,
                 badge,
                 expected_identity=expected_identity,
+                previous_state=previous_state,
                 logger=logger,
                 step=step,
             )
@@ -794,6 +805,7 @@ def select_pass_with_notification(*, log_root: Path) -> tuple[bool, str]:
         hwnd,
         badges[0],
         expected_identity=expected_identity,
+        previous_state="task_page" if _confirm_pass_task_page(image)[0] else "unknown",
         logger=logger,
         step=1,
     )

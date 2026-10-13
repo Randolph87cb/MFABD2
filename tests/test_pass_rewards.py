@@ -278,6 +278,33 @@ class PassRewardEntryTests(unittest.TestCase):
         self.assertFalse(found)
 
     @patch("pass_rewards._confirm_pass_reward_page", return_value=_recognition(True))
+    @patch("pass_rewards._confirm_selected_pass_panel", return_value=_recognition(True))
+    @patch("pass_rewards._read_texts_at", return_value=(["赛季通行证"], {"available": True}))
+    def test_task_page_to_overview_confirms_stylized_pass_selection(
+        self,
+        _detail: MagicMock,
+        _panel: MagicMock,
+        _page: MagicMock,
+    ) -> None:
+        def evaluate(_hwnd: int, *, recognize: object, **_kwargs: object):
+            found, details = recognize(_image())  # type: ignore[operator]
+            return found, _image(), details
+
+        with patch("pass_rewards._capture_until", side_effect=evaluate):
+            found, _after, details = pass_rewards._wait_for_pass_selection(
+                123,
+                _badge(),
+                expected_identity=["Loyal Maid赛季通行证"],
+                previous_state="task_page",
+                logger=MagicMock(),
+                step=2,
+            )
+
+        self.assertTrue(found)
+        self.assertFalse(details["identity_matches"])
+        self.assertTrue(details["state_transition_matches"])
+
+    @patch("pass_rewards._confirm_pass_reward_page", return_value=_recognition(True))
     @patch("pass_rewards._confirm_selected_pass_panel", return_value=_recognition(False))
     @patch("pass_rewards._confirm_pass_task_page", return_value=_recognition(True))
     @patch("pass_rewards._read_texts_at", return_value=(["SPECIAL"], {"available": True}))
