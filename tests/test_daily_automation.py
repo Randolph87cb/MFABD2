@@ -34,6 +34,7 @@ from daily_automation import (
     ensure_home,
     game_day_key,
     mute_game_audio,
+    normalize_google_auth_context,
     overlay_transition_succeeded,
     recognize_daily_entry_state,
     return_home_transition_succeeded,
@@ -1597,6 +1598,33 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(0.52 <= x <= 0.60)
         self.assertTrue(0.43 <= y <= 0.48)
 
+    def test_empty_google_webview_is_waited_only_during_google_auth(self) -> None:
+        details = {
+            "classification_rule": "bright_scene",
+            "center": {"bright_ratio": 1.0, "contrast": 0.0},
+            "modal": {"bright_ratio": 1.0, "contrast": 0.0},
+        }
+
+        pending = normalize_google_auth_context(
+            "gacha_result",
+            details,
+            "unknown",
+            {},
+            google_auth_pending=True,
+        )
+        unrelated = normalize_google_auth_context(
+            "gacha_result",
+            details,
+            "unknown",
+            {},
+            google_auth_pending=False,
+        )
+
+        self.assertEqual(pending[0], "entry_screen")
+        self.assertEqual(pending[2], "google_auth_loading")
+        self.assertEqual(unrelated[0], "gacha_result")
+        self.assertEqual(unrelated[2], "unknown")
+
     @patch("game_text_recognition._recognize_label_groups")
     def test_pickup_promotion_text_is_actionable(
         self,
@@ -2866,10 +2894,15 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         _print: MagicMock,
     ) -> None:
         image = Image.new("RGB", (2304, 1296))
+        blank_auth_details = {
+            "classification_rule": "bright_scene",
+            "center": {"bright_ratio": 1.0, "contrast": 0.0},
+            "modal": {"bright_ratio": 1.0, "contrast": 0.0},
+        }
         contexts = iter(
             (
                 ("entry_screen", {}, "login_provider_selection", {}),
-                ("entry_screen", {}, "login_provider_selection", {}),
+                ("gacha_result", blank_auth_details, "unknown", {}),
                 ("real_home", {}, "unknown", {}),
             )
         )

@@ -97,6 +97,7 @@ DAILY_READY_STATES = {
 }
 ENTRY_WAITING_STATES = {
     "download_waiting",
+    "google_auth_loading",
     "loading_title",
     "startup_waiting",
 }
@@ -511,6 +512,45 @@ def classify_daily_entry_context(
     return state, details, entry_state, entry_details
 
 
+def normalize_google_auth_context(
+    state: str,
+    details: dict[str, Any],
+    entry_state: str,
+    entry_details: dict[str, Any],
+    *,
+    google_auth_pending: bool,
+) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
+    """Keep the empty Google webview shell inside the entry state machine."""
+    if (
+        not google_auth_pending
+        or entry_state != "unknown"
+        or state != "gacha_result"
+        or details.get("classification_rule") != "bright_scene"
+    ):
+        return state, details, entry_state, entry_details
+
+    center = details.get("center", {})
+    modal = details.get("modal", {})
+    empty_webview = (
+        center.get("bright_ratio", 0.0) >= 0.995
+        and center.get("contrast", float("inf")) <= 1.0
+        and modal.get("bright_ratio", 0.0) >= 0.995
+        and modal.get("contrast", float("inf")) <= 1.0
+    )
+    if not empty_webview:
+        return state, details, entry_state, entry_details
+
+    return (
+        "entry_screen",
+        details,
+        "google_auth_loading",
+        {
+            "source": "google_auth_transition",
+            "previous_entry_details": entry_details,
+        },
+    )
+
+
 def overlay_transition_succeeded(before: Any, next_state: str, after: Any) -> bool:
     if next_state in {"real_home", "plaza", "loading"}:
         return True
@@ -603,6 +643,13 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details, entry_state, entry_details = classify_daily_entry_context(image)
+        state, details, entry_state, entry_details = normalize_google_auth_context(
+            state,
+            details,
+            entry_state,
+            entry_details,
+            google_auth_pending=google_sign_in_clicked,
+        )
         context = (state, entry_state)
         if previous_context is not None and context != previous_context:
             last_progress_at = time.monotonic()

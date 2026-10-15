@@ -170,6 +170,7 @@ STATE_NAMES = {
     "touch_ready": "点击开始界面",
     "download_waiting": "正在下载",
     "download_confirmation": "等待确认下载",
+    "google_auth_loading": "Google 登录加载中",
     "google_account_selection": "选择 Google 账号",
     "real_home": "主页",
     "home_overlay": "弹窗页面",
