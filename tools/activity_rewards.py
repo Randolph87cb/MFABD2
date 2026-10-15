@@ -316,6 +316,8 @@ def _repeatable_selected_activity_kind(card_texts: list[str]) -> str | None:
         return "token_exchange"
     if "Pickup活动任务" in labels:
         return "regular"
+    if "拼图活动" in labels:
+        return "puzzle"
     return None
 
 

@@ -848,6 +848,51 @@ class ActivityOcrTransitionTests(unittest.TestCase):
 
         self.assertTrue(ok)
 
+    @patch(
+        "activity_rewards._read_activity_card_identity",
+        return_value=(["NIGHT", "拼图活动"], {"available": True}),
+    )
+    @patch(
+        "activity_rewards.recognize_activity_kind",
+        side_effect=[("puzzle", {}), ("puzzle", {})],
+    )
+    @patch("activity_rewards._is_activity_page", return_value=(True, {}))
+    @patch("activity_rewards.click_ratio_logged")
+    def test_selected_puzzle_can_unlock_again_without_page_change(
+        self,
+        _click: MagicMock,
+        _page: MagicMock,
+        _kind: MagicMock,
+        _card_identity: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (1280, 720))
+        badge = {"center": (0.266, 0.475)}
+        detail = ["SPOOK-TACULAR", "NIGHT", "拼图活动", "全部解锁", "4"]
+
+        def evaluate(_hwnd: int, **kwargs: object) -> tuple[bool, Image.Image]:
+            predicate = kwargs["predicate"]
+            return bool(predicate(image)), image  # type: ignore[operator]
+
+        with (
+            patch(
+                "activity_rewards._read_texts_at",
+                side_effect=[
+                    (detail, {"available": True}),
+                    (detail, {"available": True}),
+                ],
+            ),
+            patch("activity_rewards._wait_for_image", side_effect=evaluate),
+        ):
+            ok, _image, _reason = activity_rewards._click_marked_activity(
+                123,
+                image,
+                badge,
+                logger=MagicMock(),
+                dry_run=False,
+            )
+
+        self.assertTrue(ok)
+
     def test_paid_exchange_card_is_not_repeatable_as_token_exchange(self) -> None:
         self.assertIsNone(
             activity_rewards._repeatable_selected_activity_kind(
