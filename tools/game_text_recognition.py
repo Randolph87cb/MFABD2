@@ -383,6 +383,18 @@ ENTRY_STATUS_LABEL_GROUPS = {
         "region": (0.02, 0.84, 0.96, 0.12),
         "labels": ("正在下载", "下载中"),
     },
+    "google_account": {
+        # The desktop client opens Google's embedded account chooser after the
+        # in-game provider button.  Keep this separate from game UI regions so
+        # its bright page cannot fall through to the gacha-result heuristic.
+        "region": (0.24, 0.08, 0.66, 0.52),
+        "labels": (
+            "登录 - Google 账号",
+            "使用 Google 账号登录",
+            "选择账号",
+            "使用其他账号",
+        ),
+    },
 }
 
 RETURN_HOME_LABEL_GROUPS = {
@@ -1219,6 +1231,10 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         _normalize_text(text)
         for text in matches["status"]
     }
+    google_account_matches = {
+        _normalize_text(text)
+        for text in matches.get("google_account", [])
+    }
     provider_markers = {
         "SIGNINWITHGOOGLE",
         "SIGNINWITHAPPLE",
@@ -1236,6 +1252,10 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         provider_markers.issubset(status_matches)
         and not has_login_dialog
     )
+    google_account_selection = (
+        "选择账号" in google_account_matches
+        and any("GOOGLE账号" in text for text in google_account_matches)
+    )
     requires_login = any(
         marker in text
         for text in normalized
@@ -1248,7 +1268,9 @@ def recognize_entry_status(image: Image.Image) -> tuple[str, dict[str, Any]]:
         )
     )
     has_download_context = any("下载" in text for text in normalized)
-    if provider_selection:
+    if google_account_selection:
+        state = "google_account_selection"
+    elif provider_selection:
         state = "login_provider_selection"
     elif requires_login:
         state = "login_required"

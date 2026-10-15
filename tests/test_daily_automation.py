@@ -23,6 +23,7 @@ from daily_automation import (
     DAILY_READY_STATES,
     DesktopActivityGuard,
     DOWNLOAD_CONFIRM_CLICK,
+    GOOGLE_ACCOUNT_CLICK,
     GOOGLE_SIGN_IN_CLICK,
     MAX_UNKNOWN_ENTRY_FRAMES,
     MasterLogger,
@@ -1528,6 +1529,42 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertEqual(details["state"], "login_provider_selection")
 
     @patch("game_text_recognition._recognize_label_groups")
+    def test_google_account_chooser_is_an_actionable_entry_state(
+        self,
+        recognize_label_groups: MagicMock,
+    ) -> None:
+        recognize_label_groups.return_value = (
+            {
+                "status": [],
+                "confirm_button": [],
+                "download_progress": [],
+                "google_account": [
+                    "登录 - Google 账号",
+                    "使用 Google 账号登录",
+                    "选择账号",
+                    "使用其他账号",
+                ],
+            },
+            {
+                "status": [],
+                "confirm_button": [],
+                "download_progress": [],
+                "google_account": [
+                    "登录 - Google 账号",
+                    "使用 Google 账号登录",
+                    "选择账号",
+                    "使用其他账号",
+                ],
+            },
+            None,
+        )
+
+        state, details = recognize_entry_status(Image.new("RGB", (2304, 1296)))
+
+        self.assertEqual(state, "google_account_selection")
+        self.assertEqual(details["state"], "google_account_selection")
+
+    @patch("game_text_recognition._recognize_label_groups")
     def test_email_login_dialog_requires_manual_login(
         self,
         recognize_label_groups: MagicMock,
@@ -1554,6 +1591,11 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         x, y = GOOGLE_SIGN_IN_CLICK
         self.assertTrue(0.68 <= x <= 0.77)
         self.assertTrue(0.50 <= y <= 0.60)
+
+    def test_google_account_click_stays_in_the_existing_account_row(self) -> None:
+        x, y = GOOGLE_ACCOUNT_CLICK
+        self.assertTrue(0.52 <= x <= 0.60)
+        self.assertTrue(0.43 <= y <= 0.48)
 
     @patch("game_text_recognition._recognize_label_groups")
     def test_pickup_promotion_text_is_actionable(
@@ -2855,6 +2897,44 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         click_logged.assert_called_once()
         self.assertEqual(click_logged.call_args.args[2], GOOGLE_SIGN_IN_CLICK)
         self.assertEqual(click_logged.call_args.kwargs["key"], "google_sign_in")
+
+    @patch("builtins.print")
+    def test_enter_game_selects_existing_google_account_once(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2304, 1296))
+        contexts = iter(
+            (
+                ("entry_screen", {}, "google_account_selection", {}),
+                ("entry_screen", {}, "google_account_selection", {}),
+                ("real_home", {}, "unknown", {}),
+            )
+        )
+
+        with (
+            patch("daily_automation.find_game_window", return_value=123),
+            patch("daily_automation.open_game", return_value=123),
+            patch("daily_automation.RunLogger"),
+            patch("daily_automation.mute_game_audio", return_value=True),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_daily_entry_context",
+                side_effect=lambda _image: next(contexts),
+            ),
+            patch("daily_automation._click_logged_ratio") as click_logged,
+        ):
+            ok, reason = enter_game_logged(
+                timeout=30.0,
+                log_root=Path("unused"),
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "game is ready at state=real_home")
+        click_logged.assert_called_once()
+        self.assertEqual(click_logged.call_args.args[2], GOOGLE_ACCOUNT_CLICK)
+        self.assertEqual(click_logged.call_args.kwargs["key"], "google_account")
 
     @patch("builtins.print")
     def test_enter_game_timeout_tracks_progress_not_total_duration(

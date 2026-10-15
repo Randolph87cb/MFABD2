@@ -73,6 +73,7 @@ MOUSEEVENTF_MOVE = 0x0001
 DESKTOP_ACTIVITY_INTERVAL_SECONDS = 30.0
 GOOGLE_CONNECTIVITY_URL = "https://www.google.com/generate_204"
 GOOGLE_SIGN_IN_CLICK = (0.725, 0.560)
+GOOGLE_ACCOUNT_CLICK = (0.560, 0.460)
 DOWNLOAD_CONFIRM_CLICK = (0.548, 0.725)
 STARTUP_PROMOTION_TRANSITION_MIN_DIFF = 12.0
 DAILY_READY_STATES = {
@@ -494,7 +495,13 @@ def classify_daily_entry_context(
         image,
         text_result=text_result,
     )
-    if entry_state in {"touch_ready", "download_waiting", "download_confirmation", "loading_title"}:
+    if entry_state in {
+        "touch_ready",
+        "download_waiting",
+        "download_confirmation",
+        "loading_title",
+        "google_account_selection",
+    }:
         return "entry_screen", details, entry_state, entry_details
 
     returnable, return_details = recognize_return_home_control(image)
@@ -578,6 +585,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     unknown_entry_frames = 0
     terms_agreement_attempts = 0
     google_sign_in_clicked = False
+    google_account_clicked = False
     poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
         if not audio_muted and time.monotonic() >= next_mute_attempt:
@@ -656,6 +664,34 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             logger.event(
                 action="progress",
                 reason="google_sign_in_selected",
+                stall_timeout=timeout,
+            )
+            time.sleep(poll.next_delay())
+            continue
+
+        if entry_state == "google_account_selection":
+            if google_account_clicked:
+                logger.event(
+                    action="wait_google_account",
+                    reason="Google account was selected; waiting for authentication",
+                    screenshot=str(path),
+                )
+                time.sleep(poll.next_delay())
+                continue
+            _click_logged_ratio(
+                hwnd,
+                image,
+                GOOGLE_ACCOUNT_CLICK,
+                key="google_account",
+                logger=logger,
+                attempt=1,
+            )
+            google_account_clicked = True
+            last_progress_at = time.monotonic()
+            poll.reset()
+            logger.event(
+                action="progress",
+                reason="google_account_selected",
                 stall_timeout=timeout,
             )
             time.sleep(poll.next_delay())
