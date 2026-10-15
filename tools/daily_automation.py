@@ -978,6 +978,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
 
     last_progress_at = time.monotonic()
     previous_state: str | None = None
+    loading_transition_pending = False
     step = 0
     poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
@@ -1017,9 +1018,20 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             logger.event(action="stop", result="success", reason=reason)
             return True, reason
         if state == "loading":
+            loading_transition_pending = True
             last_progress_at = time.monotonic()
             time.sleep(poll.next_delay())
             continue
+        if loading_transition_pending and state in {"unknown", "gacha_animation"}:
+            logger.event(
+                action="wait_loading_transition",
+                state=state,
+                reason="waiting for the post-loading promotion transition to finish",
+                screenshot=str(path),
+            )
+            time.sleep(poll.next_delay())
+            continue
+        loading_transition_pending = False
 
         if state == "reward_overlay":
             key = "reward_overlay_dismiss"

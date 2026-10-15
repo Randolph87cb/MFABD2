@@ -2693,6 +2693,39 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertGreater(clock[0], 5.0)
 
     @patch("builtins.print")
+    def test_ensure_home_waits_through_post_loading_promotion_animation(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("open_game.find_game_window", return_value=123),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_state",
+                side_effect=[
+                    ("loading", {}),
+                    ("unknown", {}),
+                    ("gacha_animation", {}),
+                    ("real_home", {}),
+                ],
+            ),
+            patch(
+                "daily_automation.recognize_return_home_control",
+                return_value=(False, {"found": False}),
+            ),
+            patch("daily_automation.click_with_fixed_retry") as click_with_fixed_retry,
+        ):
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok)
+        self.assertEqual(reason, "returned to real_home")
+        click_with_fixed_retry.assert_not_called()
+
+    @patch("builtins.print")
     def test_enter_game_clicks_startup_promotions_until_home(
         self,
         _print: MagicMock,
