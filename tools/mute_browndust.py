@@ -9,14 +9,25 @@ TARGET_PROCESS = "BrownDust II.exe"
 def set_mute(muted: bool) -> int:
     changed = 0
     for session in AudioUtilities.GetAllSessions():
-        process = session.Process
-        if not process:
+        try:
+            process = session.Process
+            if not process:
+                continue
+            process_name = process.name()
+        except Exception as exc:  # noqa: BLE001 - stale Windows audio sessions are expected.
+            print(f"skipped unavailable audio session: {exc!r}")
             continue
-        if process.name().lower() == TARGET_PROCESS.lower():
-            volume = session.SimpleAudioVolume
-            volume.SetMute(1 if muted else 0, None)
+
+        if process_name.lower() == TARGET_PROCESS.lower():
+            try:
+                pid = process.pid
+                volume = session.SimpleAudioVolume
+                volume.SetMute(1 if muted else 0, None)
+            except Exception as exc:  # noqa: BLE001 - the session may expire mid-enumeration.
+                print(f"skipped unavailable {TARGET_PROCESS} audio session: {exc!r}")
+                continue
             changed += 1
-            print(f"{'muted' if muted else 'unmuted'} pid={process.pid} name={process.name()}")
+            print(f"{'muted' if muted else 'unmuted'} pid={pid} name={process_name}")
     return changed
 
 
