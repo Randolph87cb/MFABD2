@@ -401,6 +401,16 @@ def mute_game_audio(logger: RunLogger, *, attempt: int) -> bool:
         )
         return False
 
+    if muted_sessions is None:
+        logger.event(
+            action="mute_game_audio",
+            result="success",
+            attempt=attempt,
+            muted_sessions=0,
+            reason="no default Windows audio output endpoint is available",
+        )
+        return True
+
     if muted_sessions:
         logger.event(
             action="mute_game_audio",

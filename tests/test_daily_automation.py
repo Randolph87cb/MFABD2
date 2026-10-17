@@ -1710,6 +1710,24 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             reason="BrownDust II audio session is not available yet",
         )
 
+    @patch("daily_automation.set_mute", return_value=None)
+    def test_game_audio_mute_accepts_a_missing_output_endpoint(
+        self,
+        set_mute: MagicMock,
+    ) -> None:
+        logger = MagicMock()
+
+        self.assertTrue(mute_game_audio(logger, attempt=3))
+
+        set_mute.assert_called_once_with(True)
+        logger.event.assert_called_once_with(
+            action="mute_game_audio",
+            result="success",
+            attempt=3,
+            muted_sessions=0,
+            reason="no default Windows audio output endpoint is available",
+        )
+
     def test_animation_skip_uses_the_top_right_fast_forward_control(self) -> None:
         x, y = CLICK_POINTS["skip_animation"]
         self.assertTrue(0.90 <= x <= 0.96)
