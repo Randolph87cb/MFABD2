@@ -1,4 +1,4 @@
-"""Supervise daily automation, cleanup, Codex repair, and checkpoint resume."""
+"""Supervise daily automation, recovery, and one improvement per game day."""
 
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ PROJECT_ROOT = TOOLS_DIR.parent
 if str(TOOLS_DIR) not in sys.path:
     sys.path.insert(0, str(TOOLS_DIR))
 
-from daily_plan import FAST_PRESET, get_current_stages  # noqa: E402
+from daily_plan import FAST_PRESET, get_current_stages, get_daily_plan  # noqa: E402
 from daily_processes import cleanup_after_attempt, snapshot_run_helpers  # noqa: E402
-from daily_state import read_state_file  # noqa: E402
+from daily_state import read_state_file, write_state_atomic  # noqa: E402
 from maintenance import MAINTENANCE_EXIT_CODE  # noqa: E402
 
 
@@ -425,6 +425,133 @@ def finalize_prompt(*, supervisor_log: Path, summary_path: Path | None) -> str:
 """
 
 
+def improvement_prompt(
+    *,
+    project_root: Path,
+    reference_root: Path,
+    report: dict[str, Any],
+    summary_path: Path | None,
+    supervisor_log: Path,
+    candidates: list[dict[str, Any]],
+) -> str:
+    return f"""棕尘2游戏日 {report['game_day']} 的当前可运行日常已全部完成并成功收尾。
+这是独立的每日增量开发线程：对比参考项目，只实现一个尚缺的模块或一个部分实现模块的最小子功能，让下一游戏日的正式日常使用它。
+
+工作目录：{project_root}
+只读参考仓库：{reference_root}
+路线图：{project_root / 'docs' / 'daily-automation-roadmap.md'}
+今日 summary：{summary_path or '无，请查看每日状态与监督日志'}
+监督日志：{supervisor_log}
+当前阶段结果：{json.dumps(report.get('statuses', {}), ensure_ascii=False)}
+按现有路线图顺序排列的候选差距：
+{json.dumps(candidates, ensure_ascii=False, indent=2)}
+
+要求：
+1. 先读项目规则、路线图、今日日志、相关实现和参考仓库；记录双方提交版本、具体业务差距、选定的唯一模块/子功能和验收标准。参考仓库仅用于比较业务语义，禁止修改、拉取或切换它，禁止照搬移动端坐标或 Android 架构。
+2. 优先推进列表中的第一个可安全落地的差距；若缺少 PC 证据、白名单或前置能力，在路线图写明原因，继续评估下一个候选。每轮最多交付一个模块/子功能，不附带重构或扩展其他模块。
+3. 先使用已有截图做离线识别回放；确需补证据时，只允许目标模块的 PC 截图采集和最小单步 Demo。禁止重跑整套日常、--force 或已完成的消耗动作；不得修改/重置今日 daily_automation.json 来伪造完成或重放阶段。
+4. 沿用路线图的 PC 证据门、免费动作和失败即停规则。装备、精炼、分解、商店交易等仍须已有明确白名单与上限；本次增量开发授权不代替这些白名单。资源不足、未知页面或证据不足时保留阻塞记录，不能虚报实现或盲点。
+5. 验证通过的模块必须接入 tools/daily_automation.py 的真实执行入口和 tools/daily_plan.py 的 current_runners，并维护阶段状态与顺序；只写文件或改 availability 不算交付。仅补齐子功能时继续标为 partial；无 PC 闭环证据的模块保持关闭。不要修改监督器去增加当日重跑；正式流程由下一游戏日的计划任务加载新代码。
+6. 更新同一份路线图，记录本次对比、已实现/部分实现/阻塞、测试与 Demo 证据、下一日会运行的入口、仍待完成的差距；全部候选有阻塞时如实记录，不降低证据门。
+7. 只运行与本模块相关的必要离线检查及 --show-plan。完成验证后精确暂存本次相关代码、测试、文档，使用中文提交信息并推送当前 main 分支；禁止提交 logs、state、.external 或其他本地产物。不要自行创建其他开发线程或修改计划任务。
+8. 最终报告具体模块、参考差距、实际改动、验证、次日接入、提交推送状态与未验收边界。线程结束不等于模块已完成，离线通过不等于次日正式实测通过。
+"""
+
+
+def improve_after_success(
+    *,
+    args: argparse.Namespace,
+    logger: SupervisorLogger,
+    report: dict[str, Any],
+    summary_path: Path | None,
+    project_was_clean: bool,
+) -> None:
+    """Claim one development turn per game day; never retry the daily flow here."""
+    if args.force_phase:
+        logger.event("improvement_skipped", "手动单阶段运行不启动增量开发")
+        return
+    project_root = args.project_root.resolve()
+    game_day = report.get("game_day")
+    # Use the same local 08:00 boundary as the daily runner. Stale state is not a trigger.
+    current_day = (datetime.now() - timedelta(hours=8)).date().isoformat()
+    if not report.get("complete") or game_day != current_day:
+        logger.event("improvement_skipped", "没有当前游戏日的完整成功记录", game_day=game_day)
+        return
+    state_path = project_root / "state" / "daily_improvement.json"
+    try:
+        state = read_state_file(state_path)
+        days = state.setdefault("days", {})
+        if not isinstance(days, dict):
+            raise ValueError("daily_improvement.days 必须为对象")
+        if game_day in days:
+            logger.event("improvement_skipped", "本游戏日已启动过增量开发，不重复启动", record=days[game_day])
+            return
+        clean, status = git_status(project_root)
+        if not project_was_clean or not clean:
+            logger.event("improvement_blocked", "主仓库存在人工改动，未启动增量开发", git_status=status)
+            return
+        reference_root = project_root / ".external" / "MFABD2-reference"
+        ready, error = reference_is_ready(reference_root)
+        if not ready:
+            logger.event("improvement_blocked", error)
+            return
+        # Closing is already handled by the supervisor. Risky modules need explicit policy.
+        candidates = [
+            stage.to_dict()
+            for stage in get_daily_plan(FAST_PRESET)
+            if stage.enabled and not stage.implemented
+            and stage.id not in {"equipment_daily", "arbitrage", "close_game"}
+        ]
+        if not candidates:
+            logger.event("improvement_skipped", "当前预设没有可自动推进的缺失模块；安全白名单仍按路线图处理")
+            return
+        record = {
+            "status": "running",
+            "started_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "supervisor_log": str(logger.text_path),
+            "candidates": [stage["id"] for stage in candidates],
+        }
+        days[game_day] = record
+        # Persist before starting Codex: a crash must not launch a second turn today.
+        write_state_atomic(state_path, state)
+        logger.event("improvement_started", "日常已完成，启动独立 Codex 线程推进一个模块", **record)
+        starter_before = snapshot_run_helpers()
+        try:
+            turn = run_codex_turn(
+                codex_path=args.codex_path,
+                project_root=project_root,
+                logger=logger,
+                prompt=improvement_prompt(
+                    project_root=project_root,
+                    reference_root=reference_root,
+                    report=report,
+                    summary_path=summary_path,
+                    supervisor_log=logger.text_path,
+                    candidates=candidates,
+                ),
+                label="codex-improvement",
+            )
+            record.update(asdict(turn))
+            record["status"] = "turn_completed" if turn.ok else "failed"
+        except Exception as exc:  # An improvement failure must not replay successful dailies.
+            record.update(status="failed", error=str(exc))
+        finally:
+            cleanup = cleanup_after_attempt(starter_before)
+            record["cleanup"] = cleanup
+            if not cleanup.get("ok"):
+                record["status"] = "failed"
+            clean, status = git_status(project_root)
+            ready, error = reference_is_ready(reference_root)
+            record.update(project_clean=clean, git_status=status, reference_ready=ready, reference_error=error)
+            if not clean or not ready:
+                record["status"] = "failed"
+            record["finished_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+            write_state_atomic(state_path, state)
+        logger.event("improvement_finished", "增量开发线程结束；正式模块结果见线程与路线图，日常结果保持成功", **record)
+    except Exception as exc:
+        logger.event("improvement_failed", "增量开发失败，已完成的日常不会重跑", error=str(exc))
+
+
 def run_automation_attempt(
     *,
     python_path: Path,
@@ -566,6 +693,13 @@ def supervise(args: argparse.Namespace) -> int:
                     return 2
             logger.event("success", "当前可运行的全部每日流程均已完成")
             notify_success(project_root, report=latest_report, logger=logger)
+            improve_after_success(
+                args=args,
+                logger=logger,
+                report=latest_report,
+                summary_path=summary_path,
+                project_was_clean=project_was_clean,
+            )
             return 0
 
         if attempt >= args.max_repair_rounds:
