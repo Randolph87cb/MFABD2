@@ -44,6 +44,7 @@ from quick_hunt import (  # noqa: E402
     enter_quick_hunt,
     maximize_and_confirm_quick_hunt,
     run_crystal_cave_cycle,
+    run_rice_recheck,
     start_selected_quick_hunt,
 )
 from win32_windowpos_click import click_client  # noqa: E402
@@ -116,6 +117,7 @@ MASTER_STAGE_NAMES = {
     "quick_hunt_entry": "进入快速狩猎",
     "hunting_ground_setup": "设置狩猎场",
     "hunting_ground_confirm": "执行狩猎场",
+    "rice_recheck": "只读复核免费米饭",
     "crystal_cave_cycle": "执行圣石洞穴",
     "daily_arena": "每日竞技场",
     "business_management_home": "经营管理前返回主页",
@@ -1302,11 +1304,17 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: maximize_and_confirm_quick_hunt(dry_run=False, log_root=log_root),
             log_root=log_root / "03-hunting-ground-confirm",
         )
+        _require_phase(
+            master,
+            "rice_recheck",
+            lambda *, log_root: run_rice_recheck(dry_run=False, log_root=log_root),
+            log_root=log_root / "04-rice-recheck",
+        )
         return _require_phase(
             master,
             "crystal_cave_cycle",
             lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
-            log_root=log_root / "04-crystal-cave-cycle",
+            log_root=log_root / "05-crystal-cave-cycle",
         )
     if phase_id == "free_gacha":
         return _run_free_gacha_phase(master, log_root)

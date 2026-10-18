@@ -6,7 +6,9 @@ import argparse
 import re
 import time
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -33,6 +35,128 @@ QUICK_HUNT_CATEGORY_REGIONS = {
     "slime": (0.05, 0.30, 0.10, 0.12),
     "crystal_cave": (0.05, 0.40, 0.10, 0.12),
 }
+
+RICE_COUNTER_REGIONS = (
+    (0.462, 0.038, 0.045, 0.03),
+    (0.85, 0.038, 0.035, 0.03),
+)
+
+
+@lru_cache(maxsize=1)
+def _rice_ocr_engine() -> Any:
+    from rapidocr import RapidOCR
+
+    return RapidOCR(
+        params={
+            "Global.use_cls": False,
+            "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+            "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+            "Global.log_level": "error",
+        }
+    )
+
+
+def recognize_free_rice(image: Image.Image) -> tuple[int | None, dict[str, object]]:
+    state, _details = classify_state(image)
+    if state != "quick_hunt_map":
+        return None, {"state": state, "reason": "requires quick_hunt_map"}
+    category, scores = detect_selected_quick_hunt_category(image)
+    details: dict[str, object] = {"state": state, "category": category, "category_scores": scores}
+    if category != "hunting_ground":
+        return None, {**details, "reason": "rice requires hunting_ground"}
+    observations = []
+    candidates = []
+    try:
+        engine = _rice_ocr_engine()
+        source = image.convert("RGB")
+        for region in RICE_COUNTER_REGIONS:
+            left, top, width, height = region
+            crop = source.crop(
+                (
+                    round(source.width * left),
+                    round(source.height * top),
+                    round(source.width * (left + width)),
+                    round(source.height * (top + height)),
+                )
+            )
+            crop = crop.resize((320, round(320 * crop.height / crop.width)), Image.Resampling.LANCZOS)
+            result = engine(np.asarray(crop))
+            texts = list(result.txts) if result.txts is not None else []
+            confidences = list(result.scores) if result.scores is not None else []
+            observations.append(
+                {"region": region, "texts": texts, "scores": [float(score) for score in confidences]}
+            )
+            if len(texts) != len(confidences):
+                return None, {**details, "observations": observations, "reason": "missing OCR confidence"}
+            for text, confidence in zip(texts, confidences):
+                match = re.fullmatch(r"(0|[1-9]\d*)\s*/\s*90", str(text).strip())
+                if match is None or not float(confidence) >= 0.95 or int(match.group(1)) > 90:
+                    return None, {**details, "observations": observations, "reason": "unverified rice counter"}
+                candidates.append(int(match.group(1)))
+    except Exception as exc:
+        return None, {**details, "observations": observations, "error": repr(exc)}
+    details["observations"] = observations
+    if len(candidates) != 1:
+        return None, {**details, "reason": "requires exactly one verified rice counter"}
+    return candidates[0], details
+
+
+def run_rice_recheck(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="quick_hunt_rice_recheck", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        reason = "game window not found"
+        logger.failure(reason)
+        return False, reason
+    image = safe_capture_client(hwnd, logger=logger)
+    state, details = classify_state(image)
+    path = logger.save_image(image, f"rice-recheck-start-{state}.png")
+    logger.event(action="classify_rice_start", state=state, details=details, screenshot=str(path))
+    if state == "reward_overlay":
+        ok, state, image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "reward_overlay_dismiss",
+            verify=lambda next_state, _next_image: next_state in {"quick_hunt_map", "loading"},
+            description="dismiss hunting-ground reward for read-only rice recheck",
+            dry_run=dry_run,
+            logger=logger,
+        )
+        if not ok or dry_run:
+            if not ok:
+                logger.failure(reason)
+            return ok, reason
+        state, image = _wait_out_loading(hwnd, state, image, logger=logger, label="rice-after-result-dismiss")
+    if state != "quick_hunt_map":
+        reason = f"rice recheck requires quick_hunt_map, got {state}"
+        logger.failure(reason)
+        return False, reason
+    balances = []
+    for sample in range(1, 3):
+        if sample > 1:
+            image = safe_capture_client(hwnd, logger=logger)
+        balance, details = recognize_free_rice(image)
+        path = logger.save_image(image, f"rice-recheck-{sample}-balance-{balance}.png")
+        logger.event(
+            action="rice_balance_recheck",
+            sample=sample,
+            free_rice=balance,
+            details=details,
+            screenshot=str(path),
+        )
+        if balance is None:
+            reason = "free rice balance is unverified; no further actions allowed"
+            logger.failure(reason)
+            return False, reason
+        balances.append(balance)
+    if balances[0] != balances[1]:
+        reason = f"free rice balance changed during recheck: {balances}"
+        logger.failure(reason)
+        return False, reason
+    reason = f"read-only free rice recheck: {balances[0]}/90; no rice allocation or extra hunts"
+    logger.event(action="stop", result="success", state="quick_hunt_map", free_rice=balances[0], reason=reason)
+    return True, reason
 
 
 def detect_selected_quick_hunt_category(image: Image.Image) -> tuple[str | None, dict[str, float]]:
@@ -851,7 +975,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Test one recorded quick-hunt step.")
     parser.add_argument(
         "--step",
-        choices=("entry", "start", "confirm", "crystal-cycle", "finish-crystal"),
+        choices=("entry", "start", "confirm", "rice-recheck", "crystal-cycle", "finish-crystal"),
         default="entry",
     )
     parser.add_argument("--dry-run", action="store_true")
@@ -875,6 +999,8 @@ def main() -> None:
         ok, reason = start_selected_quick_hunt(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "confirm":
         ok, reason = maximize_and_confirm_quick_hunt(dry_run=args.dry_run, log_root=log_root)
+    elif args.step == "rice-recheck":
+        ok, reason = run_rice_recheck(dry_run=args.dry_run, log_root=log_root)
     elif args.step == "crystal-cycle":
         ok, reason = run_crystal_cave_cycle(dry_run=args.dry_run, log_root=log_root)
     else:
