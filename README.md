@@ -25,6 +25,16 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 安装脚本会创建项目内 `.venv`、安装 `requirements.txt`，并注册每天 `08:30` 运行的
 `BrownDust2DailyAutomation`。网络检查仍会无限等待网络恢复，不设置任务执行时限。
 
+Codex CLI 默认优先使用用户 npm 目录 `%APPDATA%\npm\codex.cmd`，避免 PATH 中旧的
+WinGet Node 目录覆盖已升级的 CLI；用户 npm 安装不存在时再从 PATH 查找。
+更换 CLI 安装位置后，需要更新计划任务里保存的路径，也可以显式指定：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1 -SkipDependencyInstall -CodexPath "$env:APPDATA\npm\codex.cmd"
+```
+
+安装时会检查 CLI 能否启动，并输出实际路径和版本；模型沿用本机 Codex 配置。
+
 每轮运行由 `tools\daily_supervisor.py` 监督：
 
 - 登录时检测维护公告，关闭游戏和本轮启动器，等待公告结束时间后一小时再登录并续跑；
@@ -55,8 +65,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 只检查监督器、Codex 和本地参考仓库，不启动游戏：
 
 ```powershell
-$CodexPath = (Get-Command codex.cmd).Source
-python tools\daily_supervisor.py --check --codex-path $CodexPath
+$Task = Get-ScheduledTask -TaskName BrownDust2DailyAutomation
+$Check = Start-Process -FilePath $Task.Actions[0].Execute -ArgumentList ($Task.Actions[0].Arguments + " -Check") -NoNewWindow -Wait -PassThru
+$Check.ExitCode
 ```
 
 ### 完成通知配置与订阅

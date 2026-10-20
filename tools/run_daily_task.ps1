@@ -3,6 +3,7 @@ param(
     [string]$PythonPath,
     [Parameter(Mandatory = $true)]
     [string]$CodexPath,
+    [switch]$Check,
     [switch]$Force,
     [ValidateSet(
         "start",
@@ -34,6 +35,9 @@ $SupervisorArguments = @(
     "--retention-days", "7",
     "--max-repair-rounds", "2"
 )
+if ($Check) {
+    $SupervisorArguments += "--check"
+}
 if ($Force) {
     $SupervisorArguments += "--force"
 }

@@ -1,6 +1,7 @@
 param(
     [string]$TaskName = "BrownDust2DailyAutomation",
     [string]$At = "08:30",
+    [string]$CodexPath,
     [switch]$SkipDependencyInstall
 )
 
@@ -37,8 +38,23 @@ if (-not $SkipDependencyInstall) {
     }
 }
 
-$CodexCommand = Get-Command codex.cmd -ErrorAction Stop
-$CodexPath = $CodexCommand.Source
+if (-not $CodexPath) {
+    # Prefer the stable user npm installation over a versioned WinGet Node directory on PATH.
+    $UserCodexPath = Join-Path $env:APPDATA "npm\codex.cmd"
+    if (Test-Path -LiteralPath $UserCodexPath -PathType Leaf) {
+        $CodexPath = $UserCodexPath
+    } else {
+        $CodexPath = (Get-Command codex.exe,codex.cmd -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    }
+}
+if (-not $CodexPath -or -not (Test-Path -LiteralPath $CodexPath -PathType Leaf)) {
+    throw "Codex CLI not found. Specify an existing CLI with -CodexPath."
+}
+$CodexPath = (Resolve-Path -LiteralPath $CodexPath).Path
+$CodexVersion = & $CodexPath --version
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to start Codex CLI: $CodexPath"
+}
 $PowerShellCommand = Get-Command powershell.exe -ErrorAction Stop
 $PowerShellPath = $PowerShellCommand.Source
 
@@ -77,6 +93,7 @@ Write-Output "trigger=Daily $At"
 Write-Output "next_run=$($TaskInfo.NextRunTime)"
 Write-Output "python=$PythonPath"
 Write-Output "codex=$CodexPath"
+Write-Output "codex_version=$CodexVersion"
 Write-Output "script=$AutomationScript"
 Write-Output "supervisor=$SupervisorScript"
 Write-Output "runner=$TaskRunner"
