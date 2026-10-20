@@ -36,6 +36,18 @@ class QuickHuntRiceTests(unittest.TestCase):
                 balance, details = recognize_free_rice(image)
                 self.assertEqual(balance, expected, details)
 
+    def test_right_rice_counter_can_shift_without_being_truncated(self):
+        with Image.open(FIXTURES / "quick-hunt-rice-right-empty.png") as source:
+            image = source.convert("RGB")
+        shift = round(image.width * 0.016)
+        top = round(image.height * 0.038)
+        bottom = round(image.height * 0.068)
+        image.paste(image.crop((0, top, image.width - shift, bottom)), (shift, top))
+
+        balance, details = recognize_free_rice(image)
+
+        self.assertEqual(balance, 0, details)
+
     def test_uncertain_rice_is_not_a_zero_balance(self):
         cases = [
             [([], []), ([], [])],
@@ -44,6 +56,7 @@ class QuickHuntRiceTests(unittest.TestCase):
             [(["0/90"], []), (["0/90"], [0.99])],
             [(["90/90"], [0.99]), (["0/90"], [0.99])],
             [(["06/06"], [0.99]), ([], [])],
+            [([], []), (["0/9"], [0.99])],
             [(["91/90"], [0.99]), ([], [])],
             [(["0/60"], [0.99]), ([], [])],
             [(["0/90+8.95K"], [0.99]), ([], [])],
