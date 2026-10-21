@@ -1439,6 +1439,49 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
             )
         )
 
+    def test_blacksmith_gacha_animation_survives_window_resizing(self) -> None:
+        with Image.open(FIXTURES / "gear-gacha-blacksmith-animation-2304x1296.png") as source:
+            for size in (source.size, (1920, 1080), (2567, 1446), (3421, 1927)):
+                with self.subTest(size=size):
+                    state, _details = classify_state(source.resize(size))
+                    self.assertEqual(state, "gacha_animation")
+
+    @patch("builtins.print")
+    def test_blacksmith_animation_reaches_result_and_completes_gear_target(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        with (
+            Image.open(FIXTURES / "gear-gacha-blacksmith-animation-2304x1296.png") as animation,
+            Image.open(FIXTURES.parent.parent.parent / "自动化截图标注/抽卡结算画面.png") as result_image,
+            Image.open(FIXTURES / "gacha-page-gear-selected.png") as page,
+            tempfile.TemporaryDirectory() as temporary,
+            patch("free_gacha.find_game_window", return_value=123),
+            patch(
+                "free_gacha.safe_capture_client",
+                side_effect=[animation, result_image, result_image, page, page],
+            ),
+            patch("free_gacha.click_client") as click_client,
+            patch("free_gacha.time.sleep"),
+        ):
+            result = run_free_gacha(
+                targets=["gear"],
+                timeout=30.0,
+                interval=0.0,
+                dry_run=False,
+                test_mode=False,
+                log_root=Path(temporary),
+            )
+
+        self.assertEqual(result.reason, "all requested free gacha targets completed")
+        self.assertEqual(
+            [call.args for call in click_client.call_args_list],
+            [
+                (123, int(animation.width * 0.930), int(animation.height * 0.055)),
+                (123, int(result_image.width * 0.090), int(result_image.height * 0.045)),
+            ],
+        )
+
     @patch("free_gacha.recognize_gacha_animation_labels")
     @patch("game_text_recognition._ocr_engine")
     def test_equipment_reveal_text_and_skip_control_override_background_brightness(

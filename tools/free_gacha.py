@@ -531,7 +531,8 @@ def _is_reveal_animation_like(
         and animation_top_right["bright_ratio"] < 0.11
         and animation_skip_control["bright_ratio"] > 0.025
         and animation_bottom_reveal["mid_ratio"] > 0.20
-        and animation_bottom_reveal["edge_ratio"] < 0.020
+        # The blacksmith scene has more floor/character edges, especially at 1080p.
+        and animation_bottom_reveal["edge_ratio"] < 0.030
     )
 
 

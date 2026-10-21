@@ -72,6 +72,11 @@
     "reason": "装备抽卡揭示动画不能识别为未知画面"
   },
   {
+    "path": "fixtures/recognition/gear-gacha-blacksmith-animation-2304x1296.png",
+    "expected": "gacha_animation",
+    "reason": "装备抽卡铁匠铺动画带有快进控件，不能因底部人物和地板边缘稍多而停止"
+  },
+  {
     "path": "fixtures/recognition/home-brown-video-background.png",
     "expected": "real_home",
     "reason": "主页棕色动态背景不能识别为未知画面"
