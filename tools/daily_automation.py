@@ -1135,6 +1135,9 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         last_progress_at = time.monotonic()
         poll.reset()
         previous_state = next_state
+        # Loading observed during click verification also starts a transition.
+        # Its next frame may contain only promotion artwork, without home UI.
+        loading_transition_pending = next_state == "loading"
         logger.event(
             action="progress",
             reason="verified_click_succeeded",

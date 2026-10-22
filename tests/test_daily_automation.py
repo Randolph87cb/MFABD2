@@ -2787,6 +2787,87 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         click_with_fixed_retry.assert_not_called()
 
     @patch("builtins.print")
+    def test_ensure_home_keeps_loading_seen_during_overlay_click_verification(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("open_game.find_game_window", return_value=123),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch(
+                "daily_automation.classify_state",
+                # The 2026-10-22 failure: verification saw loading, but the next
+                # capture was an unknown promotion frame rather than home UI.
+                side_effect=[
+                    ("blocking_ad_overlay", {}),
+                    ("unknown", {}),
+                    ("gacha_animation", {}),
+                    ("real_home", {}),
+                ],
+            ),
+            patch(
+                "daily_automation.recognize_return_home_control",
+                return_value=(False, {"found": False}),
+            ),
+            patch(
+                "daily_automation.click_with_fixed_retry",
+                return_value=(True, "loading", image, "overlay closed"),
+            ) as click_with_fixed_retry,
+        ):
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(reason, "returned to real_home")
+        click_with_fixed_retry.assert_called_once()
+        self.assertEqual(click_with_fixed_retry.call_args.args[2], "dismiss_overlay")
+
+    @patch("builtins.print")
+    def test_ensure_home_stops_if_unknown_frames_persist_after_verified_loading(
+        self,
+        _print: MagicMock,
+    ) -> None:
+        image = Image.new("RGB", (2000, 1000))
+        clock = [0.0]
+        captures = [0]
+
+        def capture_client(*_args: object, **_kwargs: object) -> Image.Image:
+            clock[0] += 1.0
+            captures[0] += 1
+            return image
+
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("open_game.find_game_window", return_value=123),
+            patch("daily_automation.time.monotonic", side_effect=lambda: clock[0]),
+            patch("daily_automation.time.sleep"),
+            patch("daily_automation.safe_capture_client", side_effect=capture_client),
+            patch(
+                "daily_automation.classify_state",
+                side_effect=lambda _image: (
+                    "blocking_ad_overlay" if captures[0] == 1 else "unknown", {}
+                ),
+            ),
+            patch(
+                "daily_automation.recognize_return_home_control",
+                return_value=(False, {"found": False}),
+            ),
+            patch(
+                "daily_automation.click_with_fixed_retry",
+                return_value=(True, "loading", image, "overlay closed"),
+            ) as click_with_fixed_retry,
+        ):
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertFalse(ok)
+        self.assertEqual(reason, "returning home made no progress for 5 seconds")
+        self.assertGreater(captures[0], 2)
+        click_with_fixed_retry.assert_called_once()
+
+    @patch("builtins.print")
     def test_enter_game_clicks_startup_promotions_until_home(
         self,
         _print: MagicMock,
