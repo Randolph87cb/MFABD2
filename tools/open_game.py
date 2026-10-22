@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import errno
 import subprocess
 import time
 from ctypes import wintypes
@@ -21,6 +22,7 @@ PROTOCOL_ARG = "browndust2:games/10000002?usn=0"
 WINDOW_CLASS = "UnityWndClass"
 WINDOW_TITLE = "BrownDust II"
 STARTER_ATTEMPTS = 2
+STARTER_LOG_XOR_KEY = b"NNEEOOWWIIZZ"
 
 user32 = ctypes.windll.user32
 EnumWindowsProc = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
@@ -86,6 +88,37 @@ def _stop_stalled_starter(process: subprocess.Popen[bytes]) -> None:
         return
 
 
+def _starter_disk_space_failure(
+    previous: tuple[tuple[str, int, int], ...],
+    current: tuple[tuple[str, int, int], ...],
+) -> Path | None:
+    """Read only changed logs; the starter stores XOR-obfuscated ANSI as hex."""
+    old = {name: (size, modified) for name, size, modified in previous}
+    messages = (
+        "安装磁盘空间不足".encode("gbk"),
+        b"Not enough disk space to install.",
+    )
+    for name, size, modified in current:
+        if old.get(name) == (size, modified):
+            continue
+        path = STARTER_LOG_DIR / name
+        try:
+            data = bytes.fromhex(path.read_text(encoding="ascii"))
+        except (OSError, UnicodeError, ValueError):
+            # A partial write is not evidence of failure; keep waiting.
+            continue
+        # Each logger call resets the key, so records need not share alignment.
+        for message in messages:
+            for offset in range(len(STARTER_LOG_XOR_KEY)):
+                encoded = bytes(
+                    value ^ STARTER_LOG_XOR_KEY[(index + offset) % len(STARTER_LOG_XOR_KEY)]
+                    for index, value in enumerate(message)
+                )
+                if encoded in data:
+                    return path
+    return None
+
+
 def open_game(timeout: float = 90.0) -> int:
     hwnd = find_game_window()
     if hwnd:
@@ -95,6 +128,7 @@ def open_game(timeout: float = 90.0) -> int:
         raise FileNotFoundError(f"starter not found: {STARTER}")
 
     for _attempt in range(1, STARTER_ATTEMPTS + 1):
+        log_activity = _starter_log_activity()
         process = subprocess.Popen(
             [str(STARTER), PROTOCOL_ARG],
             cwd=str(STARTER.parent),
@@ -103,7 +137,6 @@ def open_game(timeout: float = 90.0) -> int:
         )
 
         last_activity = time.monotonic()
-        log_activity = _starter_log_activity()
         while True:
             hwnd = find_game_window()
             if hwnd:
@@ -111,6 +144,14 @@ def open_game(timeout: float = 90.0) -> int:
 
             current_log_activity = _starter_log_activity()
             if current_log_activity != log_activity:
+                failure_log = _starter_disk_space_failure(log_activity, current_log_activity)
+                if failure_log is not None:
+                    _stop_stalled_starter(process)
+                    raise OSError(
+                        errno.ENOSPC,
+                        f"starter reports insufficient disk space; free installation drive space "
+                        f"before retrying (log: {failure_log})",
+                    )
                 log_activity = current_log_activity
                 last_activity = time.monotonic()
             elif time.monotonic() - last_activity >= timeout:
