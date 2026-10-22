@@ -38,28 +38,15 @@ if (-not $SkipDependencyInstall) {
     }
 }
 
-if (-not $CodexPath) {
-    # Prefer the stable user npm installation over a versioned WinGet Node directory on PATH.
-    $UserCodexPath = Join-Path $env:APPDATA "npm\codex.cmd"
-    if (Test-Path -LiteralPath $UserCodexPath -PathType Leaf) {
-        $CodexPath = $UserCodexPath
-    } else {
-        $CodexPath = (Get-Command codex.exe,codex.cmd -ErrorAction SilentlyContinue | Select-Object -First 1).Source
-    }
-}
-if (-not $CodexPath -or -not (Test-Path -LiteralPath $CodexPath -PathType Leaf)) {
-    throw "Codex CLI not found. Specify an existing CLI with -CodexPath."
-}
-$CodexPath = (Resolve-Path -LiteralPath $CodexPath).Path
-$CodexVersion = & $CodexPath --version
-if ($LASTEXITCODE -ne 0) {
-    throw "Failed to start Codex CLI: $CodexPath"
-}
+$Codex = & (Join-Path $PSScriptRoot "resolve_codex.ps1") -CodexPath $CodexPath
 $PowerShellCommand = Get-Command powershell.exe -ErrorAction Stop
 $PowerShellPath = $PowerShellCommand.Source
 
 $Identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name
-$Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$TaskRunner`" -PythonPath `"$PythonPath`" -CodexPath `"$CodexPath`""
+$Arguments = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$TaskRunner`" -PythonPath `"$PythonPath`""
+if ($CodexPath) {
+    $Arguments += " -CodexPath `"$($Codex.Path)`""
+}
 $Action = New-ScheduledTaskAction `
     -Execute $PowerShellPath `
     -Argument $Arguments `
@@ -92,8 +79,9 @@ Write-Output "user=$Identity"
 Write-Output "trigger=Daily $At"
 Write-Output "next_run=$($TaskInfo.NextRunTime)"
 Write-Output "python=$PythonPath"
-Write-Output "codex=$CodexPath"
-Write-Output "codex_version=$CodexVersion"
+Write-Output "codex=$($Codex.Path)"
+Write-Output "codex_version=$($Codex.Version)"
+Write-Output "codex_auto_discovery=$(-not [bool]$CodexPath)"
 Write-Output "script=$AutomationScript"
 Write-Output "supervisor=$SupervisorScript"
 Write-Output "runner=$TaskRunner"

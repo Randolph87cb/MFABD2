@@ -1,7 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
     [string]$PythonPath,
-    [Parameter(Mandatory = $true)]
     [string]$CodexPath,
     [switch]$Check,
     [switch]$Force,
@@ -25,13 +24,17 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new()
 $env:PYTHONUTF8 = "1"
 $env:PYTHONIOENCODING = "utf-8"
 
+$Codex = & (Join-Path $PSScriptRoot "resolve_codex.ps1") -CodexPath $CodexPath
+Write-Output "codex=$($Codex.Path)"
+Write-Output "codex_version=$($Codex.Version)"
+
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $SupervisorScript = Join-Path $PSScriptRoot "daily_supervisor.py"
 $SupervisorArguments = @(
     $SupervisorScript,
     "--project-root", $ProjectRoot,
     "--python-path", $PythonPath,
-    "--codex-path", $CodexPath,
+    "--codex-path", $Codex.Path,
     "--retention-days", "7",
     "--max-repair-rounds", "2"
 )

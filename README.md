@@ -25,15 +25,21 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 安装脚本会创建项目内 `.venv`、安装 `requirements.txt`，并注册每天 `08:30` 运行的
 `BrownDust2DailyAutomation`。网络检查仍会无限等待网络恢复，不设置任务执行时限。
 
-Codex CLI 默认优先使用用户 npm 目录 `%APPDATA%\npm\codex.cmd`，避免 PATH 中旧的
-WinGet Node 目录覆盖已升级的 CLI；用户 npm 安装不存在时再从 PATH 查找。
-更换 CLI 安装位置后，需要更新计划任务里保存的路径，也可以显式指定：
+Codex CLI 在每次运行时重新读取系统和用户保存的 PATH，按 PATH 顺序选择默认 CLI，
+避免计划任务继承旧环境后继续调用旧版本。更新命令行 CLI 或调整 PATH 后，下次运行即可生效。
+默认计划任务不保存具体 CLI 路径；已有任务需重新运行安装脚本以移除旧的固定路径：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1 -SkipDependencyInstall
+```
+
+如需固定某个 CLI，可以显式指定（此时后续运行不再自动选择）：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1 -SkipDependencyInstall -CodexPath "$env:APPDATA\npm\codex.cmd"
 ```
 
-安装时会检查 CLI 能否启动，并输出实际路径和版本；模型沿用本机 Codex 配置。
+安装和每次运行时都会检查 CLI 能否启动，并输出实际路径和版本；模型沿用本机 Codex 配置。
 
 每轮运行由 `tools\daily_supervisor.py` 监督：
 
