@@ -582,17 +582,24 @@ def _handle_token_exchange(
     )
     if dry_run:
         return True, image, "dry-run planned token exchange and confirmation"
-    confirmed, dialog = _wait_for_image(
+    # Bingo's batch unlock consumes tokens and opens the reward overlay
+    # directly; other exchange activities first require a confirmation.
+    changed, current = _wait_for_image(
         hwnd,
         logger=logger,
-        label="activity-token-confirm",
-        predicate=lambda candidate: bool(recognize_activity_controls(candidate)[0].get("token_confirm")),
+        label="activity-token-result",
+        predicate=lambda candidate: (
+            recognize_reward_overlay_labels(candidate)[0]
+            or bool(recognize_activity_controls(candidate)[0].get("token_confirm"))
+        ),
     )
-    if not confirmed:
-        return False, dialog, "token exchange confirmation did not appear before timeout"
+    if not changed:
+        return False, current, "token exchange confirmation or reward settlement did not appear before timeout"
+    if recognize_reward_overlay_labels(current)[0]:
+        return _return_to_activity_index(hwnd, current, logger=logger, dry_run=False)
     return _click_then_return(
         hwnd,
-        dialog,
+        current,
         TOKEN_CONFIRM_POINT,
         key="activity_token_confirm",
         logger=logger,

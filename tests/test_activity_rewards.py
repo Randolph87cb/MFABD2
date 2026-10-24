@@ -334,10 +334,11 @@ class ActivitySettlementTests(unittest.TestCase):
                     ),
                     patch("activity_rewards.click_ratio_logged") as click,
                     patch("activity_rewards._wait_for_image", return_value=(True, image)),
+                    patch("activity_rewards.recognize_reward_overlay_labels", return_value=(False, {})),
                     patch(
                         "activity_rewards._click_then_return",
                         return_value=(True, image, "done"),
-                    ),
+                    ) as confirm,
                 ):
                     ok, _image, _reason = activity_rewards._handle_token_exchange(
                         123, image, logger=MagicMock(), dry_run=False
@@ -346,6 +347,89 @@ class ActivitySettlementTests(unittest.TestCase):
                 self.assertTrue(ok)
                 self.assertEqual(click.call_args.args[2], expected_point)
                 self.assertIn(expected_key, click.call_args.kwargs["key"])
+                self.assertEqual(confirm.call_args.args[2], activity_rewards.TOKEN_CONFIRM_POINT)
+
+    def test_exchange_waits_through_animation_then_closes_direct_settlement(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        animation = Image.new("RGB", (1280, 720))
+        reward = Image.new("RGB", (1280, 720))
+        logger = MagicMock()
+        with (
+            patch("activity_rewards._activity_token_balance", return_value=(30, {})),
+            patch("activity_rewards.click_ratio_logged") as click,
+            patch("activity_rewards.safe_capture_client", side_effect=[animation, reward]),
+            patch(
+                "activity_rewards.recognize_reward_overlay_labels",
+                side_effect=lambda candidate: (candidate is reward, {}),
+            ),
+            patch("activity_rewards.recognize_activity_controls", return_value=({}, {})),
+            patch("activity_rewards.time.sleep"),
+            patch("activity_rewards._click_then_return") as confirm,
+            patch(
+                "activity_rewards._return_to_activity_index",
+                return_value=(True, image, "closed direct settlement"),
+            ) as return_index,
+        ):
+            ok, _image, reason = activity_rewards._handle_token_exchange(
+                123, image, logger=logger, dry_run=False
+            )
+
+        self.assertTrue(ok, reason)
+        click.assert_called_once()
+        self.assertEqual(click.call_args.args[2], activity_rewards.TOKEN_EXCHANGE_BATCH_POINT)
+        confirm.assert_not_called()
+        return_index.assert_called_once_with(123, reward, logger=logger, dry_run=False)
+
+    def test_exchange_waits_for_ocr_confirmed_dialog_before_confirming(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        dialog = Image.new("RGB", (1280, 720))
+        logger = MagicMock()
+        with (
+            patch("activity_rewards._activity_token_balance", return_value=(10, {})),
+            patch("activity_rewards.click_ratio_logged"),
+            patch("activity_rewards.safe_capture_client", return_value=dialog),
+            patch("activity_rewards.recognize_reward_overlay_labels", return_value=(False, {})),
+            patch(
+                "activity_rewards.recognize_activity_controls",
+                return_value=({"token_confirm": ["确认"]}, {}),
+            ),
+            patch("activity_rewards._return_to_activity_index") as return_index,
+            patch(
+                "activity_rewards._click_then_return", return_value=(True, image, "confirmed")
+            ) as confirm,
+        ):
+            ok, _image, reason = activity_rewards._handle_token_exchange(
+                123, image, logger=logger, dry_run=False
+            )
+
+        self.assertTrue(ok, reason)
+        return_index.assert_not_called()
+        confirm.assert_called_once_with(
+            123, dialog, activity_rewards.TOKEN_CONFIRM_POINT,
+            key="activity_token_confirm", logger=logger, dry_run=False,
+        )
+
+    def test_exchange_unknown_result_times_out_without_confirm_or_success(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        with (
+            patch("activity_rewards._activity_token_balance", return_value=(30, {})),
+            patch("activity_rewards.click_ratio_logged") as click,
+            patch("activity_rewards.safe_capture_client", return_value=image),
+            patch("activity_rewards.recognize_reward_overlay_labels", return_value=(False, {})),
+            patch("activity_rewards.recognize_activity_controls", return_value=({}, {})),
+            patch("activity_rewards.time.monotonic", side_effect=[0, 100]),
+            patch("activity_rewards._return_to_activity_index") as return_index,
+            patch("activity_rewards._click_then_return") as confirm,
+        ):
+            ok, _image, reason = activity_rewards._handle_token_exchange(
+                123, image, logger=MagicMock(), dry_run=False
+            )
+
+        self.assertFalse(ok)
+        self.assertIn("timeout", reason)
+        click.assert_called_once()
+        return_index.assert_not_called()
+        confirm.assert_not_called()
 
     def test_exchange_does_not_click_when_balance_is_zero(self) -> None:
         image = Image.new("RGB", (1280, 720))
