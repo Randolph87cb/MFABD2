@@ -5,7 +5,7 @@
 > 当前阶段：`implementation`（编排、恢复与每日增量开发调度已完成；缺失 UI 模块仍在 Demo 阶段）
 >
 > 实施就绪：`foundation-ready / missing-modules-not-ready`
-> 最后更新：2026-10-23（Asia/Hong_Kong）
+> 最后更新：2026-10-24（Asia/Hong_Kong）
 
 ## 1. 目标与完成标准
 
@@ -370,3 +370,58 @@
 - 下一游戏日 **2026-10-24 08:30** 原计划任务继续使用既有九阶段子集。快速狩猎仍是狩猎场→`run_rice_recheck`→圣石，日常领取仍只运行 `business_management.run_business_management`；本轮没有新增次日业务能力。17 阶段相对顺序、失败即停和阶段持久化继续沿用现有实现。
 - 未运行整日日常、`--force` 或强制阶段，未修改/重置今日 `state/daily_automation.json`。检查前后 SHA256 均为 `81DBD58A0A88844955BB7398C76EBD54AEBAD1990434A858F10BAF6285EDEB50`。没有修改监督器、计划任务、只读参考或创建其他开发线程。
 - 交付物仅为证据审计和阻塞记录；代码交付为零，新模块实机验收为零。米饭分配、航线扫荡、余米续打及表内其他缺口继续待验收；下一日正式运行结果须以该日 summary/日志核对，不以本线程结束或只读计划成功代替。
+
+## 13. 2026-10-24 每日增量：离线复核与 PC 补证受阻
+
+本轮结果：`blocked / no-new-runner`。六个候选均未通过 PC 证据门，本轮仅更新本路线图，不交付或启用新模块。第 11 节已有的米饭只读复核不重复计为增量；第 12 节阻塞也不因今日正式日常成功而解除。
+
+### 13.1 比较基线、今日事实与唯一拟推进子功能
+
+- 主项目：`main b2792ff1e14a2a17ad721249fb351a8741e592c4`，开始时干净且与 `origin/main` 同步。
+- 只读参考：`.external/MFABD2-reference` 的 `main a9493d8007f053815dfee0c7cc72706124066169`，开始时干净；只读比较业务语义，未拉取、切换、修改或移植移动端坐标及 Android 架构。
+- 规则：用户提供的全局规则及本路线图；主项目相关目录和指定参考仓库未发现额外 `AGENTS.md`。另一个外部依赖 `.external/MaaFramework/AGENTS.md` 不在本轮修改范围。已读 README、路线图、今日 summary/监督日志、`daily_plan.py`、`daily_automation.py` 真实阶段分支、`daily_state.py`、`quick_hunt.py`、`business_management.py`、米饭测试和截图清单。
+- 今日首次运行 `logs/daily/2026-10-24/083005/summary.json` 在 08:43:21 因活动奖励失败；修复后从失败阶段续跑，指定的 `084649/summary.json` 在 08:53:12 记录最终 `completed`。九个当前可运行阶段全部 `completed`，其中活动奖励 `attempts=2`；监督日志在 08:53:14 记录收尾完成，08:54:09 最终复核结束，08:54:16 完成通知发送成功。失败历史保留，不能只把最后一轮的三个 `completed_phases` 误当作整日仅运行三阶段。
+- 先评估首项 `quick_hunt` 的金币冒险航线一次免费扫荡：今日免费米饭已为零，缺航线设置/免费费用/结算/危险页证据，故阻塞，不改狩猎场 MAX 分配策略。随后唯一拟推进子功能为 `chapter_collection` 的**一个明确已解锁且传送点可用章节的一次吸取**；补证通道被拒后同样阻塞，未写实现。其余候选仅评估，不扩展开发范围。
+- 单章最小验收：PC 截图能确定章节身份、传送点已解锁可用和技能可用；配有相邻页面、灰色/耗尽、未解锁或不可传送负例；先离线回放，再从已知入口单步执行一次吸取、确认采集结果或已达目标的安全跳过并返回稳定页面。未知、冲突或未达可验证目标即停；不自动选首个章节，不换图或循环吸取。参考 `Collect_OnlyOnce` 使用 `g_weekly`，后续实现还需明确该门与本项目日常目标的关系，不能按入口名字推断每天无条件采集。
+
+### 13.2 按路线图顺序核查六个候选
+
+参考文件均位于 `.external/MFABD2-reference/assets/resource/base/pipeline`。
+
+| 顺序 / 候选 | 参考业务与当前差距 | 本轮阻塞证据 | 最小解除条件 |
+| --- | --- | --- | --- |
+| 1 `quick_hunt` | `Battle.json::QuickHunt_Hub` 为狩猎场→冒险航线→米饭复核→圣石；参考 `QuickHunt_RiceRecheck` 会续打消化余米，本项目仅只读复核 | 今日入口 `90/90`，狩猎后两帧 `0/90`，截图旁为储备 `+9.26K`；地图金币图标不证明目标解锁、费用或确认闭环。不能消耗储备补 Demo | 自然免费余额可用且尚未执行该日狩猎时，先取得已解锁金币目标、一次设置/费用、零余额及危险页成对 PC 证据，再验证一次免费扫荡与返回。不得重置今日状态或重放消费 |
+| 2 `chapter_collection` | `Collect_Launcher.json::Collect_StartGame_HomePage_OnlyOnce` 联动卡带、传送和技能，带 `Collect_OnlyOnce / g_weekly` 门；本项目没有采集 runner | 已有竞技场卡带页面仅证明导航，不证明某剧情地图/传送点可用；没有吸取可用/灰色/耗尽及结果截图。本轮尝试为本项启动 PC 补证被工具拒绝 | 满足 13.1 的单章验收；先恢复可用的 PC 补证通道，取得一个明确章节的证据，不能复制参考移动端路径或盲选卡带 |
+| 3 `season_activity` | `EventBattle.json` 包含赛季快速战斗与 `SeasonEvent_FreeAP_Verdict` 免费 AP 门；现有 `activity_rewards` 只领奖 | 缺当前赛季战斗主页、已解锁目标、免费开关、零 AP/购买页及结算；今日活动领奖成功不能证明免费战斗可执行 | 只选择一个已解锁免费快速战斗，补齐正负例后做一次战斗闭环；不可购买或补充 AP |
+| 4 `weekly` | `Weekly.json::Weekly_Start` 调度街机、小屋、末日之书、钓鱼；参考以 `g_weekly` 去重，本项目仅有每周任务领奖和逐日状态 | 没有上述任务的完成/已完成 PC 证据，也没有已确认游戏周边界与周进度能力；不能用每周领奖页代替 | 选一个无稀缺资源消耗子任务，先明确周周期键，再验证同周跨日不重复、跨周重置及 PC 完成/安全退出 |
+| 5 `daily_claims` | `Daily.json` 在经营/常客外还有公会签到、访问/亲密度、广场祈求及装饰币；`Daily_Union_Switch`、`Daily_Square_Switch` 有各自日存档门 | 广场和餐馆截图不包含签到结果、已签到、祈求可用/已用或装饰币可收/收满闭环。餐馆升级费用/资源边界仍未确认 | 免费子项任选一个，取得入口、可领/已领和返回正负例并独立 Demo；升级另需资源边界，不借增量授权点击 |
+| 6 `full_map_collection` | `Collect_Launcher.json::Collect_StartGame_HomePage` 有多卡带、传送、技能及周完成标签；本项目无跨图 runner | 单章前置尚未闭环，另缺已解锁地图清单、跨图返回、周进度和续跑证据 | 先完成单章验收，再只扩展同一卡带下一张已知地图，验证周期内不重复 |
+
+盘点范围为现存 `logs/daily`、`logs/manual`、`自动化截图标注`、`tests/fixtures` 和 `tests/recognition_cases.json`；按文件名检索未发现上述缺失功能的专项证据集。这个结论不等于账号未解锁或游戏不存在该功能。装备、精炼、分解、商店交易继续受第 7 节白名单约束，本轮未操作。
+
+### 13.3 离线回放、补证失败与必要检查
+
+先调用现有 `classify_state` 和 `recognize_free_rice` 读取已有截图，**8/8 状态与余额预期匹配，脚本退出码 0**；没有生成新结算或消费。
+
+| 截图（前五项根目录为 `logs/daily/2026-10-24/083005/02-quick-hunt`） | 实际结果 |
+| --- | --- |
+| `01-entry/after-entry-quick_hunt_map.png` | `quick_hunt_map`，`90/90` |
+| `04-rice-recheck/rice-recheck-1-balance-0.png` | `quick_hunt_map`，`0/90` |
+| `04-rice-recheck/rice-recheck-2-balance-0.png` | `quick_hunt_map`，`0/90` |
+| `02-hunting-ground-setup/after-start-quick_hunt_setup.png` | `quick_hunt_setup`，余额读取拒绝 |
+| `04-rice-recheck/rice-recheck-start-reward_overlay.png` | `reward_overlay`，余额读取拒绝 |
+| `tests/fixtures/recognition/quick-hunt-map-crystal-selected.png` | `quick_hunt_map`，余额读取拒绝 |
+| `tests/fixtures/recognition/arena-cartridge-collection-2567x1446.png` | `arena_cartridge_collection`，余额读取拒绝；未验证采集 |
+| `tests/fixtures/recognition/restaurant-home-2567x1446.png` | `restaurant_home`，余额读取拒绝；未验证新领取子项 |
+
+- 今日既有事件在 08:34:40、08:34:44 两次记录零余额；本轮读图复现并目视核对 `0/90` 与储备 `+9.26K`，未重新扫荡。
+- PC 补证失败：读取 computer-use 技能及 guidance/confirmations/API 后，`sky.list_apps()` 返回“棕色尘埃2”已安装、未运行且无窗口。只为单章补证调用该返回应用 ID 的 `sky.launch_app`，工具返回 **`Computer Use was not approved to use 棕色尘埃2`**。工具未给出更细原因；没有换启动方式绕过拒绝，也没有点击游戏或执行吸取。随后 `sky.list_windows()` 按游戏/厂商标识核查为空，没有观察到新游戏/启动器窗口。**PC 截图未取得，单步 Demo 未执行，闭环未验收**。
+- 只读执行 `.venv/Scripts/python.exe tools/daily_automation.py --preset fast --show-plan` 和 `--preset detailed --show-plan`，两次退出码均为 0；均返回固定 17 阶段、7 个完整能力和 9 个当前可运行阶段。快速狩猎与日常领取继续 `partial / implemented=false`，runner 仅为既有实现；其余四候选 `missing`、runner 为空。计划输出通过不等于完整预设可执行。
+- 无业务代码变更，不新增测试、不跑全量回归或构建；本轮离线结果只验已有识别边界，不验收航线或单章采集。一次只读目录查询误用了不存在的 `09-business-management` 路径，后续列目录确认实际为 `09-daily-claims`；该查询错误不影响回放或计划结果。
+
+### 13.4 次日加载、状态与交付边界
+
+- 没有模块通过 PC 门，因此不新增伪 runner，不修改 `tools/daily_automation.py`、`tools/daily_plan.py` 或 availability。下一游戏日 **2026-10-25 08:30** 的原计划任务仍加载已有九阶段子集：快速狩猎真实入口仍为狩猎场设置/确认→`run_rice_recheck`→`run_crystal_cave_cycle`；日常领取仍为 `business_management.run_business_management`。本轮新增次日业务能力为零，17 阶段顺序及失败即停/逐阶段状态不变。
+- 未运行整套日常、`--force` 或强制阶段，未修改/重置 `state/daily_automation.json`；检查前后 SHA256 均为 `0A4FDDADE7DFE993C7C8BA7C84EFB94B27F94F2E5204393A8363BA4520B7652B`。没有修改监督器、计划任务或参考仓库，没有创建其他开发线程/子代理，也没有启动辅助服务。
+- 本轮交付仅为本节比较、回放与阻塞记录；精确提交本路线图，禁止将 `logs`、`state`、`.external` 或本地产物纳入提交。所有候选保持原状态。后续需解除补证通道限制，并分别补齐表中业务证据；航线还需自然免费余额，不能用储备或改今日状态替代。
+- **未验收**：所有新候选的 PC 闭环、任何新增真实入口及下一游戏日正式实测。线程正常结束、文档提交推送及离线识别通过均不能作为模块已实现的依据。
