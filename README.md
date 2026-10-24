@@ -98,6 +98,12 @@ $Check.ExitCode
 打开游戏：
 
 ```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\open_game.ps1
+```
+
+该入口仅打开游戏，不执行日常；也可直接调用现有 Python 入口：
+
+```powershell
 python tools\open_game.py --timeout 90
 ```
 

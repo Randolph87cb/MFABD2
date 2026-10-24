@@ -425,3 +425,13 @@
 - 未运行整套日常、`--force` 或强制阶段，未修改/重置 `state/daily_automation.json`；检查前后 SHA256 均为 `0A4FDDADE7DFE993C7C8BA7C84EFB94B27F94F2E5204393A8363BA4520B7652B`。没有修改监督器、计划任务或参考仓库，没有创建其他开发线程/子代理，也没有启动辅助服务。
 - 本轮交付仅为本节比较、回放与阻塞记录；精确提交本路线图，禁止将 `logs`、`state`、`.external` 或本地产物纳入提交。所有候选保持原状态。后续需解除补证通道限制，并分别补齐表中业务证据；航线还需自然免费余额，不能用储备或改今日状态替代。
 - **未验收**：所有新候选的 PC 闭环、任何新增真实入口及下一游戏日正式实测。线程正常结束、文档提交推送及离线识别通过均不能作为模块已实现的依据。
+
+### 13.5 同日授权后续：启动通道恢复，等待人工登录
+
+- 用户明确补充“允许启动，这里也可以补充一个启动脚本”。本次继续工作基线为主项目 `66de9a9aa6026a0ef7f0cda4e87f053f52e158ed`，参考版本未变。13.3 的历史拒绝不删除；本次新的启动授权已生效。
+- 重新通过 computer-use 启动已安装应用。首次返回 `launched app did not expose a targetable window`，随后列窗发现唯一 `BrownDust II` 窗口（游戏进程 `25256`，路径 `C:\Neowiz\Browndust2\BrownDust2_10000002\BrownDust II.exe`）。这是冷启动延迟，并非新的授权拒绝；没有重复启动。
+- 按本次授权补充 `tools/open_game.ps1`，仅使用项目 `.venv` 调用既有 `open_game.py`，复用已有窗口及官方协议启动逻辑，透传退出码；不增加下载依赖、登录点击、每日编排或状态修改。README 与 `docs/open-game.md` 增加用法，并将文档旧 `10000001` 路径明确为历史记录，当前协议仍来自原 Python 实现的 `10000002`。
+- 必要验证：PowerShell 语法解析通过；实际运行 `powershell -NoProfile -ExecutionPolicy Bypass -File tools/open_game.ps1 -Timeout 30` 返回 0，输出 `game_window=0x2E0CC4 title=BrownDust II class=UnityWndClass`，复用本轮已启动窗口，未增加第二个游戏进程。脚本冷启动分支本次未独立重测，原 Python 实现未变；前述冷启动由 computer-use 发起，不混称为脚本冷启动验收。
+- 启动后出现 `登录失败 / Neo.Unity.NeoTimeoutException:Timeout`，仅确认一次网络错误，随后处理既有启动条款，进入 Google／Apple／邮箱登录选择页。没有自动选择登录渠道、账号或填写认证信息。computer-use 操作规则明确要求 `Do not automate user authentication dialogs.`，因此请求用户手动登录，单章补证暂未进入游戏内页面。
+- 本地证据：`logs/manual/2026-10-24/chapter-evidence/01-login-timeout.png`、`02-terms.png`、`03-login-selection.png` 和 `events.jsonl`；仅为启动与阻塞证据，不是单章地图或吸取 Demo。等待人工登录时保留游戏窗口；启动器已自行退出。未执行日常、采集或资源动作，今日状态 SHA256 仍为 13.4 的值。
+- 本轮脚本是启动辅助交付，不计为新业务模块或新 `current_runners`；六项业务候选及次日入口仍保持 13.4 的状态。已有离线回放及两预设 `--show-plan` 证据仍适用，未重复运行或扩大回归。

@@ -1,5 +1,21 @@
 # 打开游戏记录
 
+## 当前启动入口
+
+在项目根目录运行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools\open_game.ps1
+```
+
+也可使用 `-Timeout 120` 调整启动器无进度等待时间。该入口使用项目 `.venv`，调用
+`tools/open_game.py`：已有游戏窗口时直接复用，否则通过官方启动器和当前协议
+`browndust2:games/10000002?usn=0` 打开游戏并等待窗口。启动器仍在写入进度时会继续等待；
+超时或磁盘空间不足时返回失败，不直接运行游戏主程序。
+
+此脚本只打开游戏，不点击标题页、不执行每日任务、不修改每日完成状态。
+下文 `10000001` 的路径及句柄为历史验证记录，不作为当前启动配置。
+
 ## 成功标准
 
 - 能启动 `BrownDust II.exe` 进程。
