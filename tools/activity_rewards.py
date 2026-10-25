@@ -312,7 +312,10 @@ def _activity_identity_matches(list_texts: list[str], detail_texts: list[str]) -
 def _repeatable_selected_activity_kind(card_texts: list[str]) -> str | None:
     """Return a kind whose exact card label safely permits same-page reuse."""
     labels = {_normalized_ui_text(text) for text in card_texts}
-    if "活动兑换所" in labels:
+    # Desktop Bingo is recognized by its fixed single-exchange control.  A
+    # batch unlock can leave tokens and the same marked card selected, even
+    # after the board resets; require the exact card label before reusing it.
+    if "活动兑换所" in labels or "宾果" in labels:
         return "token_exchange"
     if "Pickup活动任务" in labels:
         return "regular"

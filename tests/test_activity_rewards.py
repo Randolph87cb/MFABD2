@@ -977,6 +977,51 @@ class ActivityOcrTransitionTests(unittest.TestCase):
 
         self.assertTrue(ok)
 
+    def test_selected_bingo_can_continue_after_reward_without_page_change(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        badge = {"center": (0.266, 0.277)}
+        card = ["NIGHT", "BINGO", "宾果"]
+        # OCR from the failed run: settlement leaves the same Bingo selected,
+        # then the completed board resets while 15 tokens remain available.
+        before = [
+            "SpOOK-TACULAR", "BINGO!", "25", "NIGHT", "完成宾果3盘", "30",
+        ]
+        reset_board = [
+            "SPOOK-TACULAR", "25", "20", "100K", "NIGHT", "2", "?", "BINGO",
+        ]
+        cases = (
+            ("same_board", card, before, before, "token_exchange", True, True),
+            ("reset_board", card, before, reset_board, "token_exchange", True, True),
+            ("stale_login", card, before, before, "regular", True, False),
+            ("unknown_controls", card, before, before, "unknown", True, False),
+            ("missing_page", card, before, before, "token_exchange", False, False),
+            ("wrong_event", card, ["Harvest Moon"], ["Harvest Moon"], "token_exchange", True, False),
+            ("sibling_card", ["NIGHT", "BINGOChip", "登录活动"], before, before, "token_exchange", True, False),
+        )
+
+        def evaluate(_hwnd: int, **kwargs: object) -> tuple[bool, Image.Image]:
+            predicate = kwargs["predicate"]
+            return bool(predicate(image)), image  # type: ignore[operator]
+
+        for name, card_texts, before_texts, after_texts, kind, is_page, expected in cases:
+            with (
+                self.subTest(name=name),
+                patch("activity_rewards._read_activity_card_identity", return_value=(card_texts, {})),
+                patch(
+                    "activity_rewards._read_texts_at",
+                    side_effect=[(before_texts, {}), (after_texts, {})],
+                ),
+                patch("activity_rewards.recognize_activity_kind", return_value=(kind, {})),
+                patch("activity_rewards._is_activity_page", return_value=(is_page, {})),
+                patch("activity_rewards.click_ratio_logged"),
+                patch("activity_rewards._wait_for_image", side_effect=evaluate),
+            ):
+                ok, _image, _reason = activity_rewards._click_marked_activity(
+                    123, image, badge, logger=MagicMock(), dry_run=False,
+                )
+
+                self.assertEqual(ok, expected)
+
     def test_paid_exchange_card_is_not_repeatable_as_token_exchange(self) -> None:
         self.assertIsNone(
             activity_rewards._repeatable_selected_activity_kind(
