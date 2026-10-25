@@ -5,7 +5,7 @@
 > 当前阶段：`implementation`（编排、恢复与每日增量开发调度已完成；缺失 UI 模块仍在 Demo 阶段）
 >
 > 实施就绪：`foundation-ready / missing-modules-not-ready`
-> 最后更新：2026-10-24（Asia/Hong_Kong）
+> 最后更新：2026-10-25（Asia/Hong_Kong）
 
 ## 1. 目标与完成标准
 
@@ -463,3 +463,60 @@
 - 离线限定区域 OCR 检查 4 张新增截图，均取得预期文字：`10-town-waypoint-list` 的“探索告示板／狩猎场”、`20-lugo-forest-map` 的“卢戈森林”、`28-safe-town-map` 的“安全／卢戈镇”、`22-auto-walk-cancel` 的“自动移动／取消／确认”。最终 `34-final-home.png` 识别为 `real_home`。没有修改业务分类器，未运行全量测试；已有计划证据仍适用。
 - 收尾：技能空栏未改，药剂余额仍 `1,196,533`，米饭未消费；返回主页后仅向本轮唯一游戏窗口发送 Alt+F4，随后核对游戏和启动器均退出。今日状态 SHA256 仍为 `0A4FDDADE7DFE993C7C8BA7C84EFB94B27F94F2E5204393A8363BA4520B7652B`。未修改监督器、计划任务或其他模块，不提交日志、状态或外部仓库。
 - 当前剩余阻塞为 PC 导航／传送点闭环、可靠次数与可用状态识别、实际吸收及安全跳过证据，**不再包括单次药剂授权**。本次只提交本节澄清及补证事实，未新增真实 runner，单章阶段仍关闭，次日入口不变；未完成采集 Demo 或次日正式验收。
+
+## 14. 2026-10-25 每日增量：继承单章证据，补证通道再次受阻
+
+本轮结果：`blocked / no-new-runner`。按顺序核查六个候选后，没有新子功能通过 PC 证据门；实际交付仅为本节比较、离线回放与阻塞记录，不计为模块实现。第 13.7 节已有授权与证据继续有效，不能把历史授权问题重新列为业务阻塞，也不能把已有米饭复核重复计为增量。
+
+### 14.1 比较基线、今日事实与唯一拟推进范围
+
+- 主项目：`main 337d0783f7c12e5dbb52f6432a6141074f5c6d85`，开始时工作区干净；会话启动前已同步主仓库。本轮不创建其他开发线程或子代理。
+- 只读参考：`.external/MFABD2-reference` 的 `main a9493d8007f053815dfee0c7cc72706124066169`，开始时干净；仅比较业务定义，未拉取、切换、修改，也未照搬移动端坐标或 Android 架构。
+- 规则与实现：已读用户提供的全局规则、README、本路线图（包括 13.5～13.7 的后续澄清）、今日 summary/监督日志、`quick_hunt.py`、`business_management.py`、`daily_plan.py`、`daily_automation.py` 的真实阶段分支、`daily_state.py` 及米饭测试。相关项目目录和指定参考仓库未发现额外 `AGENTS.md`。
+- 今日 `logs/daily/2026-10-25/084727/summary.json` 为 `completed`，08:53:48 结束，内嵌状态确认九个当前可运行阶段全部 `completed`，活动奖励为 `attempts=2`；本轮 summary 的三个 `completed_phases` 是修复后的续跑子集。监督日志 08:53:51 确认游戏及本轮辅助进程收尾，08:54:31 最终复核结束，08:54:35 完成通知发送成功。此前宾果领奖失败及修复历史不被覆盖，也不代表缺失阶段已完成。
+- 首项 `quick_hunt` 的金币航线一次免费扫荡仍因余额与 PC 闭环缺失而阻塞。随后唯一拟推进子功能为 `chapter_collection`：**第 1 章卢戈镇、确认可用传送点后的一次吸收并返回**。选择已有明确章节证据，不自动选择首个卡带、不扩展换图或多次施放。补证启动被工具拒绝后未进入实现，其余四项仅作可行性评估。
+- 本子功能验收：PC 正例能确认第 1 章／安全卢戈镇、传送点已解锁可用、吸收已配置且次数未满；相邻地图、导航确认、未配置、灰色不可用、次数耗尽及资源不足／危险页须可区分。离线回放通过后，从已知入口执行一次吸收，验证次数变化与采集结果（或可验证的已达目标安全跳过），返回稳定页面并保留点击标注、事件和最终截图；未知、歧义、无进展或资源不足立即停止。未达到可验证结果不得记为完成。
+- 沿用 13.7：正常吸收按游戏次数与可用状态控制，**不再额外要求单次药剂授权，不设助手提出的每天一次／10 药剂策略上限**；本轮最小 Demo 仍只验证一次。禁止购买或自动补充资源，不为制造耗尽负例刷满技能。参考 `Collect_OnlyOnce / g_weekly` 是卡带策略，不能误解成单次费用限制或无条件每日扫图。
+
+### 14.2 六个候选的业务差距与当前阻塞
+
+参考文件均相对于 `.external/MFABD2-reference/assets/resource/base/pipeline`。
+
+| 顺序 / 候选 | 参考业务与当前差距 | 本轮证据与阻塞 | 解除条件 |
+| --- | --- | --- | --- |
+| 1 `quick_hunt` | `Battle.json::QuickHunt_Hub` 包含狩猎场→航线→米饭复核→圣石；`QuickHunt_RiceRecheck` 可续打余米，本项目只读余额，缺航线、分配及续打 | 今日入口 `90/90`，狩猎后两帧 `0/90`；目视截图旁另有储备 `+9.3K`，不得当作免费余额。没有航线已解锁目标、一次设置／费用、结算及危险页的 PC 闭环，不能重放今日消费或动储备补证 | 自然免费余额可用且该日狩猎尚未执行时，取得一个已解锁金币目标及免费／危险确认正负例，单步验证一次免费扫荡和返回；不擅改已验证 MAX 分配 |
+| 2 `chapter_collection` | `Collect_Launcher.json` 联动卡带／传送；`Collect_skills.json` 分别判断可用颜色、已用／上限、灰色与未配置。本项目没有采集 runner | 13.6～13.7 已证明第 1 章安全卢戈镇、探索告示板导航及吸收配置页；魔法阵点击仍未确认导航，次数识别与实际施放／结果缺失。本轮地图回放仍为 `unknown`；新补证启动被工具拒绝 | 恢复可用 PC 补证通道，完成 14.1 的唯一最小子功能验收；不重新要求已经解除的单次资源授权，不把标签可见视为传送成功 |
+| 3 `season_activity` | `EventBattle.json` 有普通／挑战等战斗及 `SeasonEvent_FreeAP_Verdict` 免费 AP 开关门；现有活动模块只领奖 | 缺当前赛季战斗主页、目标解锁、免费开关、零 AP／购买页、结算和退出证据；今日活动领奖成功不能代替战斗验收 | 只选一个已解锁免费快速战斗，先补正负例，再做一次战斗闭环；不购买或补充 AP |
+| 4 `weekly` | `Weekly.json::Weekly_Start` 调度街机、小屋、末日之书、钓鱼，按 `g_weekly` 去重；本项目只有每周任务领奖和逐日阶段状态 | 缺这些任务的可执行／已完成页面，游戏周边界与周持久化未明确；逐日状态不能替代周进度 | 选一个无稀缺资源消耗子任务，明确周周期键，验证同周跨日不重复、跨周重置及 PC 完成／退出 |
+| 5 `daily_claims` | `Daily.json` 除经营／常客外还有公会签到、访问／亲密度、广场祈求与装饰币；公会／祈求有各自日去重门 | 现有餐馆／广场页面不证明新子项可领、已领或成功；缺签到、许愿、装饰币的正负闭环。餐馆升级资源边界仍不明确 | 免费子项任选一个补齐可领／已领／返回与 Demo；升级另核资源边界，不借本次授权点击 |
+| 6 `full_map_collection` | `Collect_Launcher.json::Collect_StartGame_HomePage` 为多卡带、传送、技能与周完成标签；本项目无跨图入口 | 单章前置未通过，另缺已解锁地图清单、跨图返回与周进度闭环 | 先通过单章，再仅扩展同一卡带下一张已知地图，验证按周恢复且不重复 |
+
+盘点使用现存日常／手工截图、`tests/recognition_cases.json`、recognition fixtures 及截图标注文件名检索；本轮只新增审计结果，没有发现能解除其余候选阻塞的证据集。未发现证据不等于账号未解锁或游戏没有该功能。装备、精炼、分解和商店交易继续受第 7 节白名单限制，本轮未操作。
+
+### 14.3 离线回放、PC 补证失败与计划检查
+
+先调用现有 `classify_state`、`recognize_free_rice` 回放已有截图，**8/8 状态和余额预期匹配，脚本退出码 0**；没有重新生成奖励或消费。
+
+| 截图 | 本轮实际结果 |
+| --- | --- |
+| 今日 `02-quick-hunt/01-entry/after-entry-quick_hunt_map.png` | `quick_hunt_map`，`90/90` |
+| 今日 `02-quick-hunt/04-rice-recheck/rice-recheck-1-balance-0.png` | `quick_hunt_map`，`0/90` |
+| 同目录 `rice-recheck-2-balance-0.png` | `quick_hunt_map`，`0/90` |
+| 今日 `02-quick-hunt/02-hunting-ground-setup/after-start-quick_hunt_setup.png` | `quick_hunt_setup`，余额读取拒绝 |
+| 今日 `02-quick-hunt/04-rice-recheck/rice-recheck-start-reward_overlay.png` | `reward_overlay`，余额读取拒绝 |
+| `tests/fixtures/recognition/quick-hunt-map-crystal-selected.png` | `quick_hunt_map`，余额读取拒绝 |
+| 昨日 `chapter-absorb-demo/28-safe-town-map.png` | `unknown`，余额读取拒绝；不代表章节／传送或采集验证成功 |
+| 昨日同目录 `34-final-home.png` | `real_home`，余额读取拒绝 |
+
+“今日”根目录为 `logs/daily/2026-10-25/083005`，“昨日”为 `logs/manual/2026-10-24`。窗口截图按既有实际边框裁为客户区后回放；今日既有事件在 08:33:44／08:33:48 记录两次零余额，本轮仅复现识别。
+
+- PC 补证：读取 computer-use 技能、guidance、confirmations 和 API 后，经 `sky.list_apps()` 确认游戏已安装、未运行且无窗口；只为单章取证调用返回的应用 ID `browndust2:games/10000002?usn=0`。`sky.launch_app` 返回 **`Computer Use was not approved to use 棕色尘埃2`**，未给出更细原因。本轮没有把它描述成用户撤回 13.5／13.7 的授权，也未换启动方式绕过工具拒绝。
+- 随后 `sky.list_windows()` 按 BrownDust／棕／Neowiz 标识核查为空。没有取得新游戏内截图，没有执行单步 Demo、吸收或其他消费，没有观察到新增游戏／启动器窗口，也没有启动辅助服务。历史 PC 页面证据有效，但新闭环仍未验收。
+- 只读执行 `.venv/Scripts/python.exe tools/daily_automation.py --preset fast --show-plan` 和 `--preset detailed --show-plan`，两次退出码均为 0。能力声明仍为固定 17 阶段、九个当前可运行阶段；`quick_hunt` 与 `daily_claims` 仍为 `partial / implemented=false`，仅列既有 runner，其余四候选 `missing` 且 runner 为空。计划输出成功不代表完整预设可运行。
+- 无业务代码改动，因此不新增实现测试、不构建或运行全量回归；上述截图回放只验证已有识别边界，不能据此验收新航线、单章或其余候选。
+
+### 14.4 次日入口、状态与交付边界
+
+- 没有模块通过 PC 闭环门，因此本轮不修改 `tools/daily_automation.py`、`tools/daily_plan.py` 或 availability，不新增伪 runner。下一游戏日 **2026-10-26 08:30** 原计划任务仍加载九阶段现有子集：快速狩猎真实入口为狩猎场设置／确认→`quick_hunt.run_rice_recheck`→`quick_hunt.run_crystal_cave_cycle`；日常领取仍为 `business_management.run_business_management`。其余四候选保持关闭，17 阶段相对顺序与失败即停／阶段状态沿用现有实现；本轮新增次日业务能力为零。
+- 未重跑日常、使用 `--force` 或强制阶段，未修改／重置 `state/daily_automation.json`；检查前后 SHA256 为 `64715B2AC6BF6B9F61EABB57181E245EFF734829910BE651F3AC39A368D5524E`。不修改监督器、计划任务或参考仓库，不提交 logs、state、.external 或其他本地产物。
+- 本轮仅精确提交本路线图的对比、回放和阻塞记录；不将线程结束、文档提交推送或离线通过等同于模块实现。仍待验收：单章导航／传送、次数与可用状态、实际吸收／安全跳过，以及其他表内缺失闭环和下一游戏日正式运行。后续先恢复 PC 补证通道；航线另需自然免费米饭，不能靠储备或改今日状态解除。
