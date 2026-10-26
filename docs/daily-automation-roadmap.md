@@ -5,7 +5,7 @@
 > 当前阶段：`implementation`（编排、恢复与每日增量开发调度已完成；缺失 UI 模块仍在 Demo 阶段）
 >
 > 实施就绪：`foundation-ready / missing-modules-not-ready`
-> 最后更新：2026-10-25（Asia/Hong_Kong）
+> 最后更新：2026-10-26（Asia/Hong_Kong）
 
 ## 1. 目标与完成标准
 
@@ -520,3 +520,60 @@
 - 没有模块通过 PC 闭环门，因此本轮不修改 `tools/daily_automation.py`、`tools/daily_plan.py` 或 availability，不新增伪 runner。下一游戏日 **2026-10-26 08:30** 原计划任务仍加载九阶段现有子集：快速狩猎真实入口为狩猎场设置／确认→`quick_hunt.run_rice_recheck`→`quick_hunt.run_crystal_cave_cycle`；日常领取仍为 `business_management.run_business_management`。其余四候选保持关闭，17 阶段相对顺序与失败即停／阶段状态沿用现有实现；本轮新增次日业务能力为零。
 - 未重跑日常、使用 `--force` 或强制阶段，未修改／重置 `state/daily_automation.json`；检查前后 SHA256 为 `64715B2AC6BF6B9F61EABB57181E245EFF734829910BE651F3AC39A368D5524E`。不修改监督器、计划任务或参考仓库，不提交 logs、state、.external 或其他本地产物。
 - 本轮仅精确提交本路线图的对比、回放和阻塞记录；不将线程结束、文档提交推送或离线通过等同于模块实现。仍待验收：单章导航／传送、次数与可用状态、实际吸收／安全跳过，以及其他表内缺失闭环和下一游戏日正式运行。后续先恢复 PC 补证通道；航线另需自然免费米饭，不能靠储备或改今日状态解除。
+
+## 15. 2026-10-26 每日增量：候选复核，单章补证仍受阻
+
+本轮结果：`blocked / no-new-runner`。六个候选均未满足 PC 证据门，只更新本路线图，不交付新业务模块。已有米饭只读复核不重复计为增量，13.7 的吸收策略澄清继续有效。
+
+### 15.1 比较基线、今日事实与唯一拟推进范围
+
+- 主项目：`main df8c9e82c02575cb254c8cc12b1b6fd10287d47b`，开始时工作区干净且与 `origin/main` 同步。
+- 只读参考：`.external/MFABD2-reference` 的 `main a9493d8007f053815dfee0c7cc72706124066169`，开始时干净；本轮没有拉取、切换或修改，仅比较业务语义，不移植移动端坐标或 Android 架构。
+- 已读用户全局规则、README、本路线图（含 13.5～13.7 后续授权）、今日 summary／监督日志、`daily_plan.py`、`daily_automation.py` 真实阶段入口、`daily_state.py`、`quick_hunt.py`、`business_management.py`、米饭测试和截图目录。相关项目目录及指定参考仓库未发现额外 `AGENTS.md`。
+- 今日 `logs/daily/2026-10-26/083006/summary.json` 在 08:47:44 记录 `completed`，九个当前可运行阶段均完成且各尝试一次；监督日志 `logs/supervisor/2026-10-26/083003/supervisor.log` 在 08:47:48 记录收尾及成功，08:47:50 记录完成通知成功。缺失阶段仍为 `unavailable`，不把当前子集成功视为全部业务实现。
+- 优先评估 `quick_hunt` 的一次免费金币航线，因今日免费米饭耗尽及缺确认闭环而阻塞。随后唯一拟推进子功能为 `chapter_collection`：**第 1 章安全卢戈镇，确认可用传送点后的一次吸收并返回**；本轮补证启动被工具拒绝，未进入实现。其余四项仅评估可行性。
+- 单章验收沿用 14.1：能辨认章节／安全地图、可用传送点、技能配置与未满次数；能拒绝相邻地图、未配置、灰色、次数耗尽及资源不足／危险页；离线通过后只做一次施放，验证次数变化与采集结果或明确安全跳过，再返回稳定页面。未知、冲突或无进展即停。正常吸收按游戏次数与可用状态控制，不重新要求已解除的单次药剂授权，不设额外的每天一次／10 药剂策略限制，也不购买或自动补充资源。
+
+### 15.2 按顺序比较六个候选
+
+参考文件均位于 `.external/MFABD2-reference/assets/resource/base/pipeline`。
+
+| 顺序 / 候选 | 参考语义与本项目差距 | 本轮阻塞及最小解除条件 |
+| --- | --- | --- |
+| 1 `quick_hunt` | `Battle.json::QuickHunt_Hub` 为狩猎场→航线→米饭复核→圣石；`QuickHunt_RiceRecheck` 会续打余米。本项目仍缺航线、分配与续打 | 今日入口 `90/90`，狩猎后两帧 `0/90`，事件中另有储备 `+9.33K`；缺已解锁航线目标、一次设置／免费费用、结算及危险页成对 PC 证据。需自然免费余额可用且该日狩猎尚未执行时补一次闭环；本轮不动储备、不改 MAX 策略、不重放消费 |
+| 2 `chapter_collection` | `Collect_Launcher.json` 联动导航／传送，`Collect_skills.json` 区分可用、灰色、耗尽及未配置；本项目没有采集入口 | 13.6～13.7 的卢戈镇／技能配置证据有效，但传送点闭环、可靠次数识别和实际吸收结果未取得；本轮历史地图回放仍为 `unknown`，新补证启动被拒绝。需恢复补证通道并通过 15.1 验收，不能把标签可见当作传送成功。参考 `Collect_OnlyOnce / g_weekly` 是卡带策略，不是单次药剂授权门 |
+| 3 `season_activity` | `EventBattle.json::SeasonEvent_FreeAP_Verdict` 要核对免费 AP；本项目 `activity_rewards` 只领奖 | 缺当前赛季目标解锁、免费开关、零 AP／购买页与战斗结果证据。需选一个已解锁免费快速战斗补齐正负例与一次闭环；今日领奖成功不能替代战斗验收 |
+| 4 `weekly` | `Weekly.json::Weekly_Start` 调度街机、小屋、末日之书、钓鱼；参考按周去重，本项目只有每周领奖及逐日阶段状态 | 缺子任务可执行／已完成页面、明确游戏周边界及周持久化。需先选一个无稀缺资源消耗子任务，验证同周跨日不重复、跨周重置与 PC 退出；逐日状态不能替代周进度 |
+| 5 `daily_claims` | `Daily.json` 除经营／常客外还有公会、访问、亲密度、广场祈求等；公会／祈求有独立日存档门 | 现有餐馆／广场页面不能证明签到、祈求或装饰币可领／已领／成功。需任选一个免费子项补齐闭环；餐馆升级费用及资源边界未明确，不随领取一并启用 |
+| 6 `full_map_collection` | `Collect_Launcher.json::Collect_StartGame_HomePage` 涉及多卡带、传送、技能和周进度；本项目无跨图入口 | 单章前置未闭环，另缺地图白名单、跨图退出及周进度证据。需先验收单章，再只扩展同一卡带下一张已知地图，验证周期内不重复 |
+
+盘点覆盖现存日常／手工截图、recognition fixtures、`tests/recognition_cases.json` 和截图标注文件名。没有发现能解除上述阻塞的新专项证据集；这不等于账号未解锁或游戏没有相应功能。装备、精炼、分解、商店交易继续受第 7 节白名单约束，本轮未操作。
+
+### 15.3 离线回放、补证失败与计划检查
+
+先调用现有 `classify_state`、`recognize_free_rice` 回放，**8/8 状态与余额预期匹配，脚本退出码 0**；未生成新的奖励或消费。
+
+| 已有截图 | 实际结果 |
+| --- | --- |
+| 今日 `01-entry/after-entry-quick_hunt_map.png` | `quick_hunt_map`，`90/90` |
+| 今日 `04-rice-recheck/rice-recheck-1-balance-0.png` | `quick_hunt_map`，`0/90` |
+| 今日同目录 `rice-recheck-2-balance-0.png` | `quick_hunt_map`，`0/90` |
+| 今日 `02-hunting-ground-setup/after-start-quick_hunt_setup.png` | `quick_hunt_setup`，余额读取拒绝 |
+| 今日 `04-rice-recheck/rice-recheck-start-reward_overlay.png` | `reward_overlay`，余额读取拒绝 |
+| fixture `quick-hunt-map-crystal-selected.png` | `quick_hunt_map`，余额读取拒绝 |
+| 历史 `chapter-absorb-demo/28-safe-town-map.png` | `unknown`，余额读取拒绝；没有验收单章地图 |
+| 历史同目录 `34-final-home.png` | `real_home`，余额读取拒绝 |
+
+今日根目录为 `logs/daily/2026-10-26/083006/02-quick-hunt`；fixture 根目录为 `tests/fixtures/recognition`；历史根目录为 `logs/manual/2026-10-24`，窗口截图按实际边框裁为客户区后回放。今日事件在 08:33:42／08:33:45 已记录两次 `0/90`、OCR 0.99987，本轮只读复现。
+
+- PC 补证：已读 computer-use 技能、guidance、confirmations 和 API，通过 `node_repl + @oai/sky` 查询确认游戏已安装、未运行且无窗口；随后仅为单章取证调用返回的应用 ID `browndust2:games/10000002?usn=0`。`sky.launch_app` 返回 **`Computer Use was not approved to use 棕色尘埃2`**，没有更细原因。本轮没有换启动方式绕过拒绝，也没有把工具拒绝描述成用户撤回既有授权。
+- 后续 `sky.list_windows()` 按游戏／厂商标识核查为空。未取得新游戏内截图、未执行吸收或其他消费，单步 Demo **未执行／未验收**；没有观察到本轮新增游戏／启动器窗口，没有启动辅助服务。
+- `.venv/Scripts/python.exe tools/daily_automation.py --show-plan` 返回 0，读取外层 `presets` 核对两预设：各 17 阶段、7 个完整能力、9 个当前可运行阶段；快速狩猎和日常领取仍为 `partial / implemented=false` 且仅列既有 runner，其余四候选为 `missing`、runner 为空。完整预设仍不可据此视为可执行。
+- 检查脚本的历史失败：首次运行 `--preset fast --show-plan` 本身返回 0，但外围摘要脚本错误读取顶层 `stages`，触发 `KeyError: 'stages'` 并退出 1；核对 `daily_plan_report` 的实际 `presets` 包装后，以上无预设命令一次核对了两预设。另一次只读搜索误用 PowerShell 不支持的花括号路径展开，解析失败；修正为明确文件过滤后完成参考检索。均未修改业务代码或状态，不隐去失败。
+- 无业务代码变更，不新增实现测试、不构建、不跑全量回归；本轮离线结果只证明已有识别边界，不验收新模块。
+
+### 15.4 次日入口、状态与交付边界
+
+- 无新子功能通过 PC 闭环门，不修改 `tools/daily_automation.py`、`tools/daily_plan.py`、availability 或阶段状态／顺序，不新增伪 runner。下一游戏日 **2026-10-27 08:30** 原计划任务继续加载既有九阶段子集；快速狩猎仍为狩猎场设置／确认→`quick_hunt.run_rice_recheck`→`quick_hunt.run_crystal_cave_cycle`，日常领取仍为 `business_management.run_business_management`。新增次日业务能力为零。
+- 没有重跑整日日常、使用 `--force` 或强制阶段，没有修改／重置今日 `state/daily_automation.json`；检查前后 SHA256 均为 `AFCA09427D9366D8620CC2D98D82E0ACE5BE92738C3E440ACAD22A76BB5D1CFA`。不修改监督器、计划任务、参考仓库或创建其他开发线程／子代理，不提交 logs、state、.external 或本地产物。
+- 本轮仅精确提交本路线图的比较、回放与阻塞记录。仍待验收：单章传送、次数与可用状态、实际吸收／安全跳过，以及表内其他业务闭环。需先恢复 PC 补证通道；航线还需自然免费余额，不能动储备或改今日状态替代。线程结束、离线通过和文档推送都不等于模块完成或次日正式实测通过。
