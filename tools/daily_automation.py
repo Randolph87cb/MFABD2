@@ -50,6 +50,7 @@ from quick_hunt import (  # noqa: E402
 from win32_windowpos_click import click_client  # noqa: E402
 from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
+from plaza_prayer import run_plaza_prayer  # noqa: E402
 from activity_rewards import run_activity_rewards  # noqa: E402
 from mail_rewards import run_mail_rewards  # noqa: E402
 from pass_rewards import run_pass_rewards  # noqa: E402
@@ -122,6 +123,7 @@ MASTER_STAGE_NAMES = {
     "daily_arena": "每日竞技场",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
+    "plaza_prayer": "广场每日祈求",
     "reward_prepare_home": "领奖前返回主页",
     "task_rewards": "每日和每周任务奖励",
     "activity_rewards": "活动奖励",
@@ -1335,11 +1337,17 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
             log_root=log_root / "01-return-home",
         )
-        return _require_phase(
+        _require_phase(
             master,
             "business_management",
             lambda *, log_root: run_business_management(dry_run=False, log_root=log_root),
             log_root=log_root / "02-claim-rewards",
+        )
+        return _require_phase(
+            master,
+            "plaza_prayer",
+            lambda *, log_root: run_plaza_prayer(dry_run=False, log_root=log_root),
+            log_root=log_root / "03-plaza-prayer",
         )
     reward_operations = {
         "task_rewards": ("task_rewards", run_task_rewards),

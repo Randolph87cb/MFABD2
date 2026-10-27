@@ -174,11 +174,14 @@ _STAGES = (
         name="日常任务领取",
         availability=PARTIAL,
         unavailable_reason=(
-            "现有流程仅覆盖经营管理收益和餐厅常客奖励，"
-            "未完整覆盖公会签到、餐馆日常和广场祈求。"
+            "现有流程覆盖经营管理收益、餐厅常客奖励和广场每日祈求，"
+            "尚未覆盖公会签到及餐馆日常。"
         ),
         safety_gate="只有所有日常领取子项均可验证完成或安全跳过后，才能标记为已实现。",
-        current_runners=("business_management.run_business_management",),
+        current_runners=(
+            "business_management.run_business_management",
+            "plaza_prayer.run_plaza_prayer",
+        ),
     ),
     _StageDefinition(
         id="task_rewards",
