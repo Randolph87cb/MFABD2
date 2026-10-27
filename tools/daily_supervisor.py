@@ -340,24 +340,24 @@ def run_codex_turn(
     thread_id: str | None = None,
     label: str = "codex",
 ) -> CodexTurn:
+    # Explicit for new and resumed turns: --approve-for-me overrides the user's
+    # full-access config with workspace-write and automatic approval review.
+    command = [
+        str(codex_path),
+        "exec",
+        "--json",
+        "--dangerously-bypass-approvals-and-sandbox",
+    ]
     if thread_id:
-        command = [str(codex_path), "exec", "resume", "--json", thread_id, "-"]
+        command.extend(("resume", thread_id, "-"))
     else:
-        command = [
-            str(codex_path),
-            "exec",
-            "--json",
-            "--approve-for-me",
-            "-C",
-            str(project_root),
-            "-",
-        ]
+        command.extend(("-C", str(project_root), "-"))
     result = run_command(
         command,
         cwd=project_root,
         logger=logger,
         source=label,
-        stdin_text=prompt,
+        stdin_text=local_control_prompt(project_root) + "\n\n" + prompt,
     )
     event_thread_id, completed, error = _parse_codex_events(result.stdout)
     resolved_thread_id = event_thread_id or thread_id
@@ -370,6 +370,19 @@ def run_codex_turn(
         returncode=result.returncode,
         error=error,
     )
+
+
+def local_control_prompt(project_root: Path) -> str:
+    return f"""本项目的 CLI 线程已获用户授权以完全访问运行。
+游戏控制采用项目本地 Python/Win32 脚本，不依赖桌面端 Computer Use、cua_repl 或 node_repl。
+先读 {project_root / 'docs' / 'cli-game-control.md'}。
+使用 .venv/Scripts/python.exe tools/game_control.py status 检查本地控制入口；
+需要且获本轮任务允许的 PC 补证，使用该脚本的 open、capture、click、swipe、key、close 子命令。
+该本地入口是用户明确选择的游戏控制方式；即使插件显示 Native computer APIs are disabled，
+或没有独立 node_repl，也不能据此认定本项目无法操作游戏而放弃开发。
+应实际检查本地脚本；若失败，记录命令、退出码和真实 Windows/游戏错误。
+完全访问不扩大业务授权：是否允许启动游戏、消耗资源或修改文件，仍以本轮具体要求为准；
+修复线程的“禁止启动游戏”以及开发线程的证据门、免费动作和今日去重规则继续有效。"""
 
 
 def repair_prompt(

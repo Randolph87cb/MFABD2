@@ -232,7 +232,7 @@ class DailySupervisorTests(unittest.TestCase):
         self.assertIn("若本次修复仍有未提交", final)
 
     @patch("daily_supervisor.run_command")
-    def test_codex_turn_uses_automatic_workspace_review_without_conflicting_flag(
+    def test_new_and_resumed_codex_turns_use_full_access_and_local_game_control(
         self,
         run_command: MagicMock,
     ) -> None:
@@ -246,17 +246,24 @@ class DailySupervisorTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            result = run_codex_turn(
-                codex_path=Path("C:/codex.cmd"),
-                project_root=root,
-                logger=SupervisorLogger(root / "logs"),
-                prompt="repair",
-            )
-
-        command = run_command.call_args.args[0]
-        self.assertTrue(result.ok)
-        self.assertIn("--approve-for-me", command)
-        self.assertNotIn("--sandbox", command)
+            for thread_id in (None, "thread-1"):
+                with self.subTest(thread_id=thread_id):
+                    result = run_codex_turn(
+                        codex_path=Path("C:/codex.cmd"),
+                        project_root=root,
+                        logger=SupervisorLogger(root / "logs"),
+                        prompt="repair",
+                        thread_id=thread_id,
+                    )
+                    command = run_command.call_args.args[0]
+                    self.assertTrue(result.ok)
+                    self.assertIn("--dangerously-bypass-approvals-and-sandbox", command)
+                    self.assertNotIn("--approve-for-me", command)
+                    self.assertEqual("resume" in command, thread_id is not None)
+                    prompt = run_command.call_args.kwargs["stdin_text"]
+                    self.assertIn("tools/game_control.py status", prompt)
+                    self.assertIn("cli-game-control.md", prompt)
+                    self.assertTrue(prompt.endswith("repair"))
 
 
 if __name__ == "__main__":

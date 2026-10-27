@@ -40,6 +40,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 ```
 
 安装和每次运行时都会检查 CLI 能否启动，并输出实际路径和版本；模型沿用本机 Codex 配置。
+监督器为新建和续接的修复／开发线程显式启用完全访问，不再使用 `--approve-for-me`。
+游戏操作通过项目本地 Python/Win32 入口完成，无需桌面端控制插件；使用方式与证据规则见
+[`docs/cli-game-control.md`](docs/cli-game-control.md)。
 
 每轮运行由 `tools\daily_supervisor.py` 监督：
 

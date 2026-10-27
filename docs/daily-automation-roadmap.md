@@ -633,3 +633,36 @@
 - 无新子功能通过 PC 门，不改 `daily_automation.py`、`daily_plan.py`、availability、阶段状态与顺序，不新增伪 runner。下一游戏日 **2026-10-28 08:30** 原计划任务继续运行九阶段现有子集；快速狩猎为狩猎场设置／确认→`quick_hunt.run_rice_recheck`→`quick_hunt.run_crystal_cave_cycle`，日常领取为 `business_management.run_business_management`。失败即停和同日去重沿用现有实现，新增次日能力为零。
 - 未重跑日常、使用 `--force`／强制阶段或修改／重置今日状态；`state/daily_automation.json` 检查前后 SHA256 均为 `A1F2D33C130CB62074204A9F0D55062F82FE1662C204D34045B163208FFFA4FB`。参考 HEAD 未变且仍干净。不修改监督器或计划任务；只提交本路线图，不提交 logs、state、.external 或本地产物。
 - 仍待验收：恢复原生 PC 补证通道后，完成单章传送、次数／可用状态、实际吸收或明确安全跳过及返回；航线另需自然免费余额与危险页证据。其余候选按表中前置保持关闭。线程结束、离线通过或文档推送都不等于模块实现或次日正式实测通过。
+
+## 17. 2026-10-27 CLI 完全访问与本地游戏控制通道
+
+用户本轮明确要求：监督器启动的 CLI 线程使用完全访问，提供不依赖桌面端的本地游戏操控脚本，
+修改后新开开发线程测试。此前第 16 节的原生插件不可用保留为历史结果，不再作为本地通道的能力判断。
+
+- `daily_supervisor.run_codex_turn` 对新建和续接线程都显式传入
+  `--dangerously-bypass-approvals-and-sandbox`，移除会覆盖全局设置的 `--approve-for-me`。
+  不改全局配置、不改计划任务；下一次运行自动加载当前项目代码。
+- 每轮提示显式介绍本地通道与 `docs/cli-game-control.md`，要求先实际执行本地 `status`。
+  `Native computer APIs are disabled`、缺少 `node_repl` 不足以认定项目无法操控游戏。
+  完全访问不取消业务证据门、资源上限、修复线程禁止启动游戏或同日去重规则。
+- 新增 `tools/game_control.py`，复用既有 Python/Win32 实现，提供 `status/open/capture/click/swipe/key/close`。
+  输入前核对唯一游戏窗口、进程身份、客户区尺寸和有效截图；一份截图 observation 只允许一次输入，
+  保存输入标注、请求与执行结果、操作后原生截图。详情见独立使用说明。
+- 离线验证：本地控制入口 5 项、监督器 10 项、每日增量开发 8 项，共 **23 项 unittest 通过**。
+  首次使用 pytest 因项目虚拟环境未安装 pytest 失败，改用项目现有 unittest，无新增依赖。
+  本地真实 `status` 返回成功、后端为 `local-win32`、游戏未运行。
+
+### 17.1 新 CLI 线程测试与当前阻塞
+
+- 新建线程 `01a17b4a-4e0e-74b1-b9cd-1055c7e3a8ab`，使用修改后的监督器启动函数。
+  线程上下文已核实 `approval_policy=never`、`sandbox_policy=danger-full-access`，权限设置生效。
+- 此次线程在执行任何游戏测试前，因模型端 `workspace routing discovery failed` 退出 1；
+  本机直连与现有代理访问 ChatGPT/GitHub/Google 也出现 TLS EOF／握手失败。
+  这是本次测试的网络失败，不是原生工具权限拒绝；不能把线程创建或完全访问确认当作实机闭环通过。
+  原始记录保留于 `logs/manual/cli-access-validation/console.log` 与 `thread-result.json`。
+- 主线程另以本地脚本尝试启动：确实启动了本轮官方启动器，但未出现游戏窗口。
+  网络故障持续期间停止此次手动等待，并按进程身份仅收尾本轮新启动器，无遗留游戏。
+  记录为 `local-blocked.json`；未采集到新游戏截图，点击、按键、滑动与导航闭环均尚未实机验收。
+- 今日 `daily_automation.json` SHA256 仍为 `A1F2D33C130CB62074204A9F0D55062F82FE1662C204D34045B163208FFFA4FB`，
+  `daily_improvement.json` SHA256 仍为 `FEA404EF61D768A25B705BD8718716BDB7E79914A34E52BE7AAC2AAECE6AC723`。
+  没有重跑日常、重置每日开发标记、操作资源或修改参考仓库。本轮不增加正式业务 runner。
