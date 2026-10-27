@@ -648,7 +648,7 @@
 - 新增 `tools/game_control.py`，复用既有 Python/Win32 实现，提供 `status/open/capture/click/swipe/key/close`。
   输入前核对唯一游戏窗口、进程身份、客户区尺寸和有效截图；一份截图 observation 只允许一次输入，
   保存输入标注、请求与执行结果、操作后原生截图。详情见独立使用说明。
-- 离线验证：本地控制入口 5 项、监督器 10 项、每日增量开发 8 项，共 **23 项 unittest 通过**。
+- 离线验证：本地控制入口 7 项、监督器 10 项、每日增量开发 8 项，共 **25 项 unittest 通过**。
   首次使用 pytest 因项目虚拟环境未安装 pytest 失败，改用项目现有 unittest，无新增依赖。
   本地真实 `status` 返回成功、后端为 `local-win32`、游戏未运行。
 
@@ -666,3 +666,25 @@
 - 今日 `daily_automation.json` SHA256 仍为 `A1F2D33C130CB62074204A9F0D55062F82FE1662C204D34045B163208FFFA4FB`，
   `daily_improvement.json` SHA256 仍为 `FEA404EF61D768A25B705BD8718716BDB7E79914A34E52BE7AAC2AAECE6AC723`。
   没有重跑日常、重置每日开发标记、操作资源或修改参考仓库。本轮不增加正式业务 runner。
+
+### 17.2 同一新线程重试与启动总时限修复
+
+- 代码提交 `533e12a` 已成功推送后，续接上述新验证线程进行重试。续接上下文同样为
+  `approval_policy=never`、`danger-full-access`，线程实际执行了本地脚本，`status` 返回 0，
+  `desktop_app_required=false`。首次 CLI 连接失败保留，不再把局部端点/进程连接错误概括为
+  当前 Codex 对话或整机完全断网。
+- 实机启动确实创建了官方启动器；其配置地址
+  `https://pc.bd2.pmang.cloud/browndust2starter/starter/config/launcher_g.json`
+  持续报 `WinINet / HttpSendRequest(12029) - 无法与服务器建立连接`，没有游戏窗口。
+  `capture` 因找不到游戏窗口返回 2；截图、点击、按键、滑动和页面往返均不能判为实机通过。
+- 测试暴露出原启动函数的 `timeout` 是“无日志进度时限”，启动器重复写连接错误会延长等待。
+  仅在新本地入口增加启动总等待时限：独立运行原有标准库启动脚本，超时终止该工作进程，
+  并按原有精确进程身份逻辑清理本轮新启动器。复用已有游戏窗口时不启动第二个进程。
+  正式每日流程及其无限网络等待行为不变。
+- 主线程停止了仍运行旧版本代码的验证 `open` 工作进程，使测试 guard 执行 `finally`；
+  因此该次 `open` 异常退出是人为结束旧等待，不能冒称旧版本自行遵守总时限。
+  原因保存在 `2026-10-27-1110/main-thread-open-timeout.json`。测试线程随后验证启动器已收尾、
+  游戏未运行、两个每日状态文件哈希不变。
+- 修复后的本地 `open --timeout 5` 另行真实验证：达到启动等待时限后输出明确失败 JSON，
+  精确终止本轮新启动器，复查无游戏、启动器或启动工作进程遗留。证据保存在
+  `logs/manual/cli-access-validation/bounded-open/`。此项只验收时限与收尾，不等于游戏内操控验收。

@@ -6,6 +6,7 @@ import argparse
 import ctypes
 import hashlib
 import json
+import subprocess
 import sys
 import time
 from dataclasses import asdict
@@ -16,9 +17,16 @@ from typing import Any
 import psutil
 from PIL import Image, ImageDraw, ImageStat
 
-from daily_processes import identity_is_current, post_close, process_identity, window_process_id
+from daily_processes import (
+    close_new_exact_processes,
+    identity_is_current,
+    post_close,
+    process_identity,
+    snapshot_run_helpers,
+    window_process_id,
+)
 from enter_game import capture_client
-from open_game import WINDOW_CLASS, WINDOW_TITLE, open_game
+from open_game import STARTER, WINDOW_CLASS, WINDOW_TITLE
 from win32_windowpos_click import (
     EnumWindowsProc,
     _get_class_name,
@@ -78,6 +86,36 @@ def require_window() -> dict[str, Any]:
     if window is None:
         raise RuntimeError("Game window not found; use the open command first")
     return window
+
+
+def start_game(timeout: float) -> dict[str, Any]:
+    existing = game_window()
+    if existing is not None:
+        return existing
+    before = snapshot_run_helpers()
+    try:
+        result = subprocess.run(
+            # open_game only uses the standard library. Bypass the Windows venv
+            # redirector so timeout kills the worker, not just its launcher.
+            [getattr(sys, "_base_executable", None) or sys.executable,
+             str(PROJECT_ROOT / "tools" / "open_game.py"), "--timeout", str(timeout)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout,
+        )
+        if result.returncode:
+            raise RuntimeError(f"Game startup failed ({result.returncode}): {result.stderr or result.stdout}")
+        return require_window()
+    except subprocess.TimeoutExpired as exc:
+        # The game may have appeared just before the worker's deadline.
+        window = game_window()
+        if window is not None:
+            return window
+        cleanup = close_new_exact_processes(STARTER, before)
+        raise RuntimeError(
+            f"Game window did not appear within {timeout:g}s; new launcher cleanup: {cleanup}"
+        ) from exc
+    except Exception:
+        close_new_exact_processes(STARTER, before)
+        raise
 
 
 def capture(window: dict[str, Any], run_root: Path) -> dict[str, Any]:
@@ -140,8 +178,7 @@ def execute(args: argparse.Namespace, run_root: Path) -> dict[str, Any]:
         return {"backend": "local-win32", "window": game_window(),
                 "desktop_app_required": False, "python": sys.executable}
     if args.command == "open":
-        open_game(args.timeout)
-        return {"window": require_window()}
+        return {"window": start_game(args.timeout)}
     if args.command == "close":
         window = game_window()
         if window is None:

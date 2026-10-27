@@ -18,7 +18,9 @@
 
 每次命令输出 JSON，成功退出 0、失败退出 2，产物保存到 `logs/manual/cli-control/日期/时间/`。
 `--log-root` 为全局选项，写在子命令前可指定本次证据目录。`status` 不启动游戏；
-`open` 只启动或复用游戏，不登录、不跑日常。`capture` 保存原窗口 `window.png`、
+`open` 只启动或复用游戏，不登录、不跑日常；`--timeout` 限制本次启动的总等待时间，
+超时后仅清理本轮新启动器。此时限不改变正式每日流程的网络无限等待行为。
+`capture` 保存原窗口 `window.png`、
 原生客户区 `client.png`、对应 `observation.json` 和 `result.json`。
 
 ## 观察后执行一个动作

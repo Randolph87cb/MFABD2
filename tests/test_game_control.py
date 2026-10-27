@@ -77,11 +77,27 @@ class GameControlTests(unittest.TestCase):
 
     def test_status_does_not_launch_game(self) -> None:
         args = control.build_parser().parse_args(["status"])
-        with patch.object(control, "game_window", return_value=None), patch.object(control, "open_game") as launch:
+        with patch.object(control, "game_window", return_value=None), patch.object(control, "start_game") as launch:
             result = control.execute(args, self.root)
             self.assertFalse(result["desktop_app_required"])
             self.assertIsNone(result["window"])
             launch.assert_not_called()
+
+    def test_open_timeout_cleans_only_new_launcher_instances(self) -> None:
+        import subprocess
+        before = {11: "existing-launcher"}
+        with (patch.object(control, "game_window", return_value=None),
+              patch.object(control, "snapshot_run_helpers", return_value=before),
+              patch.object(control.subprocess, "run", side_effect=subprocess.TimeoutExpired("open", 1)),
+              patch.object(control, "close_new_exact_processes", return_value=[]) as cleanup):
+            with self.assertRaisesRegex(RuntimeError, "within 1s"):
+                control.start_game(1)
+            cleanup.assert_called_once_with(control.STARTER, before)
+
+    def test_open_reuses_existing_window_without_starting_another_process(self) -> None:
+        with patch.object(control, "game_window", return_value=self.window), patch.object(control.subprocess, "run") as run:
+            self.assertEqual(control.start_game(1), self.window)
+            run.assert_not_called()
 
     def test_multiple_matching_windows_are_rejected(self) -> None:
         def enumerate_windows(callback, data):
