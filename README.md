@@ -63,6 +63,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 - 每日流程正常完成（包括修复后成功续跑）并成功收尾后，先发送完成通知，再新建一个独立
   Codex 开发线程，对比 `.external\MFABD2-reference`，推进一个缺失模块或部分模块的子功能。
   按 `docs/daily-automation-roadmap.md` 的差距顺序选择，缺少证据或前置条件时评估下一项；
+  开发提示词指定使用已实测的本地 CLI 通道补 PC 证据，初始化白屏等待后只读复采，
+  不沿用旧线程的桌面插件权限结论停止开发；控制通道通过仍不能代替目标模块验收。
   装备、交易等仍受已有白名单限制。通过必要测试及 PC 闭环验证后，接入真实每日入口，
   提交并推送，让下一游戏日的 `08:30` 计划任务加载新代码；不会因此重跑当天整套日常。
 - 增量开发记录保存在本机 `state/daily_improvement.json`，按每天 `08:00` 的游戏日计数。

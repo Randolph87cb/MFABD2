@@ -378,6 +378,8 @@ def local_control_prompt(project_root: Path) -> str:
 先读 {project_root / 'docs' / 'cli-game-control.md'}。
 使用 .venv/Scripts/python.exe tools/game_control.py status 检查本地控制入口；
 需要且获本轮任务允许的 PC 补证，使用该脚本的 open、capture、click、swipe、key、close 子命令。
+先用 capture 取得并查看原生 client.png，再用同次 observation.json 执行一个动作，查看返回的新截图。
+游戏刚启动可能出现初始化白屏；不要输入，等待渲染并有限次重试只读 capture，不能把首帧空白当作权限拒绝。
 该本地入口是用户明确选择的游戏控制方式；即使插件显示 Native computer APIs are disabled，
 或没有独立 node_repl，也不能据此认定本项目无法操作游戏而放弃开发。
 应实际检查本地脚本；若失败，记录命令、退出码和真实 Windows/游戏错误。
@@ -458,6 +460,19 @@ def improvement_prompt(
 当前阶段结果：{json.dumps(report.get('statuses', {}), ensure_ascii=False)}
 按现有路线图顺序排列的候选差距：
 {json.dumps(candidates, ensure_ascii=False, indent=2)}
+
+本地 PC 补证方式：
+- 先读 docs/cli-game-control.md 与路线图最新的本地控制验收记录。第 17.3 节已实测本地 CLI 的启动、
+  2304×1296 客户区截图、点击、主页往返及收尾；这是控制通道的证据，不代替待开发模块的业务验收。
+- 本轮是正式增量开发，不是再次执行控制通道冒烟测试。沿用已授权的本地 Python/Win32 路径，
+  实际用 tools/game_control.py status 检查，需要补证时用 open --timeout 90、capture 和单步输入。
+- 历史“Native computer APIs are disabled”、缺少 node_repl 或旧线程的工具审批拒绝，不能直接作为
+  本轮无法启动游戏或缺少 PC 证据的结论。首帧白屏先等待再只读复采；只有当前本地命令的实际失败、
+  资源不足、未知/危险页面等仍无法解除的条件，才能记录为本轮阻塞，并保留命令、退出码和截图。
+- 补证前先记录目标模块所需的页面与验收条件，查看实际截图后逐步导航；不因尚未留存该页面截图就
+  放弃已授权的定向补证。已有截图先回放，需新证据时只探索目标子功能所需的最短路径，未知即停。
+- 资源授权按路线图最新条款执行；已经解除的单次资源限制不能重新作为阻塞，也不能自行扩大授权。
+  目标模块 Demo 结束后关闭本轮游戏与新启动器，保留最终页面及精确收尾结果。
 
 要求：
 1. 先读项目规则、路线图、今日日志、相关实现和参考仓库；记录双方提交版本、具体业务差距、选定的唯一模块/子功能和验收标准。参考仓库仅用于比较业务语义，禁止修改、拉取或切换它，禁止照搬移动端坐标或 Android 架构。
