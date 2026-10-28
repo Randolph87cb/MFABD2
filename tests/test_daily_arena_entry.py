@@ -25,10 +25,42 @@ from daily_arena import (
     wait_and_close_repeat_result,
 )
 from daily_automation import ensure_home
+from free_gacha import _click_ratio
 from game_text_recognition import (
     ARENA_VICTORY_RESULT_LABEL_GROUPS,
     recognize_arena_victory_result_labels,
 )
+
+
+class ArenaCartridgeButtonTests(unittest.TestCase):
+    @patch("free_gacha.click_client")
+    def test_plaza_cartridge_click_hits_recorded_p_icon(self, click_client: MagicMock) -> None:
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures/recognition/arena-route-plaza-cartridge-annotated-2048x1200.png"
+        )
+        with Image.open(fixture) as window:
+            # The fixture includes the title bar and border; clicks use client pixels.
+            client = window.crop((1, 46, 2047, 1198))
+        # Visible P icon bounds in the cropped client, excluding the adjacent Q icon.
+        left, top, right, bottom = (815, 1035, 878, 1095)
+        for size in (client.size, (2304, 1296)):
+            image = client.resize(size)
+            scale_x, scale_y = size[0] / client.width, size[1] / client.height
+            for attempt in (1, 2):
+                with self.subTest(size=size, attempt=attempt):
+                    _click_ratio(
+                        123,
+                        image,
+                        "plaza_cartridge",
+                        dry_run=False,
+                        logger=MagicMock(annotate_clicks=False),
+                        attempt=attempt,
+                    )
+                    hwnd, x, y = click_client.call_args.args
+                    self.assertEqual(hwnd, 123)
+                    self.assertTrue(left * scale_x <= x <= right * scale_x, (x, y))
+                    self.assertTrue(top * scale_y <= y <= bottom * scale_y, (x, y))
 
 
 class BattlefieldRestaurantRouteTests(unittest.TestCase):
