@@ -124,6 +124,7 @@ class DailyPlanTests(unittest.TestCase):
                 "quick_hunt",
                 "free_gacha",
                 "arena",
+                "weekly",
                 "daily_claims",
                 "task_rewards",
                 "activity_rewards",
@@ -139,7 +140,7 @@ class DailyPlanTests(unittest.TestCase):
         self.assertEqual(payload["contract_stage_count"], 17)
         self.assertEqual(payload["enabled_stage_count"], 16)
         self.assertEqual(payload["runnable_stage_count"], 7)
-        self.assertEqual(payload["current_runnable_stage_count"], 9)
+        self.assertEqual(payload["current_runnable_stage_count"], 10)
         self.assertEqual(payload["returned_stage_count"], 17)
         self.assertEqual(payload["stages"][0]["id"], "start")
         self.assertEqual(
