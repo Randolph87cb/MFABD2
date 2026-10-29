@@ -369,7 +369,7 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
             _click_ratio(
                 hwnd,
                 bar_image,
-                "plaza_cartridge",
+                "battlefield_cartridge",
                 dry_run=False,
                 logger=logger,
             )

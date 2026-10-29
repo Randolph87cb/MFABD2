@@ -78,8 +78,9 @@ CLICK_POINTS = {
     "restaurant_regular_customer_claim_all": (0.877, 0.930),
     "home_gacha": (0.086, 0.925),
     "home_return_battlefield": (0.787, 0.913),
-    # Center of the P cartridge icon; 0.444 falls in the gap before the Q icon.
+    # Plaza and story fields place the P cartridge icon at different positions.
     "plaza_cartridge": (0.414, 0.925),
+    "battlefield_cartridge": (0.444, 0.925),
     "cartridge_gameplay_tab": (0.521, 0.814),
     "cartridge_first_gameplay": (0.078, 0.901),
     "arena_pool": (0.414, 0.592),
@@ -261,6 +262,7 @@ CLICK_NAMES = {
     "quick_hunt_back": "返回主页",
     "home_return_battlefield": "返回战场",
     "plaza_cartridge": "卡带菜单",
+    "battlefield_cartridge": "卡带菜单",
     "cartridge_gameplay_tab": "玩法卡带",
     "cartridge_first_gameplay": "竞技场卡带",
     "arena_pool": "竞技场入口",

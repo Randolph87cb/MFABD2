@@ -34,6 +34,58 @@ from game_text_recognition import (
 
 class ArenaCartridgeButtonTests(unittest.TestCase):
     @patch("free_gacha.click_client")
+    def test_battlefield_fallback_hits_p_icon_then_continues_to_arena(
+        self, click_client: MagicMock
+    ) -> None:
+        # Native client evidence from the failed 2026-10-29 run: the plaza
+        # coordinate landed on the ground to the left of the story-field P icon.
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures/recognition/arena-route-battlefield-2304x1296.png"
+        )
+        with Image.open(fixture) as source:
+            client = source.copy()
+        left, top, right, bottom = (990, 1165, 1055, 1230)
+        for size in (client.size, (2048, 1152)):
+            with self.subTest(size=size):
+                click_client.reset_mock()
+                image = client.resize(size)
+                with (
+                    tempfile.TemporaryDirectory() as temporary,
+                    patch("daily_arena.find_game_window", return_value=123),
+                    patch("daily_arena.safe_capture_client", return_value=image),
+                    patch(
+                        "daily_arena.classify_state",
+                        side_effect=[("unknown", {}), ("arena_lobby", {})],
+                    ),
+                    patch("daily_arena.is_returnable_battlefield", return_value=True),
+                    patch("daily_arena.post_quick_cartridge_key") as shortcut,
+                    patch(
+                        "daily_arena.wait_for_state",
+                        side_effect=[("unknown", image), ("arena_cartridge_bar", image)],
+                    ) as wait_state,
+                    patch(
+                        "daily_arena.click_with_fixed_retry",
+                        return_value=(True, "arena_cartridge_bar", image, "selected gameplay"),
+                    ) as select_gameplay,
+                    patch("daily_arena.time.sleep"),
+                ):
+                    ok, reason = enter_arena_from_plaza(
+                        dry_run=False, log_root=Path(temporary)
+                    )
+
+                self.assertTrue(ok, reason)
+                shortcut.assert_called_once()
+                self.assertEqual(wait_state.call_count, 2)
+                hwnd, x, y = click_client.call_args_list[0].args
+                self.assertEqual(hwnd, 123)
+                scale_x, scale_y = size[0] / client.width, size[1] / client.height
+                self.assertTrue(left * scale_x <= x <= right * scale_x, (x, y))
+                self.assertTrue(top * scale_y <= y <= bottom * scale_y, (x, y))
+                self.assertEqual(select_gameplay.call_args.args[2], "cartridge_gameplay_tab")
+                self.assertEqual(click_client.call_count, 2)
+
+    @patch("free_gacha.click_client")
     def test_plaza_cartridge_click_hits_recorded_p_icon(self, click_client: MagicMock) -> None:
         fixture = (
             Path(__file__).resolve().parent
