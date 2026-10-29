@@ -51,7 +51,7 @@ from win32_windowpos_click import click_client  # noqa: E402
 from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
 from plaza_prayer import run_plaza_prayer  # noqa: E402
-from weekly_cabin import run_weekly_cabin  # noqa: E402
+from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like  # noqa: E402
 from activity_rewards import run_activity_rewards  # noqa: E402
 from mail_rewards import run_mail_rewards  # noqa: E402
 from pass_rewards import run_pass_rewards  # noqa: E402
@@ -124,6 +124,7 @@ MASTER_STAGE_NAMES = {
     "daily_arena": "每日竞技场",
     "weekly_home": "周常前返回主页",
     "weekly_cabin": "周常小屋一次免费点赞",
+    "weekly_cabin_second_like": "周常小屋第二次免费点赞",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
     "plaza_prayer": "广场每日祈求",
@@ -1340,12 +1341,22 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
             log_root=log_root / "01-return-home",
         )
-        return _require_phase(
+        first_reason = _require_phase(
             master,
             "weekly_cabin",
             lambda *, log_root: run_weekly_cabin(dry_run=False, log_root=log_root),
             log_root=log_root / "02-cabin-one-like",
         )
+        second_reason = _require_phase(
+            master,
+            "weekly_cabin_second_like",
+            lambda *, log_root: run_weekly_cabin_second_like(dry_run=False, log_root=log_root),
+            log_root=log_root / "03-cabin-second-like",
+        )
+        reasons = f"首次：{first_reason}；第二次：{second_reason}"
+        if first_reason.startswith("skipped:") and second_reason.startswith("skipped:"):
+            return f"skipped:{reasons}"
+        return reasons
     if phase_id == "daily_claims":
         _require_phase(
             master,

@@ -1,4 +1,4 @@
-"""One free random-cabin like per UTC+8 game week, with no ambiguous replay."""
+"""Two separately recorded free cabin likes per UTC+8 game week."""
 
 from __future__ import annotations
 
@@ -21,6 +21,7 @@ from reward_flow import click_ratio_logged, prepare_actionable_home, wait_for_re
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 STATE_ROOT = PROJECT_ROOT / "state" / "weekly_cabin"
+SECOND_STATE_ROOT = PROJECT_ROOT / "state" / "weekly_cabin_second"
 GAME_TIMEZONE = timezone(timedelta(hours=8))
 LIKE_BOX = (2077, 112, 2130, 162)
 
@@ -110,7 +111,9 @@ def recognize_cabin_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
 
 
 def run_weekly_cabin(*, dry_run: bool, log_root: Path,
-                     state_root: Path | None = None) -> tuple[bool, str]:
+                     state_root: Path | None = None,
+                     excluded_identity: str | None = None,
+                     expected_week: str | None = None) -> tuple[bool, str]:
     logger = RunLogger(log_root, annotate_clicks=True)
     week = game_week_key()
     state_path = (state_root if state_root is not None else STATE_ROOT) / f"{week}.json"
@@ -120,12 +123,19 @@ def run_weekly_cabin(*, dry_run: bool, log_root: Path,
         logger.failure(reason)
         return False, reason
 
+    if expected_week is not None and week != expected_week:
+        return stop("进入第二次点赞时跨越游戏周，未输入")
     if state_path.exists():
         try:
             record = json.loads(state_path.read_text(encoding="utf-8"))
             if (record.get("version") != 1 or record.get("week") != week
                     or record.get("status") not in {"completed", "action_pending"}):
                 raise ValueError("invalid weekly cabin record")
+            if excluded_identity is not None and (
+                record.get("excluded_identity") != excluded_identity
+                or record.get("identity") == excluded_identity
+            ):
+                raise ValueError("second like record does not match the first cabin")
             if record["status"] == "completed" and (
                 not isinstance(record.get("identity"), str) or not record["identity"]
                 or type(record.get("before_count")) is not int
@@ -177,12 +187,16 @@ def run_weekly_cabin(*, dry_run: bool, log_root: Path,
             return stop("未确认随机小屋、身份与点赞状态")
     liked = details["state"] == "like_ready"
     identity, before = details["identity"], details["count"]
+    if liked and identity == excluded_identity:
+        return stop("随机到本周首次已点赞小屋但按钮为白色，状态冲突；不追加点赞")
     if liked:
         if game_week_key() != week:
             return stop("跨越游戏周刷新边界，未点赞")
         record = {"version": 1, "week": week, "status": "action_pending",
                   "identity": identity, "before_count": before, "log_root": str(log_root),
                   "reserved_at": datetime.now(GAME_TIMEZONE).isoformat()}
+        if excluded_identity is not None:
+            record["excluded_identity"] = excluded_identity
         try:
             _write_record(state_path, record, reserve=True)
         except OSError as exc:
@@ -215,3 +229,43 @@ def run_weekly_cabin(*, dry_run: bool, log_root: Path,
         reason = "skipped:随机小屋已为蓝色点赞，未输入；不推断本周任务完成"
     logger.event(action="stop", result="success", reason=reason, week=week)
     return True, reason
+
+
+def run_weekly_cabin_second_like(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
+    """Add one distinct cabin only after the first like is verified this week."""
+    logger = RunLogger(log_root, annotate_clicks=True)
+    week = game_week_key()
+    first_path = STATE_ROOT / f"{week}.json"
+    try:
+        first = json.loads(first_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        if (SECOND_STATE_ROOT / f"{week}.json").exists():
+            reason = "第二次点赞已有记录但首次记录丢失，禁止输入"
+            logger.failure(reason)
+            return False, reason
+        reason = "skipped:本游戏周首次点赞尚无完成记录，未追加第二次"
+        logger.event(action="stop", result="success", reason=reason, week=week)
+        return True, reason
+    except (OSError, ValueError) as exc:
+        reason = f"首次小屋周记录不可读，禁止追加点赞：{exc}"
+        logger.failure(reason)
+        return False, reason
+    if (not isinstance(first, dict) or first.get("version") != 1
+            or first.get("week") != week or first.get("status") != "completed"
+            or not isinstance(first.get("identity"), str) or not first["identity"]
+            or type(first.get("before_count")) is not int or first["before_count"] < 0
+            or type(first.get("after_count")) is not int
+            or first["after_count"] != first["before_count"] + 1):
+        reason = "首次小屋点赞未决或完成证据异常，禁止追加第二次"
+        logger.failure(reason)
+        return False, reason
+    if game_week_key() != week:
+        reason = "读取首次记录时跨越游戏周，未追加第二次"
+        logger.failure(reason)
+        return False, reason
+    ok, reason = run_weekly_cabin(
+        dry_run=dry_run, log_root=log_root / "second-like",
+        state_root=SECOND_STATE_ROOT, excluded_identity=first["identity"], expected_week=week,
+    )
+    logger.event(action="stop", result="success" if ok else "failed", reason=reason, week=week)
+    return ok, reason

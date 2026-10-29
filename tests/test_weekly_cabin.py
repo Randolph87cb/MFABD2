@@ -22,6 +22,18 @@ FIXTURES = Path(__file__).parent / "fixtures" / "recognition"
 
 
 class CabinRecognitionTests(unittest.TestCase):
+    def test_second_cabin_native_before_and_two_after_frames(self):
+        for name, expected, count in (
+            ("ready", "like_ready", 1954),
+            ("liked", "like_done", 1955),
+            ("liked-stable", "like_done", 1955),
+        ):
+            with self.subTest(name=name), Image.open(FIXTURES / f"cabin-second-{name}-2304x1296.png") as image:
+                state, details = weekly_cabin.recognize_cabin_page(image)
+                self.assertEqual(state, expected, details)
+                self.assertEqual(details["identity"], "阿噗巴拉蹦")
+                self.assertEqual(details["count"], count)
+
     def test_native_pc_positive_negative_and_already_liked(self):
         for filename, expected in {
             "cabin-own-2304x1296.png": "own_cabin",
@@ -101,12 +113,25 @@ class CabinWeekTests(unittest.TestCase):
 
 class CabinFlowTests(unittest.TestCase):
     def run_flow(self, *, initial="like_ready", after_identity="guest", after_count=11,
-                 home=True, dry_run=False, crash=False):
+                 home=True, dry_run=False, crash=False, excluded_identity=None, second=False):
         image = Image.new("RGB", (2304, 1296), "white")
         records, keys = [], []
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             path = root / "state" / "2026-10-26.json"
+            first_path = root / "first" / "2026-10-26.json"
+            first_path.parent.mkdir()
+            first_bytes = json.dumps(dict(version=1, week="2026-10-26", status="completed",
+                                         identity="first", before_count=20, after_count=21)).encode()
+            first_path.write_bytes(first_bytes)
+
+            def execute(log_root, dry_run=False):
+                if second:
+                    return weekly_cabin.run_weekly_cabin_second_like(dry_run=dry_run, log_root=log_root)
+                return weekly_cabin.run_weekly_cabin(
+                    dry_run=dry_run, log_root=log_root, state_root=path.parent,
+                    excluded_identity=excluded_identity,
+                )
 
             def click(*args, **kwargs):
                 keys.append(kwargs["key"])
@@ -132,6 +157,8 @@ class CabinFlowTests(unittest.TestCase):
                 return found, image, result
 
             with patch("weekly_cabin.find_game_window", return_value=123), \
+                 patch.object(weekly_cabin, "STATE_ROOT", first_path.parent), \
+                 patch.object(weekly_cabin, "SECOND_STATE_ROOT", path.parent), \
                  patch("weekly_cabin.game_week_key", return_value="2026-10-26"), \
                  patch("weekly_cabin.prepare_actionable_home", return_value=(True, image, "home")), \
                  patch("weekly_cabin.wait_for_recognition", side_effect=wait), \
@@ -139,16 +166,17 @@ class CabinFlowTests(unittest.TestCase):
                  patch("weekly_cabin.time.sleep"):
                 if crash:
                     with self.assertRaises(RuntimeError):
-                        weekly_cabin.run_weekly_cabin(dry_run=False, log_root=root / "logs", state_root=path.parent)
+                        execute(root / "logs")
                     result = False, "crash"
                 else:
-                    result = weekly_cabin.run_weekly_cabin(dry_run=dry_run, log_root=root / "logs", state_root=path.parent)
+                    result = execute(root / "logs", dry_run=dry_run)
                 if path.exists():
                     records.append(json.loads(path.read_text(encoding="utf-8")))
                     with patch("weekly_cabin.find_game_window") as window:
-                        again = weekly_cabin.run_weekly_cabin(dry_run=False, log_root=root / "again", state_root=path.parent)
+                        again = execute(root / "again")
                     window.assert_not_called()
                     self.assertEqual(again[0], records[0]["status"] == "completed")
+                self.assertEqual(first_path.read_bytes(), first_bytes)
         return result, keys, records
 
     def test_single_like_durable_before_input_and_same_week_skip(self):
@@ -157,6 +185,20 @@ class CabinFlowTests(unittest.TestCase):
         self.assertEqual(keys.count("one_free_cabin_like"), 1)
         self.assertEqual(records[0]["status"], "completed")
         self.assertEqual(records[0]["after_count"], 11)
+
+    def test_second_like_distinct_identity_and_pending_input_guard(self):
+        (ok, _), keys, records = self.run_flow(second=True)
+        self.assertTrue(ok)
+        self.assertEqual(keys.count("one_free_cabin_like"), 1)
+        self.assertEqual(records[0]["excluded_identity"], "first")
+        (ok, _), keys, records = self.run_flow(excluded_identity="guest")
+        self.assertFalse(ok)
+        self.assertNotIn("one_free_cabin_like", keys)
+        self.assertEqual(records, [])
+        (ok, _), keys, records = self.run_flow(second=True, crash=True)
+        self.assertFalse(ok)
+        self.assertEqual(keys.count("one_free_cabin_like"), 1)
+        self.assertEqual(records[0]["status"], "action_pending")
 
     def test_wrong_identity_count_or_return_never_completes_and_never_retries(self):
         for options in ({"after_identity": "other"}, {"after_count": 10}, {"after_count": 12}, {"home": False}, {"crash": True}):
@@ -199,7 +241,90 @@ class CabinFlowTests(unittest.TestCase):
         stage = next(item for item in get_daily_plan("fast") if item.id == "weekly")
         self.assertFalse(stage.implemented)
         self.assertEqual(stage.availability, "partial")
-        self.assertEqual(stage.current_runners, ("weekly_cabin.run_weekly_cabin",))
+        self.assertEqual(stage.current_runners, (
+            "weekly_cabin.run_weekly_cabin", "weekly_cabin.run_weekly_cabin_second_like",
+        ))
+
+
+class CabinSecondLikeTests(unittest.TestCase):
+    def test_first_and_second_week_records_gate_without_touching_game(self):
+        first = dict(version=1, week="2026-10-26", status="completed",
+                     identity="first", before_count=10, after_count=11)
+        second = dict(first, identity="second", excluded_identity="first")
+        cases = [
+            (None, None, True),
+            (None, second, False),
+            ("{", None, False),
+            ([], None, False),
+            (dict(first, status="action_pending"), None, False),
+            (dict(first, after_count=12), None, False),
+            (first, second, True),
+            (first, dict(second, status="action_pending"), False),
+            (first, dict(second, excluded_identity="another"), False),
+            (first, dict(second, identity="first"), False),
+        ]
+        for initial, extra, expected in cases:
+            with self.subTest(initial=initial, extra=extra), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for folder, value in (("first", initial), ("second", extra)):
+                    if value is not None:
+                        path = root / folder / "2026-10-26.json"
+                        path.parent.mkdir()
+                        path.write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
+                with patch.object(weekly_cabin, "STATE_ROOT", root / "first"), \
+                     patch.object(weekly_cabin, "SECOND_STATE_ROOT", root / "second"), \
+                     patch.object(weekly_cabin, "game_week_key", return_value="2026-10-26"), \
+                     patch.object(weekly_cabin, "find_game_window") as window:
+                    ok, _ = weekly_cabin.run_weekly_cabin_second_like(dry_run=False, log_root=root / "logs")
+                self.assertEqual(ok, expected)
+                window.assert_not_called()
+
+    def test_week_rollover_does_not_reuse_previous_week_first_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            first = root / "first" / "2026-10-26.json"
+            first.parent.mkdir()
+            first.write_text(json.dumps(dict(version=1, week="2026-10-26", status="completed",
+                                             identity="first", before_count=10, after_count=11)), encoding="utf-8")
+            with patch.object(weekly_cabin, "STATE_ROOT", first.parent), \
+                 patch.object(weekly_cabin, "SECOND_STATE_ROOT", root / "second"), \
+                 patch.object(weekly_cabin, "game_week_key", side_effect=["2026-10-26", "2026-10-26", "2026-11-02"]), \
+                 patch.object(weekly_cabin, "find_game_window") as window:
+                ok, _ = weekly_cabin.run_weekly_cabin_second_like(dry_run=False, log_root=root / "logs")
+            self.assertFalse(ok)
+            window.assert_not_called()
+            self.assertFalse((root / "second").exists())
+
+    def test_real_weekly_stage_runs_second_after_first_and_propagates_failure(self):
+        for first_ok, second_ok, expected in (
+            (False, True, ["home", "first"]),
+            (True, False, ["home", "first", "second"]),
+            (True, True, ["home", "first", "second"]),
+        ):
+            events = []
+            def operation(name, ok):
+                return lambda **_: (events.append(name) or ok, name)
+            with tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(daily_automation, "ensure_home", operation("home", True)), \
+                 patch.object(daily_automation, "run_weekly_cabin", operation("first", first_ok)), \
+                 patch.object(daily_automation, "run_weekly_cabin_second_like", operation("second", second_ok)):
+                root = Path(temporary)
+                if first_ok and second_ok:
+                    daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
+                else:
+                    with self.assertRaises(daily_automation.DailyRunError):
+                        daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
+            self.assertEqual(events, expected)
+
+    def test_weekly_stage_is_skipped_only_when_both_like_slots_skip(self):
+        for first_skip, second_skip in ((True, True), (True, False), (False, True), (False, False)):
+            with self.subTest(first_skip=first_skip, second_skip=second_skip), tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(daily_automation, "ensure_home", return_value=(True, "home")), \
+                 patch.object(daily_automation, "run_weekly_cabin", return_value=(True, "skipped:first" if first_skip else "liked first")), \
+                 patch.object(daily_automation, "run_weekly_cabin_second_like", return_value=(True, "skipped:second" if second_skip else "liked second")):
+                root = Path(temporary)
+                reason = daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
+                self.assertEqual(reason.startswith("skipped:"), first_skip and second_skip)
 
 
 if __name__ == "__main__":
