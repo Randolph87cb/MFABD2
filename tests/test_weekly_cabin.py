@@ -22,6 +22,18 @@ FIXTURES = Path(__file__).parent / "fixtures" / "recognition"
 
 
 class CabinRecognitionTests(unittest.TestCase):
+    def test_third_cabin_native_before_and_two_after_frames(self):
+        for name, expected, count in (
+            ("ready", "like_ready", 26155),
+            ("liked", "like_done", 26156),
+            ("liked-stable", "like_done", 26156),
+        ):
+            with self.subTest(name=name), Image.open(FIXTURES / f"cabin-third-{name}-2304x1296.png") as image:
+                state, details = weekly_cabin.recognize_cabin_page(image)
+                self.assertEqual(state, expected, details)
+                self.assertEqual(details["identity"], "CijaNepoi")
+                self.assertEqual(details["count"], count)
+
     def test_second_cabin_native_before_and_two_after_frames(self):
         for name, expected, count in (
             ("ready", "like_ready", 1954),
@@ -113,7 +125,8 @@ class CabinWeekTests(unittest.TestCase):
 
 class CabinFlowTests(unittest.TestCase):
     def run_flow(self, *, initial="like_ready", after_identity="guest", after_count=11,
-                 home=True, dry_run=False, crash=False, excluded_identity=None, second=False):
+                 home=True, dry_run=False, crash=False, excluded_identity=None, second=False,
+                 third=False, initial_identity="guest"):
         image = Image.new("RGB", (2304, 1296), "white")
         records, keys = [], []
         with tempfile.TemporaryDirectory() as temporary:
@@ -124,8 +137,16 @@ class CabinFlowTests(unittest.TestCase):
             first_bytes = json.dumps(dict(version=1, week="2026-10-26", status="completed",
                                          identity="first", before_count=20, after_count=21)).encode()
             first_path.write_bytes(first_bytes)
+            second_path = root / "second" / "2026-10-26.json"
+            second_path.parent.mkdir()
+            second_bytes = json.dumps(dict(version=1, week="2026-10-26", status="completed",
+                                          identity="second", before_count=30, after_count=31,
+                                          excluded_identity="first")).encode()
+            second_path.write_bytes(second_bytes)
 
             def execute(log_root, dry_run=False):
+                if third:
+                    return weekly_cabin.run_weekly_cabin_third_like(dry_run=dry_run, log_root=log_root)
                 if second:
                     return weekly_cabin.run_weekly_cabin_second_like(dry_run=dry_run, log_root=log_root)
                 return weekly_cabin.run_weekly_cabin(
@@ -149,7 +170,7 @@ class CabinFlowTests(unittest.TestCase):
                 elif label == "cabin-visit":
                     state, details = "visit_other", {}
                 elif label == "random-cabin":
-                    state, details = initial, {"identity": "guest", "count": 10}
+                    state, details = initial, {"identity": initial_identity, "count": 10}
                 else:
                     state, details = "like_done", {"identity": after_identity, "count": after_count}
                 with patch("weekly_cabin.recognize_cabin_page", return_value=(state, details)):
@@ -158,7 +179,8 @@ class CabinFlowTests(unittest.TestCase):
 
             with patch("weekly_cabin.find_game_window", return_value=123), \
                  patch.object(weekly_cabin, "STATE_ROOT", first_path.parent), \
-                 patch.object(weekly_cabin, "SECOND_STATE_ROOT", path.parent), \
+                 patch.object(weekly_cabin, "SECOND_STATE_ROOT", path.parent if second else second_path.parent), \
+                 patch.object(weekly_cabin, "THIRD_STATE_ROOT", path.parent), \
                  patch("weekly_cabin.game_week_key", return_value="2026-10-26"), \
                  patch("weekly_cabin.prepare_actionable_home", return_value=(True, image, "home")), \
                  patch("weekly_cabin.wait_for_recognition", side_effect=wait), \
@@ -177,6 +199,7 @@ class CabinFlowTests(unittest.TestCase):
                     window.assert_not_called()
                     self.assertEqual(again[0], records[0]["status"] == "completed")
                 self.assertEqual(first_path.read_bytes(), first_bytes)
+                self.assertEqual(second_path.read_bytes(), second_bytes)
         return result, keys, records
 
     def test_single_like_durable_before_input_and_same_week_skip(self):
@@ -199,6 +222,32 @@ class CabinFlowTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(keys.count("one_free_cabin_like"), 1)
         self.assertEqual(records[0]["status"], "action_pending")
+
+    def test_third_like_preserves_prior_records_and_never_replays_pending_input(self):
+        (ok, _), keys, records = self.run_flow(third=True)
+        self.assertTrue(ok)
+        self.assertEqual(keys.count("one_free_cabin_like"), 1)
+        self.assertEqual(records[0]["excluded_identities"], ["first", "second"])
+        for options in ({"crash": True}, {"after_identity": "other"},
+                        {"after_count": 10}, {"home": False}):
+            with self.subTest(options=options):
+                (ok, _), keys, records = self.run_flow(third=True, **options)
+                self.assertFalse(ok)
+                self.assertEqual(keys.count("one_free_cabin_like"), 1)
+                self.assertEqual(records[0]["status"], "action_pending")
+
+    def test_third_like_rejects_either_prior_identity_and_handles_blue_and_dry_run(self):
+        for identity in ("first", "second"):
+            with self.subTest(identity=identity):
+                (ok, _), keys, records = self.run_flow(third=True, initial_identity=identity)
+                self.assertFalse(ok)
+                self.assertNotIn("one_free_cabin_like", keys)
+                self.assertEqual(records, [])
+        for options in ({"initial": "like_done", "after_count": 10}, {"dry_run": True}):
+            (ok, _), keys, records = self.run_flow(third=True, **options)
+            self.assertTrue(ok)
+            self.assertNotIn("one_free_cabin_like", keys)
+            self.assertEqual(records, [])
 
     def test_wrong_identity_count_or_return_never_completes_and_never_retries(self):
         for options in ({"after_identity": "other"}, {"after_count": 10}, {"after_count": 12}, {"home": False}, {"crash": True}):
@@ -243,6 +292,7 @@ class CabinFlowTests(unittest.TestCase):
         self.assertEqual(stage.availability, "partial")
         self.assertEqual(stage.current_runners, (
             "weekly_cabin.run_weekly_cabin", "weekly_cabin.run_weekly_cabin_second_like",
+            "weekly_cabin.run_weekly_cabin_third_like",
         ))
 
 
@@ -295,11 +345,12 @@ class CabinSecondLikeTests(unittest.TestCase):
             window.assert_not_called()
             self.assertFalse((root / "second").exists())
 
-    def test_real_weekly_stage_runs_second_after_first_and_propagates_failure(self):
-        for first_ok, second_ok, expected in (
-            (False, True, ["home", "first"]),
-            (True, False, ["home", "first", "second"]),
-            (True, True, ["home", "first", "second"]),
+    def test_real_weekly_stage_runs_three_in_order_and_propagates_failure(self):
+        for first_ok, second_ok, third_ok, expected in (
+            (False, True, True, ["home", "first"]),
+            (True, False, True, ["home", "first", "second"]),
+            (True, True, False, ["home", "first", "second", "third"]),
+            (True, True, True, ["home", "first", "second", "third"]),
         ):
             events = []
             def operation(name, ok):
@@ -307,24 +358,89 @@ class CabinSecondLikeTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temporary, \
                  patch.object(daily_automation, "ensure_home", operation("home", True)), \
                  patch.object(daily_automation, "run_weekly_cabin", operation("first", first_ok)), \
-                 patch.object(daily_automation, "run_weekly_cabin_second_like", operation("second", second_ok)):
+                 patch.object(daily_automation, "run_weekly_cabin_second_like", operation("second", second_ok)), \
+                 patch.object(daily_automation, "run_weekly_cabin_third_like", operation("third", third_ok)):
                 root = Path(temporary)
-                if first_ok and second_ok:
+                if first_ok and second_ok and third_ok:
                     daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
                 else:
                     with self.assertRaises(daily_automation.DailyRunError):
                         daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
             self.assertEqual(events, expected)
 
-    def test_weekly_stage_is_skipped_only_when_both_like_slots_skip(self):
-        for first_skip, second_skip in ((True, True), (True, False), (False, True), (False, False)):
-            with self.subTest(first_skip=first_skip, second_skip=second_skip), tempfile.TemporaryDirectory() as temporary, \
+    def test_weekly_stage_is_skipped_only_when_all_three_like_slots_skip(self):
+        from itertools import product
+        for first_skip, second_skip, third_skip in product((True, False), repeat=3):
+            with self.subTest(slots=(first_skip, second_skip, third_skip)), tempfile.TemporaryDirectory() as temporary, \
                  patch.object(daily_automation, "ensure_home", return_value=(True, "home")), \
                  patch.object(daily_automation, "run_weekly_cabin", return_value=(True, "skipped:first" if first_skip else "liked first")), \
-                 patch.object(daily_automation, "run_weekly_cabin_second_like", return_value=(True, "skipped:second" if second_skip else "liked second")):
+                 patch.object(daily_automation, "run_weekly_cabin_second_like", return_value=(True, "skipped:second" if second_skip else "liked second")), \
+                 patch.object(daily_automation, "run_weekly_cabin_third_like", return_value=(True, "skipped:third" if third_skip else "liked third")):
                 root = Path(temporary)
                 reason = daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
-                self.assertEqual(reason.startswith("skipped:"), first_skip and second_skip)
+                self.assertEqual(reason.startswith("skipped:"), first_skip and second_skip and third_skip)
+
+
+class CabinThirdLikeTests(unittest.TestCase):
+    def test_prior_chain_and_third_record_gate_without_touching_game(self):
+        first = dict(version=1, week="2026-10-26", status="completed",
+                     identity="first", before_count=10, after_count=11)
+        second = dict(first, identity="second", excluded_identity="first")
+        third = dict(first, identity="third", excluded_identities=["first", "second"])
+        cases = [
+            (None, None, None, True), (first, None, None, True),
+            (None, second, None, False), (first, None, third, False),
+            (None, None, third, False), ("{", second, None, False),
+            (first, [], None, False), (dict(first, status="action_pending"), second, None, False),
+            (first, dict(second, status="action_pending"), None, False),
+            (first, dict(second, week="2026-10-19"), None, False),
+            (first, dict(second, after_count=12), None, False),
+            (first, dict(second, identity="first"), None, False),
+            (first, dict(second, excluded_identity="other"), None, False),
+            (first, second, third, True),
+            (first, second, dict(third, status="action_pending"), False),
+            (first, second, dict(third, excluded_identities=["second", "first"]), False),
+            (first, second, dict(third, identity="first"), False),
+            (first, second, dict(third, identity="second"), False),
+            (first, second, dict(third, before_count=0, after_count=True), False),
+        ]
+        for a, b, c, expected in cases:
+            with self.subTest(records=(a, b, c)), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for folder, value in (("first", a), ("second", b), ("third", c)):
+                    if value is not None:
+                        path = root / folder / "2026-10-26.json"
+                        path.parent.mkdir()
+                        path.write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
+                with patch.object(weekly_cabin, "STATE_ROOT", root / "first"), \
+                     patch.object(weekly_cabin, "SECOND_STATE_ROOT", root / "second"), \
+                     patch.object(weekly_cabin, "THIRD_STATE_ROOT", root / "third"), \
+                     patch.object(weekly_cabin, "game_week_key", return_value="2026-10-26"), \
+                     patch.object(weekly_cabin, "find_game_window") as window:
+                    ok, _ = weekly_cabin.run_weekly_cabin_third_like(dry_run=False, log_root=root / "logs")
+                self.assertEqual(ok, expected)
+                window.assert_not_called()
+
+    def test_week_rollover_during_prerequisites_or_before_input_stops(self):
+        for weeks in (["2026-10-26", "2026-11-02"],
+                      ["2026-10-26", "2026-10-26", "2026-11-02"]):
+            with self.subTest(weeks=weeks), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for folder, identity, extra in (("first", "first", {}),
+                                                ("second", "second", {"excluded_identity": "first"})):
+                    path = root / folder / "2026-10-26.json"
+                    path.parent.mkdir()
+                    path.write_text(json.dumps(dict(version=1, week="2026-10-26", status="completed",
+                                                    identity=identity, before_count=10, after_count=11, **extra)))
+                with patch.object(weekly_cabin, "STATE_ROOT", root / "first"), \
+                     patch.object(weekly_cabin, "SECOND_STATE_ROOT", root / "second"), \
+                     patch.object(weekly_cabin, "THIRD_STATE_ROOT", root / "third"), \
+                     patch.object(weekly_cabin, "game_week_key", side_effect=weeks), \
+                     patch.object(weekly_cabin, "find_game_window") as window:
+                    ok, _ = weekly_cabin.run_weekly_cabin_third_like(dry_run=False, log_root=root / "logs")
+                self.assertFalse(ok)
+                window.assert_not_called()
+                self.assertFalse((root / "third").exists())
 
 
 if __name__ == "__main__":

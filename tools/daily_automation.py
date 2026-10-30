@@ -51,7 +51,7 @@ from win32_windowpos_click import click_client  # noqa: E402
 from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
 from plaza_prayer import run_plaza_prayer  # noqa: E402
-from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like  # noqa: E402
+from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like  # noqa: E402
 from activity_rewards import run_activity_rewards  # noqa: E402
 from mail_rewards import run_mail_rewards  # noqa: E402
 from pass_rewards import run_pass_rewards  # noqa: E402
@@ -125,6 +125,7 @@ MASTER_STAGE_NAMES = {
     "weekly_home": "周常前返回主页",
     "weekly_cabin": "周常小屋一次免费点赞",
     "weekly_cabin_second_like": "周常小屋第二次免费点赞",
+    "weekly_cabin_third_like": "周常小屋第三次免费点赞",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
     "plaza_prayer": "广场每日祈求",
@@ -1353,8 +1354,14 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: run_weekly_cabin_second_like(dry_run=False, log_root=log_root),
             log_root=log_root / "03-cabin-second-like",
         )
-        reasons = f"首次：{first_reason}；第二次：{second_reason}"
-        if first_reason.startswith("skipped:") and second_reason.startswith("skipped:"):
+        third_reason = _require_phase(
+            master,
+            "weekly_cabin_third_like",
+            lambda *, log_root: run_weekly_cabin_third_like(dry_run=False, log_root=log_root),
+            log_root=log_root / "04-cabin-third-like",
+        )
+        reasons = f"首次：{first_reason}；第二次：{second_reason}；第三次：{third_reason}"
+        if all(reason.startswith("skipped:") for reason in (first_reason, second_reason, third_reason)):
             return f"skipped:{reasons}"
         return reasons
     if phase_id == "daily_claims":
