@@ -6,7 +6,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 from free_gacha import (
     RunLogger,
@@ -23,6 +23,29 @@ from reward_flow import wait_for_recognition
 
 
 NO_REGULAR_CUSTOMER_REWARDS = "regular-customer notes have no reward notification"
+NO_BUSINESS_MANAGEMENT_REWARDS = "business-management claim-all is disabled; no rewards available"
+
+
+def detect_business_management_claim_disabled(
+    image: Image.Image,
+) -> tuple[bool, dict[str, int]]:
+    """Check the grey claim button only after the management dialog is recognized."""
+    medians = {}
+    # These strips are inside both observed dialog layouts, with and without
+    # the fishing-level progress row. The cancel button stays bright when the
+    # claim button is disabled; a darkened whole dialog must not count as empty.
+    for name, x in (("claim", 0.515), ("cancel", 0.380)):
+        strip = image.crop(
+            (
+                round(image.width * x),
+                round(image.height * 0.755),
+                round(image.width * (x + 0.110)),
+                round(image.height * 0.770),
+            )
+        ).convert("L")
+        medians[name] = ImageStat.Stat(strip).median[0]
+    disabled = 60 <= medians["claim"] <= 110 and medians["cancel"] >= 180
+    return disabled, medians
 
 
 def _wait_out_loading(
@@ -125,6 +148,12 @@ def claim_business_management_rewards(*, dry_run: bool, log_root: Path) -> tuple
         reason = f"claiming business-management rewards requires dialog, got {state}"
         logger.failure(reason)
         return False, reason
+
+    disabled, button_details = detect_business_management_claim_disabled(image)
+    logger.event(action="detect_claim_disabled", disabled=disabled, details=button_details)
+    if disabled:
+        logger.event(action="stop", result="skipped", state=state, reason=NO_BUSINESS_MANAGEMENT_REWARDS)
+        return True, NO_BUSINESS_MANAGEMENT_REWARDS
 
     ok, state, image, reason = click_with_fixed_retry(
         hwnd,
@@ -567,12 +596,13 @@ def run_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, str
     )
     if not ok:
         return False, reason
-    ok, reason = dismiss_business_management_reward(
-        dry_run=False,
-        log_root=log_root / "03-dismiss-reward",
-    )
-    if not ok:
-        return False, reason
+    if reason != NO_BUSINESS_MANAGEMENT_REWARDS:
+        ok, reason = dismiss_business_management_reward(
+            dry_run=False,
+            log_root=log_root / "03-dismiss-reward",
+        )
+        if not ok:
+            return False, reason
     ok, reason = enter_restaurant(
         dry_run=False,
         log_root=log_root / "04-enter-restaurant",

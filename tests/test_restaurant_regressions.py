@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import ANY, DEFAULT, MagicMock, patch
 
-from PIL import Image
+from PIL import Image, ImageEnhance
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
@@ -15,6 +15,9 @@ if str(TOOLS_DIR) not in sys.path:
 
 import business_management
 from business_management import (
+    NO_BUSINESS_MANAGEMENT_REWARDS,
+    claim_business_management_rewards,
+    detect_business_management_claim_disabled,
     enter_restaurant,
     open_business_management,
     open_regular_customer_rewards,
@@ -28,6 +31,10 @@ from free_gacha import classify_state
 TITLE_SPEECH_FIXTURE = (
     Path(__file__).resolve().parent
     / "fixtures/recognition/restaurant-home-title-speech-bubble-2304x1296.png"
+)
+DISABLED_CLAIM_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures/recognition/business-management-claim-disabled-2304x1296.png"
 )
 
 
@@ -278,7 +285,102 @@ class BusinessManagementEntryRegressionTests(unittest.TestCase):
         )
 
 
+class BusinessManagementClaimRegressionTests(unittest.TestCase):
+    def test_recorded_disabled_claim_is_skipped_without_input(self) -> None:
+        with Image.open(DISABLED_CLAIM_FIXTURE) as source:
+            for size in (source.size, (1920, 1080)):
+                with (
+                    self.subTest(size=size),
+                    tempfile.TemporaryDirectory() as temporary,
+                    patch("business_management.find_game_window", return_value=123),
+                    patch("business_management.safe_capture_client", return_value=source.resize(size)),
+                    patch("business_management.click_with_fixed_retry") as click,
+                ):
+                    ok, reason = claim_business_management_rewards(
+                        dry_run=False, log_root=Path(temporary)
+                    )
+                    self.assertTrue(ok, reason)
+                    self.assertEqual(reason, NO_BUSINESS_MANAGEMENT_REWARDS)
+                    click.assert_not_called()
+
+    def test_enabled_claim_still_requires_reward_overlay(self) -> None:
+        fixture = DISABLED_CLAIM_FIXTURE.with_name("business-management-dialog-2567x1446.png")
+        with (
+            Image.open(fixture) as image,
+            tempfile.TemporaryDirectory() as temporary,
+            patch("business_management.find_game_window", return_value=123),
+            patch("business_management.safe_capture_client", return_value=image),
+            patch(
+                "business_management.click_with_fixed_retry",
+                return_value=(True, "reward_overlay", image, "claimed"),
+            ) as click,
+        ):
+            ok, reason = claim_business_management_rewards(
+                dry_run=False, log_root=Path(temporary)
+            )
+        self.assertTrue(ok, reason)
+        self.assertEqual(reason, "business-management rewards claimed")
+        click.assert_called_once()
+        verify = click.call_args.kwargs["verify"]
+        self.assertFalse(verify("business_management_dialog", image))
+        self.assertTrue(verify("reward_overlay", image))
+
+    def test_darkened_dialog_is_not_evidence_of_a_disabled_claim(self) -> None:
+        with Image.open(DISABLED_CLAIM_FIXTURE) as image:
+            darkened = ImageEnhance.Brightness(image).enhance(0.4)
+        disabled, _details = detect_business_management_claim_disabled(darkened)
+        self.assertFalse(disabled)
+
+    def test_disabled_colour_does_not_bypass_dialog_recognition(self) -> None:
+        with (
+            Image.open(DISABLED_CLAIM_FIXTURE) as image,
+            tempfile.TemporaryDirectory() as temporary,
+            patch("business_management.find_game_window", return_value=123),
+            patch("business_management.safe_capture_client", return_value=image),
+            patch("business_management.classify_state", return_value=("unknown", {})),
+            patch("business_management.click_with_fixed_retry") as click,
+        ):
+            ok, _reason = claim_business_management_rewards(
+                dry_run=False, log_root=Path(temporary)
+            )
+        self.assertFalse(ok)
+        click.assert_not_called()
+
+
 class RestaurantFlowRegressionTests(unittest.TestCase):
+    def test_empty_business_rewards_continue_to_restaurant_without_dismissing(self) -> None:
+        with (
+            Image.open(DISABLED_CLAIM_FIXTURE) as image,
+            tempfile.TemporaryDirectory() as temporary,
+            patch("business_management.find_game_window", return_value=123),
+            patch("business_management.safe_capture_client", return_value=image),
+            patch("business_management.click_with_fixed_retry") as click,
+            patch.multiple(
+                business_management,
+                open_business_management=DEFAULT,
+                dismiss_business_management_reward=DEFAULT,
+                enter_restaurant=DEFAULT,
+                open_regular_customer_rewards=DEFAULT,
+                open_regular_customer_note_rewards=DEFAULT,
+                return_home_from_restaurant=DEFAULT,
+            ) as mocks,
+        ):
+            for name in ("open_business_management", "enter_restaurant", "open_regular_customer_rewards"):
+                mocks[name].return_value = (True, "ok")
+            mocks["open_regular_customer_note_rewards"].return_value = (
+                True, business_management.NO_REGULAR_CUSTOMER_REWARDS
+            )
+            mocks["return_home_from_restaurant"].return_value = (True, "returned home")
+            ok, reason = run_business_management(dry_run=False, log_root=Path(temporary))
+        self.assertTrue(ok, reason)
+        self.assertEqual(reason, "returned home")
+        click.assert_not_called()
+        mocks["dismiss_business_management_reward"].assert_not_called()
+        mocks["enter_restaurant"].assert_called_once()
+        mocks["open_regular_customer_rewards"].assert_called_once()
+        mocks["open_regular_customer_note_rewards"].assert_called_once()
+        mocks["return_home_from_restaurant"].assert_called_once()
+
     def test_regular_customer_step_accepts_recorded_speech_bubble_frame(self) -> None:
         with Image.open(TITLE_SPEECH_FIXTURE) as image:
             with (
