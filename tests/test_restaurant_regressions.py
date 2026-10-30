@@ -22,9 +22,58 @@ from business_management import (
     run_business_management,
 )
 from game_text_recognition import recognize_home_labels, recognize_restaurant_state
+from free_gacha import classify_state
+
+
+TITLE_SPEECH_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures/recognition/restaurant-home-title-speech-bubble-2304x1296.png"
+)
 
 
 class RestaurantRecognitionRegressionTests(unittest.TestCase):
+    def test_speech_bubble_over_title_keeps_restaurant_home_recognizable(self) -> None:
+        with Image.open(TITLE_SPEECH_FIXTURE) as source:
+            for size in (source.size, (1920, 1080)):
+                with self.subTest(size=size):
+                    state, details = classify_state(source.resize(size))
+                    self.assertEqual(state, "restaurant_home")
+                    self.assertIn(
+                        "格鲁菲餐厅", details["restaurant_text"]["matches"]["title"]
+                    )
+                    self.assertIsNotNone(details["restaurant_text"]["title_fallback"])
+
+    def test_missing_title_still_requires_cropped_title_and_restaurant_controls(self) -> None:
+        for left_controls, cropped_title, expected, fallback_calls in (
+            (["常客笔记", "格鲁TALK"], ["格鲁菲餐厅"], "restaurant_home", 1),
+            (["常客笔记", "格鲁TALK"], [], "unknown", 1),
+            (["常客笔记"], ["格鲁菲餐厅"], "unknown", 0),
+        ):
+            with self.subTest(left_controls=left_controls, cropped_title=cropped_title):
+                texts = {
+                    "title": [],
+                    "left_controls": left_controls,
+                    "bottom_controls": ["员工", "客人"],
+                    "settlement": ["结算"],
+                    "regular_customer_mode": [],
+                    "loading_title": [],
+                    "loading_progress": [],
+                }
+                matches = {name: list(values) for name, values in texts.items()}
+                with (
+                    patch(
+                        "game_text_recognition._recognize_with_session",
+                        return_value=(texts, matches, None),
+                    ),
+                    patch(
+                        "game_text_recognition._recognize_label_groups",
+                        return_value=({"title": cropped_title}, {"title": cropped_title}, None),
+                    ) as title_ocr,
+                ):
+                    state, _details = recognize_restaurant_state(Image.new("RGB", (2000, 1000)))
+                self.assertEqual(state, expected)
+                self.assertEqual(title_ocr.call_count, fallback_calls)
+
     @patch("game_text_recognition._recognize_label_groups")
     def test_new_regular_customer_mode_uses_fixed_title_notes_and_settlement(
         self,
@@ -230,6 +279,24 @@ class BusinessManagementEntryRegressionTests(unittest.TestCase):
 
 
 class RestaurantFlowRegressionTests(unittest.TestCase):
+    def test_regular_customer_step_accepts_recorded_speech_bubble_frame(self) -> None:
+        with Image.open(TITLE_SPEECH_FIXTURE) as image:
+            with (
+                tempfile.TemporaryDirectory() as temporary,
+                patch("business_management.find_game_window", return_value=123),
+                patch("business_management.safe_capture_client", return_value=image),
+                patch(
+                    "business_management.click_with_fixed_retry",
+                    return_value=(True, "restaurant_home", image, "reward claimed"),
+                ) as click,
+            ):
+                ok, reason = open_regular_customer_rewards(
+                    dry_run=False, log_root=Path(temporary)
+                )
+        self.assertTrue(ok, reason)
+        click.assert_called_once()
+        self.assertEqual(click.call_args.args[2], "restaurant_regular_customer")
+
     def test_business_management_skips_regular_customer_claim_when_no_notification(
         self,
     ) -> None:

@@ -842,6 +842,32 @@ def recognize_restaurant_state(
     if error is not None:
         return "unknown", error
 
+    title_fallback = None
+    if (
+        not matches["title"]
+        and {"常客笔记", "格鲁TALK"}.issubset(matches["left_controls"])
+        and bool({"结算", "已满"} & set(matches["settlement"]))
+    ):
+        # NPC speech can merge with the title in full-frame OCR. Re-read only
+        # the fixed title area, retaining the title requirement before input.
+        title_texts, title_matches, title_error = _recognize_label_groups(
+            image,
+            {
+                "title": {
+                    "region": (0.06, 0.035, 0.10, 0.045),
+                    "labels": RESTAURANT_LABEL_GROUPS["title"]["labels"],
+                },
+            },
+        )
+        title_fallback = {
+            "texts": title_texts,
+            "matches": title_matches,
+            "error": title_error,
+        }
+        if title_error is None:
+            grouped_texts["title"].extend(title_texts["title"])
+            matches["title"].extend(title_matches["title"])
+
     has_restaurant_shell = (
         "格鲁菲餐厅" in matches["title"]
         and bool({"结算", "已满"} & set(matches["settlement"]))
@@ -878,6 +904,7 @@ def recognize_restaurant_state(
         "texts": grouped_texts,
         "matches": matches,
         "has_loading_progress": has_loading_progress,
+        "title_fallback": title_fallback,
         "state": state,
         "requirements": {
             "home": ["格鲁菲餐厅", "two bottom controls", "结算 or 已满"],
