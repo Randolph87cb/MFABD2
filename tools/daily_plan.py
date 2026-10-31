@@ -166,12 +166,13 @@ _STAGES = (
         id="weekly",
         name="周常任务",
         availability=PARTIAL,
-        unavailable_reason="现有流程覆盖按游戏周分别去重、不同小屋的三次免费点赞；尚未覆盖第四次点赞、街机、末日之书和周常钓鱼。",
+        unavailable_reason="现有流程覆盖按游戏周分别去重、不同小屋的四次免费点赞；尚未覆盖街机、末日之书和周常钓鱼。",
         safety_gate="必须按游戏周期幂等记录，同一周期不得重复消耗资源。",
         current_runners=(
             "weekly_cabin.run_weekly_cabin",
             "weekly_cabin.run_weekly_cabin_second_like",
             "weekly_cabin.run_weekly_cabin_third_like",
+            "weekly_cabin.run_weekly_cabin_fourth_like",
         ),
     ),
     _StageDefinition(
