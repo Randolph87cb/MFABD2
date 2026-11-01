@@ -5,7 +5,7 @@
 > 当前阶段：`implementation`（编排、恢复与每日增量开发调度已完成；缺失 UI 模块仍在 Demo 阶段）
 >
 > 实施就绪：`foundation-ready / missing-modules-not-ready`
-> 最后更新：2026-10-31（Asia/Hong_Kong）
+> 最后更新：2026-11-01（Asia/Hong_Kong）
 
 ## 1. 目标与完成标准
 
@@ -35,7 +35,7 @@
 → 快速狩猎（狩猎场 → 米饭余额只读复核 → 圣石洞穴）
 → 人物与装备免费抽卡
 → 每日竞技场
-→ 周常小屋四次免费点赞（不同小屋，阶段 8 子功能，分别按游戏周去重）
+→ 周常小屋四次免费点赞 → 街机页面访问（阶段 8 子功能，分别按游戏周去重）
 → 经营管理/餐馆常客奖励
 → 广场每日免费祈求（阶段 9 子功能）
 → 每日/每周任务奖励
@@ -51,7 +51,7 @@
 - 任一必需阶段失败会停止并保留现场、日志和截图；不会继续盲点后续步骤。
 - `state/daily_automation.json` 已升级为逐阶段状态；`completed/skipped` 同日不重放，`running/failed` 会从该阶段继续，`--force-phase` 可只重跑一个现有阶段。
 - `tools/daily_plan.py` 已接入只读计划和主编排，固定 17 阶段与 `fast/detailed` 预设；默认计划任务只执行已有 PC 能力，显式完整预设有缺失阶段时在启动游戏前失败。
-- `quick_hunt`、`weekly` 与 `daily_claims` 均明确标为 `partial`；兼容编排可以运行已验证子流程，但不会把目标业务完整度标成已实现。米饭复核只读取余额；周常只含每游戏周四次不同小屋点赞，分别记录、输入未决时禁止重放。
+- `quick_hunt`、`weekly` 与 `daily_claims` 均明确标为 `partial`；兼容编排可以运行已验证子流程，但不会把目标业务完整度标成已实现。米饭复核只读取余额；周常含每游戏周四次不同小屋点赞及一次街机页面访问，分别记录、输入未决时禁止重放。
 - 当前成功后只退出 Python 流程，不关闭 PC 游戏进程。
 
 ### 2.2 当前可复用模块
@@ -63,6 +63,7 @@
 | 快速狩猎 | `enter_quick_hunt`、`start_selected_quick_hunt`、`maximize_and_confirm_quick_hunt`、`run_rice_recheck`、`run_crystal_cave_cycle` | 狩猎场 MAX、结算、米饭余额只读复核、圣石洞穴 MAX、结算、返回主页 |
 | 竞技场 | `run_daily_arena` | 免费次数单场自动战斗、结果/赛季弹层处理、返回大厅 |
 | 周常小屋 | `weekly_cabin.run_weekly_cabin`、`run_weekly_cabin_second_like`、`run_weekly_cabin_third_like`、`run_weekly_cabin_fourth_like` | 四次分别输入前记账，追加点赞须前置完成且排除此前身份；同身份计数 +1 与蓝色按钮两帧复核、返回主页；UTC+8 周一 08:00 去重 |
+| 周常街机 | `weekly_arcade.run_weekly_arcade` | 只访问街机列表，两帧与返回主页验证后记完成；独立周去重，未决不重放，不运行小游戏 |
 | 经营管理 | `run_business_management` | 经营收益、餐馆、常客圣石；无常客红点时安全跳过该领取分支 |
 | 广场祈求 | `plaza_prayer.run_plaza_prayer` | 从已解锁生活卡进入广场，只点一次明确许愿入口，两帧复核入口/每日任务消失并返回主页；初始无入口只安全跳过 |
 | 任务奖励 | `run_task_rewards` | 每日/每周页领取与结算处理 |
@@ -135,7 +136,7 @@
 | 5 | 单章采集 | `Collect_StartGame_HomePage_OnlyOnce` / 无 | 待 Demo | 上游 PC 分支仅有“进入首个可见剧情卡带、2 号吸取一次/灰色停止”的 MVP 参考；本项目无入口 | 截主页/箱庭、快速卡带、剧情卡列表、地图、2 号技能可用/灰色/动画/次数耗尽、返回箱庭失败；Demo 只做一个明确章节的一次吸取并安全停止，不先实现换图 |
 | 6 | 竞技场 | `PVP_TaskStart` / `run_daily_arena` | 已实现 | 今日完成一次免费自动战斗；已有赛季奖励弹层、胜负结果、免费开关和拒绝多场测试 | 回放今日入口到大厅闭环；补 AP 为 0、非免费倍率、手动退出三类截图，证明固定只打一场免费战斗并返回稳定页面 |
 | 7 | 赛季活动 | `Event_HomePage` / 无 | 待 Demo | 仅有上游故事/挑战、魔兽、小游戏三类业务说明；本项目无 PC 状态机 | 分三类分别采集活动主页、可快速战斗、未解锁、常规战斗回退、次数耗尽、奖励和返回页；第一版只选当前赛季一种可快速战斗且零付费的最短闭环 |
-| 8 | 周常 | `Weekly_Start` / `weekly_cabin.run_weekly_cabin`、`run_weekly_cabin_second_like`、`run_weekly_cabin_third_like`、`run_weekly_cabin_fourth_like` | 部分实现 | 2026-10-28～31 四次小屋免费点赞 PC 闭环；周周期、未决输入防重放和正负例见第 19～22 节 | 街机、末日、钓鱼仍待独立 Demo；不以四次点赞声称完整周常已完成 |
+| 8 | 周常 | `Weekly_Start` / `weekly_cabin` 四次入口、`weekly_arcade.run_weekly_arcade` | 部分实现 | 2026-10-28～31 四次小屋免费点赞、11-01 街机访问 PC 闭环；周周期、未决防重放及正负例见第 19～23 节 | 末日、钓鱼仍待独立 Demo；街机只访问列表，不运行游戏；不能声称完整周常已完成 |
 | 9 | 日常领取 | `Daily_HomePage` / `run_business_management`、`run_plaza_prayer`（仅子集） | 部分实现 | 经营收益、餐馆常客圣石及无奖励跳过；2026-10-27 广场祈求单步 PC 闭环、正负例回放见第 18 节 | 继续补公会签到、小屋访问、亲密度、餐馆装饰币、餐馆升级的入口/已领/可领/危险确认/返回截图；广场仅支持已观察出生位置，不扩展未知导航；不能用单个子项代替整个阶段 |
 | 10 | 任务奖励 | `RewardsDaily_Start` / `run_task_rewards` | 已实现 | 每日/每周、空页、慢 OCR、丢点击重试、结算硬上限有测试；今日后续复核无新增红点 | 在新编排回放有奖与无奖两条路径，验证每日页和每周页都检查后才结束，并保留结算层未关闭的失败样本 |
 | 11 | 活动奖励 | `Activities_Start` / `run_activity_rewards` | 已实现 | 红点扫描、已打开页面恢复、转盘、付费/免费文案安全判断和硬上限有测试；今日复核无红点 | 补当前活动页“免费领取”和“仅付费购买”成对截图；新编排必须维持精确免费文案门槛，不能模糊匹配后点击购买 |
@@ -971,3 +972,56 @@
 - 下一游戏日 **2026-11-01 08:30** 原计划任务加载四个入口；本周四份真实 Demo 均 completed，将分别跳过。下一游戏周 **2026-11-02 08:00** 后使用新周期文件，第四次仅在前三次有效完成、身份互异且绑定正确后才允许执行。随机到蓝色只安全跳过，不自动换目标补次数。
 - 今日 daily_automation 与前三份周记录哈希仍分别为 22.1/22.2 的值；没有重置或编辑每日阶段/开发标记，没有强制参数、整日日常重跑、监督器/计划任务修改、其他开发线程或 subagent，参考仍只读且 HEAD 未变。
 - 仅交付第四次点赞相关代码、测试、4 张原生业务 fixture（含身份歧义负例）及本路线图；logs、state、.external 和临时取证脚本不提交。未验收：2026-11-01 正式调度、下一周自动 runner 的四次实机串联、其他尺寸/布局及街机/末日之书/钓鱼；weekly 不是完整实现。航线/米饭分配/续打、单章导航/采集、赛季快速战斗、公会/餐馆和完整采集继续待独立开发。CLI 单步 Demo、离线/mock 与本周记录跳过通过不能代替次日正式实测。
+
+## 23. 2026-11-01 每日增量：每周访问街机页面
+
+本轮唯一子功能 `implemented / ready`；weekly 总阶段仍 partial。PC 证据为本地 CLI 单步 Demo，正式自动正分支与次日调度尚未实机验收。
+
+### 23.1 基线、范围与补证验收
+
+- 主项目 main `a6e118aed6436e00287175c586bc5f6d7f09c9fa`，只读参考 `a9493d8007f053815dfee0c7cc72706124066169`，开始均干净。已读项目规则、README、本地 CLI 说明、路线图含 17.3 最新控制验收、今日 summary/监督日志、相关执行/识别/周状态与参考。参考仅比较业务语义，不修改、拉取或切换，不移植移动端坐标或 Android 架构。
+- 今日 `logs/daily/2026-11-01/083005/summary.json` 于 08:44:46 completed；weekly、activity_rewards skipped，其余可运行阶段 completed。监督日志 08:44:51 精确收尾成功。今日 daily 状态初始 SHA256 `4AD8864E57E18DB0F703620E15FD4409E2CB71B5D501FCF5875891843E39F9B1`。
+- 本地 `.venv/Scripts/python.exe tools/game_control.py status` 退出 0，backend=local-win32、window=null，证据 `logs/manual/cli-control/2026-11-01/084521-154678`。沿用已通过的本地通道，初始化等待复采，不重做控制冒烟。
+- 补证前阶段为 demo-and-direction / pending-PC-evidence。按顺序先回放今日零米饭与历史单章、赛季负例；航线不动储备或改变 MAX，单章沿用多轮魔法阵无进展证据且 13.7 正常施放授权有效，赛季只核查当前免费快速战斗，不为解锁打普通战斗。前三项仍阻塞时，唯一拟交付 weekly 的**每游戏周访问街机页面一次**。
+- 参考 `Weekly.json::Weekly_Arcade_Start/HomePage/GoIn/InCk` 只要求主页进入“街机游戏”，即 MarkComplete(UI_Arcade,g_weekly) 后返回；不要求开始小游戏。本地当前只有四次小屋点赞，尚无街机 runner。
+- 补证验收预先限定为：主页明确街机入口→街机页标题及独立内容锚点两帧→稳定主页；相邻、遮挡、低置信、未知/付费确认与无进展拒绝。只访问，不点运行/购买/领取；正式接入须独立周记录、同周跨日跳过、跨周重置、未决不重放、返回失败不能记完成。PC 门通过才接入，每轮最多一个子功能。
+
+### 23.2 按顺序比较与选择
+
+| 顺序 / 候选 | 参考业务与本轮证据 | 结论与保留边界 |
+| --- | --- | --- |
+| 1 quick_hunt | `Battle.json::QuickHunt_Hub` 为狩猎场→航线→米饭复核→圣石；RiceRecheck 可续打。今日 `04-rice-recheck/rice-recheck-{1,2}-balance-0.png` 两帧实际回放均为 quick_hunt_map、0/90 | 缺自然免费余额、已解锁航线费用/结果闭环；不动 +9.62K 储备、不改变 MAX、不重放今日消耗，保持 partial |
+| 2 chapter_collection | `Collect_Launcher.json` 联动章节/传送，`Collect_skills.json` 区分可用、灰色、耗尽和未配置。查看并回放 10-29 `090315-991484/client.png` 魔法阵菜单为 unknown | 沿用多轮同一菜单文字/图标无导航进展的有效证据，不重复未变化路径；缺传送成功、技能次数/可用与采集闭环。13.7 授权仍有效，阶段关闭 |
+| 3 season_activity | `EventBattle.json::SeasonEvent_FreeAP_Verdict` 验证免费 AP；回放 10-31 `090841-103007` 历史负例，再补当前页面 | 当前 Broken Bonds 主页无小游戏，普通 1 未通关、5/5、重复奖励锁定、仅“战斗 1”；未作战。缺免费快速战斗/结算闭环，阶段关闭 |
+| 4 weekly | `Weekly_Arcade_InCk` 只要求访问街机列表并按周记录；本地四次小屋之外尚缺街机/末日/钓鱼 | 唯一选定且通过 PC 门的是每周街机访问，不运行小游戏；末日与钓鱼仍缺各自 PC 证据，本轮不开发 |
+| 5 daily_claims | `Daily.json` 仍有公会签到、餐馆装饰币等子项 | 在前项选定唯一交付后不探索或实现；签到/装饰币仍缺正负例闭环，升级另需资源边界，不自动加入公会 |
+| 6 full_map_collection | `Collect_StartGame_HomePage` 需要跨卡带、传送、技能及 g_weekly 进度 | 单章前置未验收，另缺地图白名单、跨图退出和周进度，保持关闭 |
+
+- 离线回放 4 张退出 0：两张今日米饭为 0，单章/赛季为通用 unknown 且米饭识别拒绝；均逐张查看原生图。旧赛季截图只作为历史负例，不推断今日页面。
+
+### 23.3 本地 PC Demo、真实命令与收尾
+
+控制证据统一相对 `logs/manual/daily-improvement-20261101/control/2026-11-01/`；以下命令均使用 `.venv/Scripts/python.exe tools/game_control.py --log-root logs/manual/daily-improvement-20261101/control` 前缀。
+
+- `084617-841047` open --timeout 90 退出 0，唯一 PID 41696、create_time 1793493986.1868699、hwnd 26285452，2304×1296。`084634-284220` 为 NEOWIZ 初始化标志，随后只读至 `084701-650920` TOUCH；`084709-901089` 单击后加载，`084732-919037` 到主页。没有渲染前输入、白屏误判或认证操作。
+- 当前赛季：`084801-971230` Broken Bonds 主页无小游戏；`084831-194002` 普通 1 未通关、重复奖励锁定、5/5，仅战斗 1。只用返回箭头退出，`084907-991563` 回主页；未作战、编队、领取或购买。
+- 08:49 街机 Demo 前独占/fsync 写入独立 `state/weekly_arcade/2026-10-26.json` action_pending，未改今日 daily 状态。`084922-718155` 从主页“街机游戏”标签 `(552,360)` 仅点一次；返回图是主页加载过渡，不重复输入。`084946-276066`、`084958-554241` 两帧均为完整街机列表，标题、小游戏排名、三列运行标签明确；没有点击任何“运行”。`085007-025090` 单次返回，`085017-536650` 稳定主页。全部输入沿用已查看的原生 client.png 和同次 observation，逐张查看返回图。
+- 前后钻石 171506、金币 101660738、能力药水 1207973 一致。`085023-623208` close --timeout 15 退出 0、action=closed，精确关闭同一 PID/hwnd；`085034-953369` status 退出 0、window=null；按官方启动器完整路径查询集合 `{}`，无残留新启动器、辅助服务。
+- 关闭后用正式识别器回放两张列表均 true，主页入口/加载过渡/最终主页/普通战斗均 false，最终 `_home` true，退出 0。再核对两个 input.json 为 sent、对应 observation.used 和稳定主页后，原子更新实际 Demo 为 completed，source=manual-cli-demo；没有重放访问。
+- 控制命令均退出 0，初始化/加载图只是过渡，不计为目标页面成功。保留开发失败：首次 `python -m pytest ...` 退出 1，环境没有 pytest，未运行测试；改用已有 unittest，不装依赖。PowerShell→Python 管道将新增文档中文转为问号，审查 diff 后移除损坏段落，改用直接 UTF-8 文件补丁恢复；原历史正文未损坏。这两项不影响游戏或今日状态。
+
+### 23.4 实施就绪、正式实现与必要验证
+
+- 方向与范围由本轮“选择首个可安全落地子项并接入”的授权及上述 Demo 确认；demo-and-direction→refinement-and-readiness→implementation→implemented，实施就绪 ready。无待用户决定的实现分歧；仅修改 weekly_arcade、每日真实入口/计划、必要测试/3 张原生 fixture 与同一路线图，不扩展其他模块。
+- 新增 `weekly_arcade.run_weekly_arcade`，仅支持已实测 2304×1296：可操作主页加 ≥0.95 的定位街机标签→一次入口→两帧标题、小游戏排名、三列运行标签及明亮返回箭头→一次返回→可辨主页。低置信/缺锚点/冲突/遮挡/危险确认/异常/无进展均停止，不点运行/购买/领取或未知位置，不重试入口。
+- 复用 UTC+8 周一 08:00 `game_week_key` 及独占/fsync、原子替换的 `_write_record`。独立 weekly_arcade 周文件输入前 action_pending；两张不同列表截图及返回主页验证后才 completed。坏记录、未决、跨周停止；同周跨日 completed 在查窗口前跳过，新周用新文件。dry-run 无输入/写状态。返回失败或完成写入失败保留未决，禁止自动重放。
+- `_execute_daily_phase('weekly')` 保持既有四次小屋顺序，追加 `run_weekly_arcade`（`08-weekly/06-arcade-visit`）；任一失败停止，仅五项全 skipped 才把阶段 skipped。小屋既有蓝色安全跳过可继续，既有失败仍中止。`daily_plan.weekly.current_runners` 登记新真实入口，weekly 保持 partial/implemented=false，17 阶段相对顺序不变。
+- `.venv/Scripts/python.exe -m unittest tests.test_weekly_arcade tests.test_weekly_cabin tests.test_daily_plan -q` **39 项通过（26.234s），退出 0**：含本轮原生前/后两帧、相邻页面/遮挡/缺锚点/低置信/冲突/危险文字、输入前记账、两帧/返回失败不完成及不重放、坏记录、同周跨日跳过、新周与中途跨周、dry-run、独占失败、五入口顺序/失败传播/状态合并及计划完整度。未跑全量回归或新增依赖。
+- `tools/daily_automation.py --show-plan` 退出 0（本地 `show-plan.json`）：fast/detailed 均 17 阶段、7 个完整实现、10 个当前可运行阶段，weekly partial、五个 runner。游戏关闭后真实调用新 runner 返回 `True / skipped:街机访问在游戏周 2026-10-26 已验证完成`，未查窗或输入。已有有效通过证据不因后续文档修正重复执行。
+
+### 23.5 次日接入与未验收边界
+
+- 下一游戏日 **2026-11-02 08:30** 原计划任务加载 `weekly_arcade.run_weekly_arcade`，位于四次小屋之后、daily_claims 之前。该日周一 08:00 刷新为游戏周 2026-11-02，新周将首次正常访问；本轮 2026-10-26 记录不会抑制新周执行。仍由正常状态机维护阶段状态，不增加当日重跑。
+- 今日 `state/daily_automation.json` 核对后 SHA256 仍为 `4AD8864E57E18DB0F703620E15FD4409E2CB71B5D501FCF5875891843E39F9B1`。没有 --force/强制阶段、整日日常重跑、今日状态重置、监督器/计划任务变更或其他开发线程/subagent；参考 HEAD 未变且干净。
+- 仅提交相关代码、测试、3 张业务 fixture 和本路线图；logs/state/.external/临时脚本不提交。未验收：2026-11-02 正式调度与新 runner 自动正分支实机串联、其他尺寸/语言/后续街机布局及真实危险弹层（本轮未触发）。未知布局会停止；合成负例不冒充实机弹层证据。
+- 街机访问不包括游玩、排名或奖励领取，weekly 仍缺末日之书和钓鱼。航线/米饭分配/续打、单章、赛季免费快速战斗、公会/餐馆和完整采集仍保留上述缺口。CLI 单步 Demo、离线/mock、同周记录跳过与线程结束，均不能代替下一游戏日正式实测。

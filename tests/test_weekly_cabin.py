@@ -350,6 +350,7 @@ class CabinFlowTests(unittest.TestCase):
             "weekly_cabin.run_weekly_cabin", "weekly_cabin.run_weekly_cabin_second_like",
             "weekly_cabin.run_weekly_cabin_third_like",
             "weekly_cabin.run_weekly_cabin_fourth_like",
+            "weekly_arcade.run_weekly_arcade",
         ))
 
 
@@ -418,7 +419,8 @@ class CabinSecondLikeTests(unittest.TestCase):
                  patch.object(daily_automation, "run_weekly_cabin", operation("first", first_ok)), \
                  patch.object(daily_automation, "run_weekly_cabin_second_like", operation("second", second_ok)), \
                  patch.object(daily_automation, "run_weekly_cabin_third_like", operation("third", third_ok)), \
-                 patch.object(daily_automation, "run_weekly_cabin_fourth_like", operation("fourth", fourth_ok)):
+                 patch.object(daily_automation, "run_weekly_cabin_fourth_like", operation("fourth", fourth_ok)), \
+                 patch.object(daily_automation, "run_weekly_arcade", return_value=(True, "skipped:arcade")):
                 root = Path(temporary)
                 if first_ok and second_ok and third_ok and fourth_ok:
                     daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
@@ -435,7 +437,8 @@ class CabinSecondLikeTests(unittest.TestCase):
                  patch.object(daily_automation, "run_weekly_cabin", return_value=(True, "skipped:first" if first_skip else "liked first")), \
                  patch.object(daily_automation, "run_weekly_cabin_second_like", return_value=(True, "skipped:second" if second_skip else "liked second")), \
                  patch.object(daily_automation, "run_weekly_cabin_third_like", return_value=(True, "skipped:third" if third_skip else "liked third")), \
-                 patch.object(daily_automation, "run_weekly_cabin_fourth_like", return_value=(True, "skipped:fourth" if fourth_skip else "liked fourth")):
+                 patch.object(daily_automation, "run_weekly_cabin_fourth_like", return_value=(True, "skipped:fourth" if fourth_skip else "liked fourth")), \
+                 patch.object(daily_automation, "run_weekly_arcade", return_value=(True, "skipped:arcade")):
                 root = Path(temporary)
                 reason = daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
                 self.assertEqual(reason.startswith("skipped:"), first_skip and second_skip and third_skip and fourth_skip)
