@@ -166,6 +166,7 @@ class WeeklyArcadeTests(unittest.TestCase):
             with self.subTest(ok=arcade_ok, skip=arcade_skip), tempfile.TemporaryDirectory() as temporary, ExitStack() as stack:
                 events = []
                 stack.enter_context(patch.object(daily_automation, "ensure_home", return_value=(True, "home")))
+                lastnight = stack.enter_context(patch.object(daily_automation, "run_weekly_lastnight", return_value=(True, "skipped:lastnight")))
                 for runner in runners:
                     ok = arcade_ok if runner == "run_weekly_arcade" else True
                     skip = arcade_skip if runner == "run_weekly_arcade" else True
@@ -182,6 +183,7 @@ class WeeklyArcadeTests(unittest.TestCase):
                         daily_automation._execute_daily_phase("weekly", master=daily_automation.MasterLogger(root), run_root=root)
                 self.assertEqual([name for name, _ in events], list(runners))
                 self.assertEqual(events[-1][1], "06-arcade-visit")
+                self.assertEqual(lastnight.call_count, int(arcade_ok))
         for preset in ("fast", "detailed"):
             stage = next(s for s in get_daily_plan(preset) if s.id == "weekly")
             self.assertIn("weekly_arcade.run_weekly_arcade", stage.current_runners)

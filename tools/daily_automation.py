@@ -53,6 +53,7 @@ from business_management import run_business_management  # noqa: E402
 from plaza_prayer import run_plaza_prayer  # noqa: E402
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
+from weekly_lastnight import run_weekly_lastnight  # noqa: E402
 from activity_rewards import run_activity_rewards  # noqa: E402
 from mail_rewards import run_mail_rewards  # noqa: E402
 from pass_rewards import run_pass_rewards  # noqa: E402
@@ -129,6 +130,7 @@ MASTER_STAGE_NAMES = {
     "weekly_cabin_third_like": "周常小屋第三次免费点赞",
     "weekly_cabin_fourth_like": "周常小屋第四次免费点赞",
     "weekly_arcade": "周常访问街机页面",
+    "weekly_lastnight": "周常末日之书一次战斗",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
     "plaza_prayer": "广场每日祈求",
@@ -1375,8 +1377,14 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: run_weekly_arcade(dry_run=False, log_root=log_root),
             log_root=log_root / "06-arcade-visit",
         )
-        reasons = f"首次：{first_reason}；第二次：{second_reason}；第三次：{third_reason}；第四次：{fourth_reason}；街机：{arcade_reason}"
-        if all(reason.startswith("skipped:") for reason in (first_reason, second_reason, third_reason, fourth_reason, arcade_reason)):
+        lastnight_reason = _require_phase(
+            master,
+            "weekly_lastnight",
+            lambda *, log_root: run_weekly_lastnight(dry_run=False, log_root=log_root),
+            log_root=log_root / "07-lastnight",
+        )
+        reasons = f"首次：{first_reason}；第二次：{second_reason}；第三次：{third_reason}；第四次：{fourth_reason}；街机：{arcade_reason}；末日：{lastnight_reason}"
+        if all(reason.startswith("skipped:") for reason in (first_reason, second_reason, third_reason, fourth_reason, arcade_reason, lastnight_reason)):
             return f"skipped:{reasons}"
         return reasons
     if phase_id == "daily_claims":
