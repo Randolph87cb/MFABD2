@@ -845,11 +845,15 @@ def recognize_restaurant_state(
     title_fallback = None
     if (
         not matches["title"]
-        and {"常客笔记", "格鲁TALK"}.issubset(matches["left_controls"])
+        and (
+            {"常客笔记", "格鲁TALK"}.issubset(matches["left_controls"])
+            or len(matches["bottom_controls"]) >= 2
+        )
         and bool({"结算", "已满"} & set(matches["settlement"]))
     ):
-        # NPC speech can merge with the title in full-frame OCR. Re-read only
-        # the fixed title area, retaining the title requirement before input.
+        # NPC speech can hide both the title and left controls in full-frame
+        # OCR. Bottom controls plus settlement also justify a title re-read;
+        # the fixed title must still match before accepting a restaurant state.
         title_texts, title_matches, title_error = _recognize_label_groups(
             image,
             {

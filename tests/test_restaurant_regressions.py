@@ -32,6 +32,10 @@ TITLE_SPEECH_FIXTURE = (
     Path(__file__).resolve().parent
     / "fixtures/recognition/restaurant-home-title-speech-bubble-2304x1296.png"
 )
+TITLE_AND_CONTROLS_SPEECH_FIXTURE = (
+    Path(__file__).resolve().parent
+    / "fixtures/recognition/restaurant-home-title-and-controls-speech-bubble-2304x1296.png"
+)
 DISABLED_CLAIM_FIXTURE = (
     Path(__file__).resolve().parent
     / "fixtures/recognition/business-management-claim-disabled-2304x1296.png"
@@ -39,6 +43,17 @@ DISABLED_CLAIM_FIXTURE = (
 
 
 class RestaurantRecognitionRegressionTests(unittest.TestCase):
+    def test_speech_bubble_hiding_title_and_left_controls_keeps_restaurant_home(self) -> None:
+        with Image.open(TITLE_AND_CONTROLS_SPEECH_FIXTURE) as source:
+            for size in (source.size, (1920, 1080)):
+                with self.subTest(size=size):
+                    state, details = classify_state(source.resize(size))
+                    self.assertEqual(state, "restaurant_home")
+                    self.assertIn(
+                        "格鲁菲餐厅", details["restaurant_text"]["matches"]["title"]
+                    )
+                    self.assertIsNotNone(details["restaurant_text"]["title_fallback"])
+
     def test_speech_bubble_over_title_keeps_restaurant_home_recognizable(self) -> None:
         with Image.open(TITLE_SPEECH_FIXTURE) as source:
             for size in (source.size, (1920, 1080)):
@@ -51,17 +66,26 @@ class RestaurantRecognitionRegressionTests(unittest.TestCase):
                     self.assertIsNotNone(details["restaurant_text"]["title_fallback"])
 
     def test_missing_title_still_requires_cropped_title_and_restaurant_controls(self) -> None:
-        for left_controls, cropped_title, expected, fallback_calls in (
-            (["常客笔记", "格鲁TALK"], ["格鲁菲餐厅"], "restaurant_home", 1),
-            (["常客笔记", "格鲁TALK"], [], "unknown", 1),
-            (["常客笔记"], ["格鲁菲餐厅"], "unknown", 0),
+        for left_controls, bottom_controls, settlement, cropped_title, expected, fallback_calls in (
+            (["常客笔记", "格鲁TALK"], ["员工", "客人"], ["结算"], ["格鲁菲餐厅"], "restaurant_home", 1),
+            (["常客笔记", "格鲁TALK"], ["员工", "客人"], ["结算"], [], "unknown", 1),
+            (["亲密度"], ["员工", "客人"], ["结算"], ["格鲁菲餐厅"], "restaurant_home", 1),
+            (["亲密度"], ["员工", "客人"], ["已满"], ["格鲁菲餐厅"], "restaurant_home", 1),
+            (["亲密度"], ["员工", "客人"], ["结算"], [], "unknown", 1),
+            (["常客笔记"], ["员工"], ["结算"], ["格鲁菲餐厅"], "unknown", 0),
+            (["亲密度"], ["员工", "客人"], [], ["格鲁菲餐厅"], "unknown", 0),
         ):
-            with self.subTest(left_controls=left_controls, cropped_title=cropped_title):
+            with self.subTest(
+                left_controls=left_controls,
+                bottom_controls=bottom_controls,
+                settlement=settlement,
+                cropped_title=cropped_title,
+            ):
                 texts = {
                     "title": [],
                     "left_controls": left_controls,
-                    "bottom_controls": ["员工", "客人"],
-                    "settlement": ["结算"],
+                    "bottom_controls": bottom_controls,
+                    "settlement": settlement,
                     "regular_customer_mode": [],
                     "loading_title": [],
                     "loading_progress": [],
@@ -382,22 +406,23 @@ class RestaurantFlowRegressionTests(unittest.TestCase):
         mocks["return_home_from_restaurant"].assert_called_once()
 
     def test_regular_customer_step_accepts_recorded_speech_bubble_frame(self) -> None:
-        with Image.open(TITLE_SPEECH_FIXTURE) as image:
-            with (
-                tempfile.TemporaryDirectory() as temporary,
-                patch("business_management.find_game_window", return_value=123),
-                patch("business_management.safe_capture_client", return_value=image),
-                patch(
-                    "business_management.click_with_fixed_retry",
-                    return_value=(True, "restaurant_home", image, "reward claimed"),
-                ) as click,
-            ):
-                ok, reason = open_regular_customer_rewards(
-                    dry_run=False, log_root=Path(temporary)
-                )
-        self.assertTrue(ok, reason)
-        click.assert_called_once()
-        self.assertEqual(click.call_args.args[2], "restaurant_regular_customer")
+        for fixture in (TITLE_SPEECH_FIXTURE, TITLE_AND_CONTROLS_SPEECH_FIXTURE):
+            with self.subTest(fixture=fixture.name), Image.open(fixture) as image:
+                with (
+                    tempfile.TemporaryDirectory() as temporary,
+                    patch("business_management.find_game_window", return_value=123),
+                    patch("business_management.safe_capture_client", return_value=image),
+                    patch(
+                        "business_management.click_with_fixed_retry",
+                        return_value=(True, "restaurant_home", image, "reward claimed"),
+                    ) as click,
+                ):
+                    ok, reason = open_regular_customer_rewards(
+                        dry_run=False, log_root=Path(temporary)
+                    )
+                self.assertTrue(ok, reason)
+                click.assert_called_once()
+                self.assertEqual(click.call_args.args[2], "restaurant_regular_customer")
 
     def test_business_management_skips_regular_customer_claim_when_no_notification(
         self,
