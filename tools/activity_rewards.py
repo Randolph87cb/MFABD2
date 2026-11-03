@@ -134,6 +134,7 @@ MAX_SCAN_CYCLES = 40
 MAX_ACTION_REPEATS = 10
 MAX_SETTLEMENTS = 6
 MAX_SETTLEMENT_DISMISS_ATTEMPTS = 2
+MAX_TOKEN_EXCHANGE_ATTEMPTS = 2
 MAX_ACTIVITY_SWIPES = 6
 MAX_ACTIVITY_ENTRY_CLICKS = 2
 MAX_ACTIVITY_REENTRIES = 3
@@ -143,6 +144,10 @@ DICE_RUN_SETTLE_SECONDS = 15.0
 CONTROL_GROUPS: dict[str, dict[str, Any]] = {
     "page": {"region": ACTIVITY_PAGE_REGION, "labels": ("活动",)},
     "token_exchange": {"region": TOKEN_EXCHANGE_REGION, "labels": ("兑换",)},
+    "token_exchange_batch": {
+        "region": TOKEN_EXCHANGE_BATCH_REGION,
+        "labels": ("兑换", "全部解锁"),
+    },
     "token_confirm": {"region": TOKEN_CONFIRM_REGION, "labels": ("确认",)},
     "dice_auto": {"region": DICE_AUTO_REGION, "labels": ("自动进行",)},
     "dice_switch_on": {
@@ -558,6 +563,48 @@ def _click_then_return(
     return _return_to_activity_index(hwnd, current, logger=logger, dry_run=False)
 
 
+def _token_exchange_retry_allowed(
+    before: Image.Image,
+    after: Image.Image,
+    balance: int | None,
+    *,
+    logger: RunLogger,
+) -> bool:
+    matches, details = recognize_activity_controls(after)
+    retry_balance, balance_details = _activity_token_balance(after)
+    same_activity = False
+    if (
+        balance is not None
+        and retry_balance == balance
+        and matches.get("page")
+        and classify_activity_from_matches(matches) == "token_exchange"
+        and matches.get("token_exchange_batch")
+    ):
+        before_texts, _ = _read_texts_at(before, ACTIVITY_DETAIL_IDENTITY_REGION)
+        after_texts, _ = _read_texts_at(after, ACTIVITY_DETAIL_IDENTITY_REGION)
+        # Require the same nonnumeric event identity, not just the shared
+        # exchange controls or an unchanged number elsewhere on the board.
+        def identities(texts: list[str]) -> set[str]:
+            values = set()
+            for text in texts:
+                value = _normalized_activity_identity(text)
+                if sum(character.isalpha() for character in value) >= 4:
+                    values.add(value)
+            return values
+
+        before_identity = identities(before_texts)
+        same_activity = bool(before_identity) and before_identity == identities(after_texts)
+    logger.event(
+        action="token_exchange_retry_check",
+        balance=balance,
+        retry_balance=retry_balance,
+        same_activity=same_activity,
+        details=details,
+        balance_details=balance_details,
+    )
+    return same_activity
+
+
 def _handle_token_exchange(
     hwnd: int, image: Image.Image, *, logger: RunLogger, dry_run: bool
 ) -> tuple[bool, Image.Image, str]:
@@ -575,29 +622,41 @@ def _handle_token_exchange(
     else:
         point = TOKEN_EXCHANGE_BATCH_POINT
         key = "activity_token_exchange_batch"
-    click_ratio_logged(
-        hwnd,
-        image,
-        point,
-        key=key,
-        logger=logger,
-        dry_run=dry_run,
-    )
-    if dry_run:
-        return True, image, "dry-run planned token exchange and confirmation"
-    # Bingo's batch unlock consumes tokens and opens the reward overlay
-    # directly; other exchange activities first require a confirmation.
-    changed, current = _wait_for_image(
-        hwnd,
-        logger=logger,
-        label="activity-token-result",
-        predicate=lambda candidate: (
-            recognize_reward_overlay_labels(candidate)[0]
-            or bool(recognize_activity_controls(candidate)[0].get("token_confirm"))
-        ),
-    )
-    if not changed:
-        return False, current, "token exchange confirmation or reward settlement did not appear before timeout"
+    current = image
+    for attempt in range(1, MAX_TOKEN_EXCHANGE_ATTEMPTS + 1):
+        click_ratio_logged(
+            hwnd,
+            current,
+            point,
+            key=key,
+            logger=logger,
+            dry_run=dry_run,
+        )
+        if dry_run:
+            return True, current, "dry-run planned token exchange and confirmation"
+        # Bingo opens the reward overlay directly; other exchanges confirm first.
+        changed, current = _wait_for_image(
+            hwnd,
+            logger=logger,
+            label=f"activity-token-result-attempt-{attempt}",
+            predicate=lambda candidate: (
+                recognize_reward_overlay_labels(candidate)[0]
+                or bool(recognize_activity_controls(candidate)[0].get("token_confirm"))
+            ),
+        )
+        if changed:
+            break
+        if (
+            attempt >= MAX_TOKEN_EXCHANGE_ATTEMPTS
+            or not _token_exchange_retry_allowed(image, current, balance, logger=logger)
+        ):
+            return False, current, "token exchange confirmation or reward settlement did not appear before timeout"
+        logger.event(
+            action="retry_click",
+            key=key,
+            attempt=attempt + 1,
+            reason="OCR-confirmed exchange page, buttons, event identity and token balance remained unchanged",
+        )
     if recognize_reward_overlay_labels(current)[0]:
         return _return_to_activity_index(hwnd, current, logger=logger, dry_run=False)
     return _click_then_return(

@@ -316,6 +316,109 @@ class ActivityPaidSafetyTests(unittest.TestCase):
 
 
 class ActivitySettlementTests(unittest.TestCase):
+    def test_bingo_unchanged_exchange_retries_once_then_closes_settlement(self) -> None:
+        fixture = Path(__file__).parent / "fixtures/recognition/activity-bingo-exchange-unchanged-2304x1296.png"
+        with Image.open(fixture) as source:
+            image = source.convert("RGB")
+        unchanged = image.copy()
+        reward = Image.new("RGB", image.size)
+        logger = MagicMock()
+        with (
+            patch("activity_rewards.click_ratio_logged") as click,
+            patch("activity_rewards.safe_capture_client", side_effect=AssertionError("offline test")),
+            patch("activity_rewards._wait_for_image", side_effect=[(False, unchanged), (True, reward)]),
+            patch("activity_rewards.recognize_reward_overlay_labels", return_value=(True, {})),
+            patch(
+                "activity_rewards._return_to_activity_index",
+                return_value=(True, unchanged, "closed direct settlement"),
+            ) as return_index,
+            patch("activity_rewards._click_then_return") as confirm,
+        ):
+            ok, _image, reason = activity_rewards._handle_token_exchange(
+                123, image, logger=logger, dry_run=False,
+            )
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(click.call_count, 2)
+        self.assertIs(click.call_args_list[1].args[1], unchanged)
+        self.assertEqual(click.call_args_list[1].args[2], activity_rewards.TOKEN_EXCHANGE_BATCH_POINT)
+        confirm.assert_not_called()
+        return_index.assert_called_once_with(123, reward, logger=logger, dry_run=False)
+
+    def test_exchange_retry_requires_same_page_button_balance_and_event(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        controls = {
+            "page": ["活动"],
+            "token_exchange": ["兑换"],
+            "token_exchange_batch": ["全部解锁"],
+        }
+        cases = [
+            ("same", controls, 15, 15, ["NIGHT", "BINGO"], ["NIGHT", "BINGO"], True),
+            ("spent", controls, 15, 0, ["BINGO"], ["BINGO"], False),
+            ("unreadable_before", controls, None, 15, ["BINGO"], ["BINGO"], False),
+            ("unreadable_after", controls, 15, None, ["BINGO"], ["BINGO"], False),
+            ("different_event", controls, 15, 15, ["BINGO"], ["Harvest Moon"], False),
+            ("numeric_only", controls, 15, 15, ["1000", "活动"], ["1000", "活动"], False),
+            ("missing_identity", controls, 15, 15, [], [], False),
+            ("paid_dialog", {**controls, "paid_purchase": ["购买"]},
+             15, 15, ["BINGO"], ["BINGO"], False),
+        ]
+        for missing in controls:
+            cases.append((missing, {k: v for k, v in controls.items() if k != missing},
+                          15, 15, ["BINGO"], ["BINGO"], False))
+        for name, matches, balance, remaining, before, after, expected in cases:
+            with (
+                self.subTest(name=name),
+                patch("activity_rewards.recognize_activity_controls", return_value=(matches, {})),
+                patch("activity_rewards._activity_token_balance", return_value=(remaining, {})),
+                patch("activity_rewards._read_texts_at", side_effect=[(before, {}), (after, {})]),
+            ):
+                self.assertEqual(activity_rewards._token_exchange_retry_allowed(
+                    image, image, balance, logger=MagicMock(),
+                ), expected)
+
+    def test_exchange_second_ineffective_click_still_fails(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        with (
+            patch("activity_rewards._activity_token_balance", return_value=(15, {})),
+            patch("activity_rewards.click_ratio_logged") as click,
+            patch("activity_rewards._wait_for_image", return_value=(False, image)),
+            patch("activity_rewards._token_exchange_retry_allowed", return_value=True) as retry,
+            patch("activity_rewards._return_to_activity_index") as return_index,
+            patch("activity_rewards._click_then_return") as confirm,
+        ):
+            ok, _image, reason = activity_rewards._handle_token_exchange(
+                123, image, logger=MagicMock(), dry_run=False,
+            )
+        self.assertFalse(ok)
+        self.assertIn("timeout", reason)
+        self.assertEqual(click.call_count, 2)
+        retry.assert_called_once()
+        return_index.assert_not_called()
+        confirm.assert_not_called()
+
+    def test_exchange_changed_balance_does_not_replay_input(self) -> None:
+        image = Image.new("RGB", (1280, 720))
+        with (
+            patch("activity_rewards._activity_token_balance", side_effect=[(15, {}), (0, {})]),
+            patch("activity_rewards.recognize_activity_controls", return_value=({
+                "page": ["活动"], "token_exchange": ["兑换"],
+                "token_exchange_batch": ["全部解锁"],
+            }, {})),
+            patch("activity_rewards.click_ratio_logged") as click,
+            patch("activity_rewards._wait_for_image", return_value=(False, image)),
+            patch("activity_rewards._return_to_activity_index") as return_index,
+            patch("activity_rewards._click_then_return") as confirm,
+        ):
+            ok, _image, reason = activity_rewards._handle_token_exchange(
+                123, image, logger=MagicMock(), dry_run=False,
+            )
+        self.assertFalse(ok)
+        self.assertIn("timeout", reason)
+        click.assert_called_once()
+        return_index.assert_not_called()
+        confirm.assert_not_called()
+
     def test_exchange_uses_dynamic_batch_when_balance_is_readable(self) -> None:
         image = Image.new("RGB", (1280, 720))
         cases = (
