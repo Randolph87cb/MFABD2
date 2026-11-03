@@ -51,6 +51,7 @@ from win32_windowpos_click import click_client  # noqa: E402
 from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
 from plaza_prayer import run_plaza_prayer  # noqa: E402
+from restaurant_decor import run_restaurant_decor_recheck  # noqa: E402
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
@@ -131,6 +132,7 @@ MASTER_STAGE_NAMES = {
     "weekly_cabin_fourth_like": "周常小屋第四次免费点赞",
     "weekly_arcade": "周常访问街机页面",
     "weekly_lastnight": "周常末日之书一次战斗",
+    "restaurant_decor_recheck": "餐馆装饰币余额与每日额度只读复核",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
     "plaza_prayer": "广场每日祈求",
@@ -1400,12 +1402,19 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: run_business_management(dry_run=False, log_root=log_root),
             log_root=log_root / "02-claim-rewards",
         )
-        return _require_phase(
+        decor_reason = _require_phase(
+            master,
+            "restaurant_decor_recheck",
+            lambda *, log_root: run_restaurant_decor_recheck(dry_run=False, log_root=log_root),
+            log_root=log_root / "03-decor-recheck",
+        )
+        prayer_reason = _require_phase(
             master,
             "plaza_prayer",
             lambda *, log_root: run_plaza_prayer(dry_run=False, log_root=log_root),
-            log_root=log_root / "03-plaza-prayer",
+            log_root=log_root / "04-plaza-prayer",
         )
+        return f"{decor_reason}；{prayer_reason}"
     reward_operations = {
         "task_rewards": ("task_rewards", run_task_rewards),
         "activity_rewards": ("activity_rewards", run_activity_rewards),

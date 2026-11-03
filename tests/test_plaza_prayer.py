@@ -133,13 +133,14 @@ class PrayerFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, \
                 patch("daily_automation.ensure_home", side_effect=lambda **_: (events.append("home") or True, "home")), \
                 patch("daily_automation.run_business_management", side_effect=lambda **_: (events.append("business") or True, "business")), \
+                patch("daily_automation.run_restaurant_decor_recheck", side_effect=lambda **_: (events.append("decor") or True, "read-only")), \
                 patch("daily_automation.run_plaza_prayer", side_effect=lambda **_: (events.append("prayer") or False, "unknown square")):
             with self.assertRaises(daily_automation.DailyRunError):
                 daily_automation._execute_daily_phase(
                     "daily_claims", master=daily_automation.MasterLogger(Path(temporary)),
                     run_root=Path(temporary),
                 )
-        self.assertEqual(events, ["home", "business", "prayer"])
+        self.assertEqual(events, ["home", "business", "decor", "prayer"])
         stage = next(item for item in get_daily_plan("fast") if item.id == "daily_claims")
         self.assertFalse(stage.implemented)
         self.assertIn("plaza_prayer.run_plaza_prayer", stage.current_runners)
