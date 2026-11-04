@@ -134,6 +134,8 @@ class QuickHuntRiceTests(unittest.TestCase):
             ), patch("daily_automation.enter_quick_hunt", operation("entry")), patch(
                 "daily_automation.start_selected_quick_hunt", operation("setup")
             ), patch("daily_automation.maximize_and_confirm_quick_hunt", operation("hunt")), patch(
+                "daily_automation.run_adventure_route_recheck", operation("route")
+            ), patch(
                 "daily_automation.run_rice_recheck", operation("rice", recheck_ok)
             ), patch("daily_automation.run_crystal_cave_cycle", operation("crystal")):
                 root = Path(temporary)
@@ -143,7 +145,7 @@ class QuickHuntRiceTests(unittest.TestCase):
                 else:
                     with self.assertRaises(DailyRunError):
                         _execute_daily_phase("quick_hunt", master=master, run_root=root)
-            self.assertEqual(calls, ["home", "entry", "setup", "hunt", "rice"] + (["crystal"] if recheck_ok else []))
+            self.assertEqual(calls, ["home", "entry", "setup", "hunt", "route", "rice"] + (["crystal"] if recheck_ok else []))
         stage = next(stage for stage in get_daily_plan("fast") if stage.id == "quick_hunt")
         self.assertEqual(stage.availability, "partial")
         self.assertIn("quick_hunt.run_rice_recheck", stage.current_runners)

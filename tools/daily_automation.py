@@ -52,6 +52,7 @@ from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
 from plaza_prayer import run_plaza_prayer  # noqa: E402
 from restaurant_decor import run_restaurant_decor_recheck  # noqa: E402
+from adventure_route import run_adventure_route_recheck  # noqa: E402
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
@@ -122,6 +123,7 @@ MASTER_STAGE_NAMES = {
     "quick_hunt_entry": "进入快速狩猎",
     "hunting_ground_setup": "设置狩猎场",
     "hunting_ground_confirm": "执行狩猎场",
+    "adventure_route_recheck": "只读复核金币航线设置",
     "rice_recheck": "只读复核免费米饭",
     "crystal_cave_cycle": "执行圣石洞穴",
     "daily_arena": "每日竞技场",
@@ -1323,15 +1325,21 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
         )
         _require_phase(
             master,
+            "adventure_route_recheck",
+            lambda *, log_root: run_adventure_route_recheck(dry_run=False, log_root=log_root),
+            log_root=log_root / "04-adventure-route-recheck",
+        )
+        _require_phase(
+            master,
             "rice_recheck",
             lambda *, log_root: run_rice_recheck(dry_run=False, log_root=log_root),
-            log_root=log_root / "04-rice-recheck",
+            log_root=log_root / "05-rice-recheck",
         )
         return _require_phase(
             master,
             "crystal_cave_cycle",
             lambda *, log_root: run_crystal_cave_cycle(dry_run=False, log_root=log_root),
-            log_root=log_root / "05-crystal-cave-cycle",
+            log_root=log_root / "06-crystal-cave-cycle",
         )
     if phase_id == "free_gacha":
         return _run_free_gacha_phase(master, log_root)
