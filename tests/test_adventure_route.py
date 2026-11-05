@@ -19,6 +19,35 @@ SETUP = dict(**MAP, count=1, rice_cost=6, fixed_gold=22000, free_only=True)
 
 
 class RouteRecognitionTests(unittest.TestCase):
+    def test_recorded_weekday_bonus_map_is_recognized(self):
+        with Image.open(FIXTURES / "adventure-gold-map-weekday-bonus.png") as image:
+            value, details = route.recognize_gold_route(image)
+        self.assertEqual(value, MAP, details)
+
+    def test_bonus_title_still_requires_exact_route_confidence_and_unique_match(self):
+        with Image.open(FIXTURES / "adventure-gold-map-weekday-bonus.png") as image:
+            original = route._entries(image)
+            title = "哥布林遗迹星期加成"
+            self.assertEqual(sum(text == title for _, _, text, _ in original), 1)
+            for replacement, confidence, duplicate in (
+                ("史莱姆王国星期加成", .99, False),
+                ("哥布林遗迹未知加成", .99, False),
+                (title, .94, False),
+                (title, float("nan"), False),
+                (title, .99, True),
+            ):
+                entries = [(x, y, replacement if text == title else text,
+                            confidence if text == title else score)
+                           for x, y, text, score in original]
+                if duplicate:
+                    entries.append((490, 60, title, .99))
+                with self.subTest(replacement=replacement, confidence=confidence, duplicate=duplicate), patch(
+                    "adventure_route._entries", return_value=entries
+                ):
+                    value, details = route.recognize_gold_route(image)
+                    self.assertIsNone(value)
+                    self.assertEqual(details["error"], "unverified route identity")
+
     def test_restored_hunting_map_is_valid_next_step(self):
         with Image.open(FIXTURES / "adventure-hunting-restored.png") as image:
             found, details = route._hunting_map(image)

@@ -67,7 +67,8 @@ def recognize_gold_route(image: Image.Image, *, setup: bool = False
         if any(re.search("购买|充值|补充|不足|确认|解锁|每日最多" + ("" if setup else "|取消"), text)
                for _, _, text, score in entries if score >= 0.55):
             return None, {**details, "error": "unknown or unsafe dialog"}
-        if not (_one(entries, "哥布林遗迹", (330, 30, 535, 90))
+        # OCR can join the adjacent weekday bonus badge to the route title.
+        if not (_one(entries, r"哥布林遗迹(?:星期加成)?", (330, 30, 535, 90))
                 and _one(entries, "可以获得金币。", (325, 85, 540, 125))):
             return None, {**details, "error": "unverified route identity"}
         rice = _one(_crop_entries(image, (1958, 49, 2057, 88), width=640, rice=True),
