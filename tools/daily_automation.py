@@ -1022,6 +1022,11 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             details["return_home_control"] = return_details
             if returnable:
                 state = "returnable_scene"
+            elif state in {"unknown", "gacha_animation"}:
+                entry_state, entry_details = recognize_entry_status(image)
+                details["startup_promotion_text"] = entry_details
+                if entry_state == "startup_promotion":
+                    state = "startup_promotion"
         path = logger.save_image(image, f"step-{step:03d}-{state}.png")
         logger.event(
             action="classify",
@@ -1061,7 +1066,11 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             continue
         loading_transition_pending = False
 
-        if state == "reward_overlay":
+        if state == "startup_promotion":
+            key = "startup_promotion"
+            description = "advance startup promotion before returning home"
+            promotion_before = image.copy()
+        elif state == "reward_overlay":
             key = "reward_overlay_dismiss"
             description = "dismiss reward overlay before returning home"
             expected = {
@@ -1125,24 +1134,27 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             logger.failure(reason)
             return False, reason
 
+        if state == "startup_promotion":
+            verify = lambda next_state, next_image: startup_promotion_transition_succeeded(
+                promotion_before, next_state, next_image,
+            )
+        elif state in {"home_overlay", "blocking_ad_overlay"}:
+            verify = lambda next_state, next_image: overlay_transition_succeeded(
+                overlay_before, next_state, next_image,
+            )
+        else:
+            verify = lambda next_state, _image, accepted=expected: next_state in accepted
+
         ok, next_state, _next_image, reason = click_with_fixed_retry(
             hwnd,
             image,
             key,
-            verify=(
-                (lambda next_state, next_image: overlay_transition_succeeded(
-                    overlay_before,
-                    next_state,
-                    next_image,
-                ))
-                if state in {"home_overlay", "blocking_ad_overlay"}
-                else (lambda next_state, _image, accepted=expected: next_state in accepted)
-            ),
+            verify=verify,
             description=description,
             dry_run=False,
             logger=logger,
             verify_timeout=timeout if state == "plaza" else 20.0,
-            attempts=1 if state == "plaza" else 2,
+            attempts=1 if state in {"plaza", "startup_promotion"} else 2,
             wait_on_unknown_transition=True,
         )
         if not ok:
