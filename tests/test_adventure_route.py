@@ -19,6 +19,37 @@ SETUP = dict(**MAP, count=1, rice_cost=6, fixed_gold=22000, free_only=True)
 
 
 class RouteRecognitionTests(unittest.TestCase):
+    def test_recorded_weekday_bonus_setup_is_recognized(self):
+        # 2026-11-06 route-setup-1-05: weekday bonus doubles the fixed gold.
+        with Image.open(FIXTURES / "adventure-gold-setup-weekday-bonus.png") as image:
+            value, details = route.recognize_gold_route(image, setup=True)
+        self.assertEqual(value, dict(SETUP, fixed_gold=44000), details)
+
+    def test_fixed_gold_must_match_verified_route_bonus(self):
+        for name, title, amount, score, duplicate in (
+            ("adventure-gold-setup-2", "哥布林遗迹", "44,000", .99, False),
+            ("adventure-gold-setup-weekday-bonus", "哥布林遗迹星期加成", "22,000", .99, False),
+            ("adventure-gold-setup-weekday-bonus", "哥布林遗迹星期加成", "44,001", .99, False),
+            ("adventure-gold-setup-weekday-bonus", "哥布林遗迹星期加成", "44,000", .94, False),
+            ("adventure-gold-setup-weekday-bonus", "哥布林遗迹星期加成", "44,000", float("nan"), False),
+            ("adventure-gold-setup-weekday-bonus", "哥布林遗迹星期加成", "44,000", .99, True),
+            ("adventure-gold-setup-weekday-bonus", "哥布林遗迹未知加成", "44,000", .99, False),
+        ):
+            with self.subTest(name=name, amount=amount, score=score, duplicate=duplicate), Image.open(
+                FIXTURES / (name + ".png")
+            ) as image:
+                original_entries = route._entries
+                entries = [(x, y, title if 330 <= x <= 535 and 30 <= y <= 90 else
+                            amount if 1100 <= x <= 1230 and 840 <= y <= 895 else text,
+                            score if 1100 <= x <= 1230 and 840 <= y <= 895 else confidence)
+                           for x, y, text, confidence in original_entries(image)]
+                if duplicate:
+                    entries.append((1165, 870, amount, .99))
+                def read(crop, **kwargs):
+                    return entries if crop.size == image.size else original_entries(crop, **kwargs)
+                with patch("adventure_route._entries", side_effect=read):
+                    self.assertIsNone(route.recognize_gold_route(image, setup=True)[0])
+
     def test_recorded_weekday_bonus_map_is_recognized(self):
         with Image.open(FIXTURES / "adventure-gold-map-weekday-bonus.png") as image:
             value, details = route.recognize_gold_route(image)
@@ -110,7 +141,8 @@ class RouteRecognitionTests(unittest.TestCase):
 
 
 class RouteFlowTests(unittest.TestCase):
-    def flow(self, *, failure=None, changed=None, reward=False, dry_run=False, bad_start=False):
+    def flow(self, *, failure=None, changed=None, changed_field="free_rice",
+             reward=False, dry_run=False, bad_start=False):
         image = Image.new("RGB", (2304, 1296), "white")
         events = []
 
@@ -120,7 +152,7 @@ class RouteFlowTests(unittest.TestCase):
                     {"reading": dict(SETUP if "setup" in label else MAP)})
             if changed == label:
                 if "reading" in data:
-                    data["reading"]["free_rice"] = 1
+                    data["reading"][changed_field] = 1
                 else:
                     data["free_rice"] = 1
             return failure != label, image, data
@@ -170,6 +202,11 @@ class RouteFlowTests(unittest.TestCase):
                 (ok, _), keys, _ = self.flow(reward=reward, bad_start=bad_start, dry_run=True)
                 self.assertEqual(ok, not bad_start)
                 self.assertEqual(keys, [])
+
+    def test_changed_fixed_gold_stops_before_cancel(self):
+        (ok, _), keys, _ = self.flow(changed="route-setup-2", changed_field="fixed_gold")
+        self.assertFalse(ok)
+        self.assertEqual(keys, ["route_gold_category", "route_open_setup"])
 
     def test_daily_order_failure_propagation_and_partial_plan(self):
         names = ("ensure_home", "enter_quick_hunt", "start_selected_quick_hunt",

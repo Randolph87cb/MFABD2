@@ -68,7 +68,8 @@ def recognize_gold_route(image: Image.Image, *, setup: bool = False
                for _, _, text, score in entries if score >= 0.55):
             return None, {**details, "error": "unknown or unsafe dialog"}
         # OCR can join the adjacent weekday bonus badge to the route title.
-        if not (_one(entries, r"哥布林遗迹(?:星期加成)?", (330, 30, 535, 90))
+        title = _one(entries, r"哥布林遗迹(星期加成)?", (330, 30, 535, 90))
+        if not (title
                 and _one(entries, "可以获得金币。", (325, 85, 540, 125))):
             return None, {**details, "error": "unverified route identity"}
         rice = _one(_crop_entries(image, (1958, 49, 2057, 88), width=640, rice=True),
@@ -84,13 +85,15 @@ def recognize_gold_route(image: Image.Image, *, setup: bool = False
                     or not _one(entries, "快速狩猎", (1900, 1150, 2100, 1220))):
                 return None, {**details, "error": "unverified gold selection or controls"}
         else:
+            # The recorded weekday bonus doubles gold, but not the rice cost.
+            fixed_gold = 44000 if title.group(1) else 22000
             anchors = (
                 ("快速狩猎", (770, 330, 950, 395)),
                 ("哥布林遗迹[·›>]?极难", (770, 390, 980, 435)),
                 ("仅使用免费米饭", (1250, 335, 1460, 395)),
                 ("狩猎1次", (1070, 460, 1230, 510)),
                 ("固定奖励", (1060, 730, 1200, 790)),
-                ("22,000", (1100, 840, 1230, 895)),
+                (f"{fixed_gold:,}", (1100, 840, 1230, 895)),
             )
             if not all(_one(entries, pattern, box) for pattern, box in anchors):
                 return None, {**details, "error": "unverified route setup"}
@@ -106,7 +109,7 @@ def recognize_gold_route(image: Image.Image, *, setup: bool = False
                     or len(button) != 2
                     or sorted(text for _, _, text, score in button if score >= 0.95) != ["6", "狩猎"]):
                 return None, {**details, "error": "unverified free switch, cancel or cost"}
-            reading.update(count=1, rice_cost=6, fixed_gold=22000, free_only=True)
+            reading.update(count=1, rice_cost=6, fixed_gold=fixed_gold, free_only=True)
         return reading, details
     except Exception as exc:
         return None, {"error": repr(exc)}
