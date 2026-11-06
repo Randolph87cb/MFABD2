@@ -15,8 +15,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
-from free_gacha import RunLogger, safe_capture_client
-from game_text_recognition import _ocr_engine, recognize_home_labels
+from free_gacha import RunLogger, post_home_key, safe_capture_client
+from game_text_recognition import _ocr_engine, recognize_home_labels, recognize_return_home_control
 from open_game import find_game_window
 from reward_flow import click_ratio_logged, prepare_actionable_home, wait_for_recognition
 
@@ -150,12 +150,31 @@ def run_plaza_prayer(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         ok, image, details = wait_page({"prayer_unavailable"}, f"prayer-cleared-{sample + 1}")
         if not ok:
             return stop("许愿入口或每日奖励未稳定消失；未重试、未标记完成")
+    deadline = time.monotonic() + 45.0
     click_ratio_logged(hwnd, image, (2156 / 2304, 68 / 1296),
                        key="prayer_home", logger=logger)
-    ok, _image, _details = wait_for_recognition(
+    ok, image, _details = wait_for_recognition(
         hwnd, logger=logger, recognize=recognize_home_labels,
-        label="prayer-return-home", timeout=45.0,
+        label="prayer-return-home", timeout=min(20.0, max(0.0, deadline - time.monotonic())),
     )
+    if not ok:
+        # The recorded home click left the cleared square unchanged.
+        # Use the existing H shortcut once, only on a newly verified square;
+        # never repeat the prayer or send a key to a loading/unknown page.
+        state, square_details = recognize_prayer_page(image)
+        home_control, home_details = recognize_return_home_control(image)
+        remaining = max(0.0, deadline - time.monotonic())
+        retry = state == "prayer_unavailable" and home_control and remaining > 0
+        logger.event(action="prayer_home_retry_check", state=state, retry=retry,
+                     square=square_details, home_control=home_details)
+        if retry:
+            post_home_key(hwnd, dry_run=False, logger=logger)
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining:
+            ok, _image, _details = wait_for_recognition(
+                hwnd, logger=logger, recognize=recognize_home_labels,
+                label="prayer-return-home-final", timeout=remaining,
+            )
     if not ok:
         return stop("祈求后未确认返回主页")
     reason = ("广场免费祈求已单次执行，入口与每日奖励消失并返回主页" if prayed

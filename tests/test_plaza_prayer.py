@@ -14,12 +14,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import daily_automation
 import plaza_prayer
 from daily_plan import get_daily_plan
+from game_text_recognition import recognize_return_home_control
 
 
 FIXTURES = Path(__file__).parent / "fixtures/recognition"
 
 
 class PrayerRecognitionTests(unittest.TestCase):
+    def test_recorded_failed_home_click_still_has_cleared_square_and_home_control(self):
+        with Image.open(FIXTURES / "plaza-prayer-home-click-unchanged-2304x1296.png") as image:
+            state, details = plaza_prayer.recognize_prayer_page(image)
+            home, home_details = recognize_return_home_control(image)
+        self.assertEqual(state, "prayer_unavailable", details)
+        self.assertTrue(home, home_details)
+
     def test_pc_evidence_and_unrelated_pages(self):
         cases = {
             "plaza-prayer-life-cards-2304x1296.png": "square_card",
@@ -78,7 +86,8 @@ class PrayerRecognitionTests(unittest.TestCase):
 
 
 class PrayerFlowTests(unittest.TestCase):
-    def run_flow(self, *, ready=True, clears=True, home=True, dry_run=False):
+    def run_flow(self, *, ready=True, clears=True, home=True, dry_run=False,
+                 retry_home=False, retry_state="prayer_unavailable", home_control=True):
         image = Image.new("RGB", (2304, 1296), "white")
         states = [
             (True, image, {"state": "square_card", "card_point": (0.286, 0.543)}),
@@ -88,14 +97,43 @@ class PrayerFlowTests(unittest.TestCase):
             (True, image, {"state": "prayer_unavailable"}),
             (home, image, {}),
         ]
+        if not home:
+            states.append((retry_home, image, {}))
         with tempfile.TemporaryDirectory() as temporary, \
                 patch("plaza_prayer.find_game_window", return_value=123), \
                 patch("plaza_prayer.prepare_actionable_home", return_value=(True, image, "home")), \
                 patch("plaza_prayer.wait_for_recognition", side_effect=states), \
                 patch("plaza_prayer.click_ratio_logged") as click, \
+                patch("plaza_prayer.recognize_prayer_page", return_value=(retry_state, {})), \
+                patch("plaza_prayer.recognize_return_home_control", return_value=(home_control, {})), \
+                patch("plaza_prayer.post_home_key") as home_key, \
                 patch("plaza_prayer.time.sleep"):
             result = plaza_prayer.run_plaza_prayer(dry_run=dry_run, log_root=Path(temporary))
-        return result, [call.kwargs["key"] for call in click.call_args_list]
+        return result, [call.kwargs["key"] for call in click.call_args_list] + ["H"] * home_key.call_count
+
+    def test_unchanged_square_retries_home_once_without_repeating_prayer(self):
+        for ready in (False, True):
+            (ok, _), keys = self.run_flow(ready=ready, home=False, retry_home=True)
+            self.assertTrue(ok)
+            self.assertEqual(keys.count("free_goddess_prayer"), int(ready))
+            self.assertEqual(keys.count("prayer_home"), 1)
+            self.assertEqual(keys.count("H"), 1)
+
+    def test_retry_requires_cleared_square_and_visible_home_control(self):
+        for state, control in (("unknown", True), ("prayer_ready", True),
+                               ("prayer_unavailable", False)):
+            with self.subTest(state=state, control=control):
+                (ok, _), keys = self.run_flow(home=False, retry_state=state, home_control=control)
+                self.assertFalse(ok)
+                self.assertNotIn("H", keys)
+                self.assertEqual(keys.count("free_goddess_prayer"), 1)
+
+    def test_failed_home_retry_stops_after_one_key(self):
+        (ok, reason), keys = self.run_flow(home=False)
+        self.assertFalse(ok)
+        self.assertIn("未确认返回主页", reason)
+        self.assertEqual(keys.count("H"), 1)
+        self.assertEqual(keys.count("free_goddess_prayer"), 1)
 
     def test_one_prayer_only_after_ready_and_home_required(self):
         (ok, _), keys = self.run_flow()
