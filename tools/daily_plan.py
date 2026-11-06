@@ -144,9 +144,10 @@ _STAGES = (
     _StageDefinition(
         id="chapter_collection",
         name="单章地图采集",
-        availability=MISSING,
-        unavailable_reason="当前代码没有单章地图采集流程。",
+        availability=PARTIAL,
+        unavailable_reason="现有流程仅覆盖第1章普通安全卢戈镇的一次吸收及冷却跳过，尚未覆盖其余地图、探查、换图或整章采集。",
         safety_gate="只能进入已解锁且传送点可用的地图，达到日常采集目标后立即停止。",
+        current_runners=("chapter_collection.run_chapter_absorb",),
     ),
     _StageDefinition(
         id="arena",
