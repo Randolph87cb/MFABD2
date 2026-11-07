@@ -32,6 +32,7 @@ class ChapterRecognitionTests(unittest.TestCase):
         cls.readings = {}
         cls.entries = {}
         for name in ("chapter-collection-top", "chapter-field-board", "chapter-field-circle", "chapter-field-ready",
+                     "chapter-field-offset",
                      "chapter-collection-playing", "chapter-collection-playing-scrolled",
                      "chapter-map-ready", "chapter-map-cooldown", "chapter-map-cooldown-2",
                      "chapter-map-submenu", "chapter-portal", "chapter-talent-before",
@@ -45,6 +46,7 @@ class ChapterRecognitionTests(unittest.TestCase):
             "chapter-collection-top": "chapter_card", "chapter-field-board": "field",
             "chapter-collection-playing": "chapter_card", "chapter-collection-playing-scrolled": "collection",
             "chapter-field-circle": "field", "chapter-map-ready": "map_ready",
+            "chapter-field-offset": "field",
             "chapter-field-ready": "field",
             "chapter-map-cooldown": "map_cooldown", "chapter-map-cooldown-2": "map_cooldown",
             "chapter-map-submenu": "unknown", "chapter-portal": "portal",
@@ -127,17 +129,34 @@ class ChapterRecognitionTests(unittest.TestCase):
         with patch.object(chapter, "_crop_text", return_value=None):
             self.assertEqual(chapter.recognize_chapter_page(image)[0], "unknown")
 
+    def test_field_requires_known_scene_within_small_camera_offset(self):
+        image = load("chapter-field-offset")
+        entries = self.entries["chapter-field-offset"]
+        for candidate in (ImageEnhance.Brightness(image).enhance(.4), image.resize((1280, 720))):
+            self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
+        for shifted in (False, True):
+            candidate = image.copy()
+            if shifted:
+                candidate.paste(image.crop((540, 230, 980, 530)), (480, 230))
+            else:
+                candidate.paste("black", (480, 230, 920, 530))
+            with self.subTest(shifted=shifted), patch.object(chapter, "_entries", return_value=entries):
+                self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
+
 
 class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
                  used=0, balance=1212183, available=True, scene="circle", day_change=False,
-                 collection_images=None):
+                 collection_images=None, arrival_image=None):
         image = Image.new("RGB", (2304, 1296))
         events = []
         checks = []
         field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True)
         def wait(hwnd, *, label, recognize, **_):
             checks.append(label)
+            if arrival_image is not None and label in {"chapter-arrival", "chapter-field"}:
+                found, values = recognize(arrival_image)
+                return found, arrival_image, values
             if collection_images and label in {"chapter-collection", "chapter-story-card"}:
                 candidate = collection_images[0 if label == "chapter-collection" else -1]
                 found, values = recognize(candidate)
@@ -185,6 +204,16 @@ class ChapterFlowTests(unittest.TestCase):
                 self.assertEqual(events.count("chapter_story_scroll"), len(frames) - 1)
                 self.assertEqual(events.count("chapter_one"), 1)
                 self.assertNotIn("chapter_cast_absorb_once", events)
+
+    def test_offset_arrival_reaches_map_cooldown_and_returns_home(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            (ok, reason), events, _ = self.run_flow(
+                Path(temporary), cooldown=True, arrival_image=load("chapter-field-offset"))
+            self.assertTrue(ok, reason)
+            self.assertTrue(reason.startswith("skipped:"))
+            self.assertEqual(events.count("chapter_map"), 1)
+            self.assertEqual(events[-1], "chapter_return_home")
+            self.assertNotIn("chapter_cast_absorb_once", events)
 
     def test_one_cast_intent_precedes_input_and_only_complete_after_home(self):
         for scene in ("circle", "board"):

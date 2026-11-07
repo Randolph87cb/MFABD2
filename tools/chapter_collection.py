@@ -77,10 +77,12 @@ def _difference(image, name, box, *, shift=False):
     with Image.open(ASSETS / (name + ".png")) as source:
         template = np.asarray(source.convert("RGB"), dtype=float)
     left, top, right, bottom = box
-    # The camera settles vertically after returning from the talent page.
+    # Camera settling also shifts the same town horizontally on chapter entry.
+    horizontal_offsets = range(-9, 10, 3) if shift else (0,)
     offsets = range(-60, 61, 3) if shift else (0,)
-    return min(float(np.abs(np.asarray(image.crop((left, top + dy, right, bottom + dy)),
-                                       dtype=float) - template).mean()) for dy in offsets)
+    return min(float(np.abs(np.asarray(image.crop((left + dx, top + dy, right + dx, bottom + dy)),
+                                       dtype=float) - template).mean())
+               for dx in horizontal_offsets for dy in offsets)
 
 
 def recognize_chapter_page(image):
