@@ -32,6 +32,7 @@ class ChapterRecognitionTests(unittest.TestCase):
         cls.readings = {}
         cls.entries = {}
         for name in ("chapter-collection-top", "chapter-field-board", "chapter-field-circle", "chapter-field-ready",
+                     "chapter-collection-playing", "chapter-collection-playing-scrolled",
                      "chapter-map-ready", "chapter-map-cooldown", "chapter-map-cooldown-2",
                      "chapter-map-submenu", "chapter-portal", "chapter-talent-before",
                      "chapter-talent-after", "chapter-talent-after-2"):
@@ -42,6 +43,7 @@ class ChapterRecognitionTests(unittest.TestCase):
     def test_native_navigation_and_actual_absorb_result(self):
         expected = {
             "chapter-collection-top": "chapter_card", "chapter-field-board": "field",
+            "chapter-collection-playing": "chapter_card", "chapter-collection-playing-scrolled": "collection",
             "chapter-field-circle": "field", "chapter-map-ready": "map_ready",
             "chapter-field-ready": "field",
             "chapter-map-cooldown": "map_cooldown", "chapter-map-cooldown-2": "map_cooldown",
@@ -75,6 +77,22 @@ class ChapterRecognitionTests(unittest.TestCase):
             self.assertEqual(chapter.recognize_chapter_page(load("chapter-map-ready"))[0], "unknown")
         for name in ("adventure-gold-map", "adventure-gold-setup-2"):
             self.assertEqual(chapter.recognize_chapter_page(load(name))[0], "unknown")
+
+    def test_current_chapter_overlay_still_requires_exact_card_and_heading(self):
+        image = load("chapter-collection-playing")
+        for candidate in (ImageEnhance.Brightness(image).enhance(.4), image.resize((1280, 720))):
+            self.assertNotEqual(chapter.recognize_chapter_page(candidate)[0], "chapter_card")
+        original = self.entries["chapter-collection-playing"]
+        image.paste(image.crop((566, 610, 746, 725)), (230, 610))
+        with patch.object(chapter, "_entries", return_value=original):
+            self.assertEqual(chapter.recognize_chapter_page(image)[0], "collection")
+        image = load("chapter-collection-playing")
+        heading = next(entry for entry in original if entry[2] == "剧情游戏卡20/20")
+        for entries in ([entry for entry in original if entry != heading], original + [heading],
+                        [(x, y, text, .94 if text == heading[2] else score) for x, y, text, score in original],
+                        original + [(1200, 600, "确认", .99)]):
+            with self.subTest(entries=entries), patch.object(chapter, "_entries", return_value=entries):
+                self.assertNotEqual(chapter.recognize_chapter_page(image)[0], "chapter_card")
 
     def test_map_requires_unique_confident_count_and_exact_safe_town(self):
         image = load("chapter-map-ready")
@@ -112,13 +130,18 @@ class ChapterRecognitionTests(unittest.TestCase):
 
 class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
-                 used=0, balance=1212183, available=True, scene="circle", day_change=False):
+                 used=0, balance=1212183, available=True, scene="circle", day_change=False,
+                 collection_images=None):
         image = Image.new("RGB", (2304, 1296))
         events = []
         checks = []
         field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True)
         def wait(hwnd, *, label, recognize, **_):
             checks.append(label)
+            if collection_images and label in {"chapter-collection", "chapter-story-card"}:
+                candidate = collection_images[0 if label == "chapter-collection" else -1]
+                found, values = recognize(candidate)
+                return found, candidate, values
             values = dict(field)
             if label == "chapter-collection":
                 values = dict(state="collection")
@@ -151,6 +174,17 @@ class ChapterFlowTests(unittest.TestCase):
                 stack.enter_context(patch.object(chapter, "game_day_key", side_effect=[DAY, DAY, "2026-11-08"]))
             result = chapter.run_chapter_absorb(dry_run=dry_run, log_root=root / "logs", state_root=root / "state", now=NOW)
         return result, events, checks
+
+    def test_current_chapter_overlay_navigates_with_native_recognition(self):
+        playing = load("chapter-collection-playing")
+        scrolled = load("chapter-collection-playing-scrolled")
+        for frames in ((playing,), (scrolled, playing)):
+            with self.subTest(scrolled=len(frames) == 2), tempfile.TemporaryDirectory() as temporary:
+                (ok, reason), events, _ = self.run_flow(Path(temporary), cooldown=True, collection_images=frames)
+                self.assertTrue(ok, reason)
+                self.assertEqual(events.count("chapter_story_scroll"), len(frames) - 1)
+                self.assertEqual(events.count("chapter_one"), 1)
+                self.assertNotIn("chapter_cast_absorb_once", events)
 
     def test_one_cast_intent_precedes_input_and_only_complete_after_home(self):
         for scene in ("circle", "board"):

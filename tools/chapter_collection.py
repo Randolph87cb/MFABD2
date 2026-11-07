@@ -95,8 +95,11 @@ def recognize_chapter_page(image):
             return "unknown", {**details, "error": "unsafe or obstructing page"}
         one = lambda pattern, box: _one(entries, pattern, box)
         if one("游戏卡珍藏集", (285, 30, 505, 90)):
+            # The current chapter has a play icon / 游戏中 overlay on its art.
+            # Match that observed variant without relaxing the card identity.
             if (one("剧情游戏卡20/20", (185, 480, 410, 545))
-                    and _difference(image, "chapter-card-one", (230, 610, 410, 725)) < 8):
+                    and min(_difference(image, name, (230, 610, 410, 725))
+                            for name in ("chapter-card-one", "chapter-card-one-playing")) < 8):
                 return "chapter_card", details
             return "collection", details
         if (one("安全卢戈镇", (280, 30, 490, 90))
