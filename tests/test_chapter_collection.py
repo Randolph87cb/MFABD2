@@ -32,7 +32,7 @@ class ChapterRecognitionTests(unittest.TestCase):
         cls.readings = {}
         cls.entries = {}
         for name in ("chapter-collection-top", "chapter-field-board", "chapter-field-circle", "chapter-field-ready",
-                     "chapter-field-offset",
+                     "chapter-field-offset", "chapter-field-offset-left",
                      "chapter-collection-playing", "chapter-collection-playing-scrolled",
                      "chapter-map-ready", "chapter-map-cooldown", "chapter-map-cooldown-2",
                      "chapter-map-submenu", "chapter-portal", "chapter-talent-before",
@@ -130,18 +130,21 @@ class ChapterRecognitionTests(unittest.TestCase):
             self.assertEqual(chapter.recognize_chapter_page(image)[0], "unknown")
 
     def test_field_requires_known_scene_within_small_camera_offset(self):
-        image = load("chapter-field-offset")
-        entries = self.entries["chapter-field-offset"]
-        for candidate in (ImageEnhance.Brightness(image).enhance(.4), image.resize((1280, 720))):
-            self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
-        for shifted in (False, True):
-            candidate = image.copy()
-            if shifted:
-                candidate.paste(image.crop((540, 230, 980, 530)), (480, 230))
-            else:
-                candidate.paste("black", (480, 230, 920, 530))
-            with self.subTest(shifted=shifted), patch.object(chapter, "_entries", return_value=entries):
+        for name in ("chapter-field-offset", "chapter-field-offset-left"):
+            image = load(name)
+            entries = self.entries[name]
+            self.assertEqual(self.readings[name][0], "field", self.readings[name][1])
+            self.assertEqual(self.readings[name][1]["scene"], "circle")
+            for candidate in (ImageEnhance.Brightness(image).enhance(.4), image.resize((1280, 720))):
                 self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
+            for shifted in (False, True):
+                candidate = image.copy()
+                if shifted:
+                    candidate.paste(image.crop((540, 230, 980, 530)), (480, 230))
+                else:
+                    candidate.paste("black", (480, 230, 920, 530))
+                with self.subTest(name=name, shifted=shifted), patch.object(chapter, "_entries", return_value=entries):
+                    self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
 
 
 class ChapterFlowTests(unittest.TestCase):
@@ -206,14 +209,22 @@ class ChapterFlowTests(unittest.TestCase):
                 self.assertNotIn("chapter_cast_absorb_once", events)
 
     def test_offset_arrival_reaches_map_cooldown_and_returns_home(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            (ok, reason), events, _ = self.run_flow(
-                Path(temporary), cooldown=True, arrival_image=load("chapter-field-offset"))
-            self.assertTrue(ok, reason)
-            self.assertTrue(reason.startswith("skipped:"))
-            self.assertEqual(events.count("chapter_map"), 1)
-            self.assertEqual(events[-1], "chapter_return_home")
-            self.assertNotIn("chapter_cast_absorb_once", events)
+        for name in ("chapter-field-offset", "chapter-field-offset-left"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (ok, reason), events, _ = self.run_flow(
+                    root, cooldown=True, arrival_image=load(name))
+                self.assertTrue(ok, reason)
+                self.assertTrue(reason.startswith("skipped:"))
+                self.assertEqual(events.count("chapter_map"), 1)
+                self.assertEqual(events[-1], "chapter_return_home")
+                self.assertNotIn("chapter_cast_absorb_once", events)
+                record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
+                self.assertEqual(record["status"], "skipped")
+                self.assertTrue(record["returned_home"])
+                (_, reason), resumed_events, _ = self.run_flow(root, cooldown=True)
+                self.assertTrue(reason.startswith("skipped:"))
+                self.assertEqual(resumed_events, [])
 
     def test_one_cast_intent_precedes_input_and_only_complete_after_home(self):
         for scene in ("circle", "board"):

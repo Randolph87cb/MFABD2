@@ -77,8 +77,9 @@ def _difference(image, name, box, *, shift=False):
     with Image.open(ASSETS / (name + ".png")) as source:
         template = np.asarray(source.convert("RGB"), dtype=float)
     left, top, right, bottom = box
-    # Camera settling also shifts the same town horizontally on chapter entry.
-    horizontal_offsets = range(-9, 10, 3) if shift else (0,)
+    # Chapter-entry captures include the same town shifted left 23px / down
+    # 26px. Keep the search local and the template-error threshold unchanged.
+    horizontal_offsets = range(-27, 28, 3) if shift else (0,)
     offsets = range(-60, 61, 3) if shift else (0,)
     return min(float(np.abs(np.asarray(image.crop((left + dx, top + dy, right + dx, bottom + dy)),
                                        dtype=float) - template).mean())
