@@ -114,7 +114,18 @@ def recognize_chapter_page(image):
             if any(text in {"战斗区", "魔法阵"} for _, _, text, score in entries if score >= .55):
                 return "unknown", {**details, "error": "map submenu open"}
             value = one(r"([0-3])/3|还剩([1-3])天", (275, 1185, 375, 1230))
-            if not value or not one(r"[0-3]/3", (385, 1185, 460, 1230)):
+            if not one(r"[0-3]/3", (385, 1185, 460, 1230)):
+                return "unknown", {**details, "error": "map collection counter missing"}
+            if not value:
+                # Below one day the observed PC countdown wraps across two
+                # lines. Require both complete, confident lines in this field.
+                counter = [e for e in entries if 275 <= e[0] <= 375 and 1185 <= e[1] <= 1230]
+                hours = one(r"还剩([0-9]|1[0-9]|2[0-3])小", (275, 1185, 375, 1200))
+                minutes = one(r"时([0-9]|[1-5][0-9])分钟", (275, 1201, 375, 1230))
+                if len(counter) == 2 and hours and minutes:
+                    h, m = int(hours.group(1)), int(minutes.group(1))
+                    if h * 60 + m > 0:
+                        return "map_cooldown", {**details, "days": None, "hours": h, "minutes": m}
                 return "unknown", {**details, "error": "map collection counter missing"}
             if value.group(2):
                 return "map_cooldown", {**details, "days": int(value.group(2))}
@@ -232,7 +243,9 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
         click(image, (320, 670), "chapter_one")
         image, details = wait({"field"}, "chapter-arrival", timeout=90)
         click(image, (247, 201), "chapter_map")
-        image, details = two({"map_ready", "map_cooldown"}, "chapter-map", ("state", "days"))
+        # Minutes may tick down normally; state, day/hour format and hours must
+        # remain stable across both reads before the cooldown skip is accepted.
+        image, details = two({"map_ready", "map_cooldown"}, "chapter-map", ("state", "days", "hours"))
         skipped = details["state"] == "map_cooldown"
         record["map_before"] = str(logger.save_image(image, "chapter-map-before.png"))
         click(image, (208, 60), "chapter_map_back")
@@ -277,7 +290,7 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
             click(image, (208, 60), "chapter_talent_back")
             image, _ = wait({"field"}, "chapter-after-talent")
             click(image, (247, 201), "chapter_result_map")
-            image, _ = two({"map_cooldown"}, "chapter-result", ("state", "days"))
+            image, _ = two({"map_cooldown"}, "chapter-result", ("state", "days", "hours"))
             record["map_after"] = str(logger.save_image(image, "chapter-map-after.png"))
             click(image, (208, 60), "chapter_result_map_back")
             image, _ = wait({"field"}, "chapter-result-field")

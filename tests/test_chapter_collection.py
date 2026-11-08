@@ -147,16 +147,59 @@ class ChapterRecognitionTests(unittest.TestCase):
                     self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
 
 
+class ChapterHourlyCooldownTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.images = [load(name) for name in ("chapter-map-cooldown-hours", "chapter-map-cooldown-hours-2")]
+        cls.entries = chapter._entries(cls.images[0])
+
+    def test_native_two_line_countdown(self):
+        for image, minute in zip(self.images, (15, 14)):
+            state, details = chapter.recognize_chapter_page(image)
+            self.assertEqual(state, "map_cooldown", details)
+            self.assertIsNone(details["days"])
+            self.assertEqual((details["hours"], details["minutes"]), (23, minute))
+
+    def test_invalid_incomplete_or_ambiguous_countdown_is_unknown(self):
+        top = next(e for e in self.entries if e[2] == "还剩23小")
+        bottom = next(e for e in self.entries if e[2] == "时15分钟")
+        cases = [
+            [e for e in self.entries if e != top],
+            [e for e in self.entries if e != bottom],
+            self.entries + [top], self.entries + [bottom],
+            self.entries + [(320, 1200, "0/3", .99)],
+            self.entries + [(1200, 600, "确认", .99)],
+        ]
+        for original, replacements in ((top, ("还剩24小", "还剩023小", "还剩23天", "未知")),
+                                       (bottom, ("时60分钟", "时015分钟", "时15秒", "未知"))):
+            for text in replacements:
+                replacement = (original[0], original[1], text, original[3])
+                cases.append([replacement if e == original else e for e in self.entries])
+        for original in (top, bottom):
+            for score in (.94, float("nan")):
+                replacement = (*original[:3], score)
+                cases.append([replacement if e == original else e for e in self.entries])
+        zero = {top[2]: "还剩0小", bottom[2]: "时0分钟"}
+        cases.append([(x, y, zero.get(t, t), s) for x, y, t, s in self.entries])
+        for entries in cases:
+            with self.subTest(entries=entries), patch.object(chapter, "_entries", return_value=entries):
+                self.assertEqual(chapter.recognize_chapter_page(self.images[0])[0], "unknown")
+
+
 class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
                  used=0, balance=1212183, available=True, scene="circle", day_change=False,
-                 collection_images=None, arrival_image=None):
+                 collection_images=None, arrival_image=None, map_images=None):
         image = Image.new("RGB", (2304, 1296))
         events = []
         checks = []
         field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True)
         def wait(hwnd, *, label, recognize, **_):
             checks.append(label)
+            if map_images and label in {"chapter-map-1", "chapter-map-2"}:
+                candidate = map_images[int(label[-1]) - 1]
+                found, values = recognize(candidate)
+                return found, candidate, values
             if arrival_image is not None and label in {"chapter-arrival", "chapter-field"}:
                 found, values = recognize(arrival_image)
                 return found, arrival_image, values
@@ -239,6 +282,24 @@ class ChapterFlowTests(unittest.TestCase):
                 self.assertTrue(record["returned_home"])
                 self.assertEqual(record["after"]["used"], 1)
 
+    def test_hourly_cooldown_minute_tick_skips_cast_and_records_after_home(self):
+        frames = [load(name) for name in ("chapter-map-cooldown-hours", "chapter-map-cooldown-hours-2")]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (ok, reason), events, checks = self.run_flow(root, map_images=frames)
+            self.assertTrue(ok, reason)
+            self.assertTrue(reason.startswith("skipped:"))
+            self.assertIn("chapter-map-2", checks)
+            self.assertNotIn("chapter_talent_page", events)
+            self.assertNotIn("chapter_cast_absorb_once", events)
+            self.assertEqual(events[-1], "chapter_return_home")
+            record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
+            self.assertEqual(record["status"], "skipped")
+            self.assertTrue(record["returned_home"])
+            (_, reason), events, _ = self.run_flow(root, map_images=frames)
+            self.assertTrue(reason.startswith("skipped:"))
+            self.assertEqual(events, [])
+
     def test_cooldown_does_not_open_talent_or_cast(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -280,6 +341,7 @@ class ChapterFlowTests(unittest.TestCase):
 
     def test_two_frame_changes_or_incorrect_delta_remain_pending(self):
         for label, value in (("chapter-map-2", dict(state="map_cooldown", days=2)),
+                             ("chapter-map-2", dict(state="map_ready", hours=23)),
                              ("chapter-before-2", dict(balance=1212182)),
                              ("chapter-after-2", dict(used=2)),
                              ("chapter-after-1", dict(other_used=(1, 0))),
