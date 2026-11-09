@@ -168,7 +168,13 @@ def recognize_chapter_page(image):
                 strokes = np.concatenate((pixels[1045:1080, 1837], pixels[1061, 1820:1854]))
                 empty = empty and float(np.mean(np.max(np.abs(strokes - 128), axis=1) <= 2)) >= .98
                 hand = _difference(image, "chapter-portal-hand", (1660, 1030, 1725, 1090)) < 10
-                return "field", {**details, "scene": scene, "empty_slot": empty, "portal_hand": hand}
+                # Nearby companions can replace the F hand with a quest icon.
+                # Only this observed, unobstructed ground-circle crop permits
+                # the demonstrated direct-circle input at the fixed position.
+                ground_portal = scene == "circle" and _difference(
+                    image, "chapter-ground-portal", (955, 610, 1065, 730)) < 10
+                return "field", {**details, "scene": scene, "empty_slot": empty,
+                                 "portal_hand": hand, "ground_portal": ground_portal}
         return "unknown", details
     except Exception as exc:
         return "unknown", {"error": repr(exc)}
@@ -256,6 +262,8 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
                 click(image, (748, 1235), "chapter_visible_portal")
             elif details["portal_hand"]:
                 click(image, (1694, 1064), "chapter_portal_hand")
+            elif details["ground_portal"]:
+                click(image, (1010, 670), "chapter_visible_portal")
             else:
                 stop("缺少可用传送点交互控件")
             image, _ = wait({"portal"}, "chapter-portal")

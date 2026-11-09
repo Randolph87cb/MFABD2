@@ -32,7 +32,7 @@ class ChapterRecognitionTests(unittest.TestCase):
         cls.readings = {}
         cls.entries = {}
         for name in ("chapter-collection-top", "chapter-field-board", "chapter-field-circle", "chapter-field-ready",
-                     "chapter-field-offset", "chapter-field-offset-left",
+                     "chapter-field-offset", "chapter-field-offset-left", "chapter-field-companions",
                      "chapter-collection-playing", "chapter-collection-playing-scrolled",
                      "chapter-map-ready", "chapter-map-cooldown", "chapter-map-cooldown-2",
                      "chapter-map-submenu", "chapter-portal", "chapter-talent-before",
@@ -47,6 +47,7 @@ class ChapterRecognitionTests(unittest.TestCase):
             "chapter-collection-playing": "chapter_card", "chapter-collection-playing-scrolled": "collection",
             "chapter-field-circle": "field", "chapter-map-ready": "map_ready",
             "chapter-field-offset": "field",
+            "chapter-field-companions": "field",
             "chapter-field-ready": "field",
             "chapter-map-cooldown": "map_cooldown", "chapter-map-cooldown-2": "map_cooldown",
             "chapter-map-submenu": "unknown", "chapter-portal": "portal",
@@ -69,6 +70,26 @@ class ChapterRecognitionTests(unittest.TestCase):
         image = load("chapter-field-ready")
         image.paste("white", (1837, 1045, 1838, 1080))
         self.assertFalse(chapter.recognize_chapter_page(image)[1]["empty_slot"])
+
+    def test_companions_require_visible_ground_portal_not_quest_button(self):
+        image = load("chapter-field-companions")
+        details = self.readings["chapter-field-companions"][1]
+        self.assertEqual(details["scene"], "circle")
+        self.assertFalse(details["portal_hand"])
+        self.assertTrue(details["ground_portal"])
+        # Keep the town/scene intact, but hide or move the actionable circle.
+        for shifted in (False, True):
+            candidate = image.copy()
+            if shifted:
+                candidate.paste(image.crop((975, 610, 1085, 730)), (955, 610))
+            else:
+                candidate.paste("black", (955, 610, 1065, 730))
+            state, details = chapter.recognize_chapter_page(candidate)
+            self.assertEqual(state, "field", details)
+            self.assertFalse(details["portal_hand"])
+            self.assertFalse(details["ground_portal"])
+        for candidate in (ImageEnhance.Brightness(image).enhance(.4), image.resize((1280, 720))):
+            self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
 
     def test_unknown_dimmed_adjacent_and_ocr_error_do_not_skip(self):
         for name in ("chapter-map-ready", "chapter-talent-before", "chapter-field-circle"):
@@ -189,11 +210,11 @@ class ChapterHourlyCooldownTests(unittest.TestCase):
 class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
                  used=0, balance=1212183, available=True, scene="circle", day_change=False,
-                 collection_images=None, arrival_image=None, map_images=None):
+                 collection_images=None, arrival_image=None, map_images=None, clicks=None):
         image = Image.new("RGB", (2304, 1296))
         events = []
         checks = []
-        field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True)
+        field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True, ground_portal=False)
         def wait(hwnd, *, label, recognize, **_):
             checks.append(label)
             if map_images and label in {"chapter-map-1", "chapter-map-2"}:
@@ -224,6 +245,8 @@ class ChapterFlowTests(unittest.TestCase):
                 values.update(change[1])
             return label != fail, image, values
         def click(hwnd, im, point, *, key, **_):
+            if clicks is not None:
+                clicks.append((key, point))
             if key == "chapter_cast_absorb_once":
                 record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
                 self.assertEqual(record["status"], "action_pending")
@@ -239,6 +262,27 @@ class ChapterFlowTests(unittest.TestCase):
                 stack.enter_context(patch.object(chapter, "game_day_key", side_effect=[DAY, DAY, "2026-11-08"]))
             result = chapter.run_chapter_absorb(dry_run=dry_run, log_root=root / "logs", state_root=root / "state", now=NOW)
         return result, events, checks
+
+    def test_companions_use_ground_circle_once_and_require_portal_before_cast(self):
+        image = load("chapter-field-companions")
+        for fail in (None, "chapter-portal"):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                clicks = []
+                (ok, reason), events, _ = self.run_flow(root, arrival_image=image, fail=fail, clicks=clicks)
+                self.assertEqual(ok, fail is None, reason)
+                self.assertEqual(events.count("chapter_visible_portal"), 1)
+                self.assertIn(("chapter_visible_portal", (1010 / 2304, 670 / 1296)), clicks)
+                self.assertNotIn("chapter_portal_hand", events)
+                if fail:
+                    self.assertNotIn("chapter_talent_page", events)
+                    self.assertNotIn("chapter_cast_absorb_once", events)
+                    self.assertFalse((root / "state" / (DAY + ".json")).exists())
+                else:
+                    self.assertEqual(events.count("chapter_cast_absorb_once"), 1)
+                    record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
+                    self.assertEqual(record["status"], "completed")
+                    self.assertTrue(record["returned_home"])
 
     def test_current_chapter_overlay_navigates_with_native_recognition(self):
         playing = load("chapter-collection-playing")
