@@ -33,6 +33,7 @@ class ChapterRecognitionTests(unittest.TestCase):
         cls.entries = {}
         for name in ("chapter-collection-top", "chapter-field-board", "chapter-field-circle", "chapter-field-ready",
                      "chapter-field-offset", "chapter-field-offset-left", "chapter-field-companions",
+                     "chapter-field-companions-moving",
                      "chapter-collection-playing", "chapter-collection-playing-scrolled",
                      "chapter-map-ready", "chapter-map-cooldown", "chapter-map-cooldown-2",
                      "chapter-map-submenu", "chapter-portal", "chapter-talent-before",
@@ -48,6 +49,7 @@ class ChapterRecognitionTests(unittest.TestCase):
             "chapter-field-circle": "field", "chapter-map-ready": "map_ready",
             "chapter-field-offset": "field",
             "chapter-field-companions": "field",
+            "chapter-field-companions-moving": "field",
             "chapter-field-ready": "field",
             "chapter-map-cooldown": "map_cooldown", "chapter-map-cooldown-2": "map_cooldown",
             "chapter-map-submenu": "unknown", "chapter-portal": "portal",
@@ -72,11 +74,12 @@ class ChapterRecognitionTests(unittest.TestCase):
         self.assertFalse(chapter.recognize_chapter_page(image)[1]["empty_slot"])
 
     def test_companions_require_visible_ground_portal_not_quest_button(self):
-        image = load("chapter-field-companions")
-        details = self.readings["chapter-field-companions"][1]
-        self.assertEqual(details["scene"], "circle")
-        self.assertFalse(details["portal_hand"])
-        self.assertTrue(details["ground_portal"])
+        for name in ("chapter-field-companions", "chapter-field-companions-moving"):
+            details = self.readings[name][1]
+            self.assertEqual(details["scene"], "circle")
+            self.assertFalse(details["portal_hand"])
+            self.assertTrue(details["ground_portal"], name)
+        image = load("chapter-field-companions-moving")
         # Keep the town/scene intact, but hide or move the actionable circle.
         for shifted in (False, True):
             candidate = image.copy()
@@ -264,7 +267,8 @@ class ChapterFlowTests(unittest.TestCase):
         return result, events, checks
 
     def test_companions_use_ground_circle_once_and_require_portal_before_cast(self):
-        image = load("chapter-field-companions")
+        # Second real run: a roaming companion overlaps the old template edge.
+        image = load("chapter-field-companions-moving")
         for fail in (None, "chapter-portal"):
             with self.subTest(fail=fail), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)

@@ -171,8 +171,9 @@ def recognize_chapter_page(image):
                 # Nearby companions can replace the F hand with a quest icon.
                 # Only this observed, unobstructed ground-circle crop permits
                 # the demonstrated direct-circle input at the fixed position.
+                # Exclude the lower/right edge where roaming companions pass.
                 ground_portal = scene == "circle" and _difference(
-                    image, "chapter-ground-portal", (955, 610, 1065, 730)) < 10
+                    image, "chapter-ground-portal", (955, 610, 1035, 690)) < 10
                 return "field", {**details, "scene": scene, "empty_slot": empty,
                                  "portal_hand": hand, "ground_portal": ground_portal}
         return "unknown", details
