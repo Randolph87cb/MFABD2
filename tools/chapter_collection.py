@@ -159,14 +159,16 @@ def recognize_chapter_page(image):
             board = _difference(image, "chapter-board-scene", (450, 450, 650, 600), shift=True)
             if min(circle, board) < 10:
                 scene = "circle" if circle < board else "board"
-                empty = min(_difference(image, name, (1800, 1030, 1870, 1090))
-                            for name in ("chapter-empty-slot-before", "chapter-empty-slot")) < 10
-                # The empty-slot cross is opaque RGB(128,128,128). Requiring
-                # both complete strokes prevents a small configured skill
-                # glyph from passing a whole-crop average and being cast.
-                pixels = np.asarray(image.convert("RGB"), dtype=float)
-                strokes = np.concatenate((pixels[1045:1080, 1837], pixels[1061, 1820:1854]))
-                empty = empty and float(np.mean(np.max(np.abs(strokes - 128), axis=1) <= 2)) >= .98
+                # Only the cross is opaque RGB(128,128,128); the slot's
+                # transparent background changes with the town camera.
+                # Require the complete cross silhouette, not that background
+                # or a small configured skill glyph. A gray-filled crop must
+                # not pass merely because it contains both gray strokes.
+                with Image.open(ASSETS / "chapter-empty-slot-before.png") as source:
+                    cross = np.all(np.asarray(source.convert("RGB")) == 128, axis=2)
+                slot = np.asarray(image.crop((1800, 1030, 1870, 1090)), dtype=float)
+                gray = np.max(np.abs(slot - 128), axis=2) <= 2
+                empty = float(np.mean(gray[cross])) >= .98 and float(np.mean(gray[~cross])) < .05
                 hand = _difference(image, "chapter-portal-hand", (1660, 1030, 1725, 1090)) < 10
                 # Nearby companions can replace the F hand with a quest icon.
                 # Only this observed, unobstructed ground-circle crop permits

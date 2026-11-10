@@ -33,7 +33,7 @@ class ChapterRecognitionTests(unittest.TestCase):
         cls.entries = {}
         for name in ("chapter-collection-top", "chapter-field-board", "chapter-field-circle", "chapter-field-ready",
                      "chapter-field-offset", "chapter-field-offset-left", "chapter-field-companions",
-                     "chapter-field-companions-moving",
+                     "chapter-field-companions-moving", "chapter-field-empty-slot-roof",
                      "chapter-collection-playing", "chapter-collection-playing-scrolled",
                      "chapter-map-ready", "chapter-map-cooldown", "chapter-map-cooldown-2",
                      "chapter-map-submenu", "chapter-portal", "chapter-talent-before",
@@ -51,6 +51,7 @@ class ChapterRecognitionTests(unittest.TestCase):
             "chapter-field-companions": "field",
             "chapter-field-companions-moving": "field",
             "chapter-field-ready": "field",
+            "chapter-field-empty-slot-roof": "field",
             "chapter-map-cooldown": "map_cooldown", "chapter-map-cooldown-2": "map_cooldown",
             "chapter-map-submenu": "unknown", "chapter-portal": "portal",
             "chapter-talent-before": "talent", "chapter-talent-after": "talent",
@@ -93,6 +94,35 @@ class ChapterRecognitionTests(unittest.TestCase):
             self.assertFalse(details["ground_portal"])
         for candidate in (ImageEnhance.Brightness(image).enhance(.4), image.resize((1280, 720))):
             self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
+
+    def test_empty_slot_accepts_roof_background_but_requires_complete_cross(self):
+        name = "chapter-field-empty-slot-roof"
+        image = load(name)
+        self.assertTrue(self.readings[name][1]["empty_slot"])
+        # The failed native frame exceeded the old whole-crop threshold even
+        # though the empty cross is intact. Keep it as a real regression input.
+        self.assertGreater(min(chapter._difference(image, template, (1800, 1030, 1870, 1090))
+                               for template in ("chapter-empty-slot-before", "chapter-empty-slot")), 10)
+        cases = []
+        for box in ((1800, 1030, 1870, 1090), (1837, 1045, 1838, 1080),
+                    (1820, 1061, 1854, 1062)):
+            candidate = image.copy()
+            candidate.paste("white", box)
+            cases.append(candidate)
+        candidate = image.copy()
+        candidate.paste((128, 128, 128), (1800, 1030, 1870, 1090))
+        cases.append(candidate)
+        candidate = image.copy()
+        # A small configured glyph cannot substitute for the empty plus.
+        candidate.paste(image.crop((2004, 1025, 2044, 1065)), (1817, 1042))
+        cases.append(candidate)
+        real_entries = chapter._entries
+        for candidate in cases:
+            with patch.object(chapter, "_entries", side_effect=lambda im:
+                              self.entries[name] if im.size == image.size else real_entries(im)):
+                state, details = chapter.recognize_chapter_page(candidate)
+            self.assertEqual(state, "field", details)
+            self.assertFalse(details["empty_slot"])
 
     def test_unknown_dimmed_adjacent_and_ocr_error_do_not_skip(self):
         for name in ("chapter-map-ready", "chapter-talent-before", "chapter-field-circle"):
@@ -213,13 +243,17 @@ class ChapterHourlyCooldownTests(unittest.TestCase):
 class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
                  used=0, balance=1212183, available=True, scene="circle", day_change=False,
-                 collection_images=None, arrival_image=None, map_images=None, clicks=None):
+                 collection_images=None, arrival_image=None, map_images=None, clicks=None,
+                 talent_field_image=None):
         image = Image.new("RGB", (2304, 1296))
         events = []
         checks = []
         field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True, ground_portal=False)
         def wait(hwnd, *, label, recognize, **_):
             checks.append(label)
+            if talent_field_image is not None and label in {"chapter-tab-three", "chapter-after-cast"}:
+                found, values = recognize(talent_field_image)
+                return found, talent_field_image, values
             if map_images and label in {"chapter-map-1", "chapter-map-2"}:
                 candidate = map_images[int(label[-1]) - 1]
                 found, values = recognize(candidate)
@@ -265,6 +299,19 @@ class ChapterFlowTests(unittest.TestCase):
                 stack.enter_context(patch.object(chapter, "game_day_key", side_effect=[DAY, DAY, "2026-11-08"]))
             result = chapter.run_chapter_absorb(dry_run=dry_run, log_root=root / "logs", state_root=root / "state", now=NOW)
         return result, events, checks
+
+    def test_roof_background_opens_talent_and_casts_once_then_records_home(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (ok, reason), events, _ = self.run_flow(
+                root, talent_field_image=load("chapter-field-empty-slot-roof"))
+            self.assertTrue(ok, reason)
+            self.assertEqual(events.count("chapter_talent_page"), 1)
+            self.assertEqual(events.count("chapter_cast_absorb_once"), 1)
+            self.assertEqual(events[-1], "chapter_return_home")
+            record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
+            self.assertEqual(record["status"], "completed")
+            self.assertTrue(record["returned_home"])
 
     def test_companions_use_ground_circle_once_and_require_portal_before_cast(self):
         # Second real run: a roaming companion overlaps the old template edge.
