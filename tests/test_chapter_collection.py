@@ -37,7 +37,8 @@ class ChapterRecognitionTests(unittest.TestCase):
                      "chapter-collection-playing", "chapter-collection-playing-scrolled",
                      "chapter-map-ready", "chapter-map-cooldown", "chapter-map-cooldown-2",
                      "chapter-map-submenu", "chapter-portal", "chapter-talent-before",
-                     "chapter-talent-after", "chapter-talent-after-2"):
+                     "chapter-talent-after", "chapter-talent-after-2",
+                     "chapter-talent-before-settled", "chapter-talent-before-settled-2"):
             image = load(name)
             cls.entries[name] = chapter._entries(image)
             cls.readings[name] = chapter.recognize_chapter_page(image)
@@ -56,15 +57,20 @@ class ChapterRecognitionTests(unittest.TestCase):
             "chapter-map-submenu": "unknown", "chapter-portal": "portal",
             "chapter-talent-before": "talent", "chapter-talent-after": "talent",
             "chapter-talent-after-2": "talent",
+            "chapter-talent-before-settled": "talent", "chapter-talent-before-settled-2": "talent",
         }
         for name, state in expected.items():
             self.assertEqual(self.readings[name][0], state, (name, self.readings[name][1]))
         before = self.readings["chapter-talent-before"][1]
         after = self.readings["chapter-talent-after"][1]
-        self.assertEqual((before["used"], before["balance"], before["available"]), (0, 1212183, True))
-        self.assertEqual((after["used"], after["balance"], after["available"]), (1, 1212173, False))
-        self.assertEqual({key: self.readings["chapter-talent-after-2"][1][key] for key in ("used", "balance", "available")},
-                         {key: after[key] for key in ("used", "balance", "available")})
+        self.assertEqual((before["used"], before["balance"]), (0, 1212183))
+        self.assertEqual((after["used"], after["balance"]), (1, 1212173))
+        self.assertEqual({key: self.readings["chapter-talent-after-2"][1][key] for key in ("used", "balance")},
+                         {key: after[key] for key in ("used", "balance")})
+        for name in ("chapter-talent-before-settled", "chapter-talent-before-settled-2"):
+            settled = self.readings[name][1]
+            self.assertEqual((settled["used"], settled["other_used"], settled["balance"], settled["cost"]),
+                             (0, (0, 0), 1213143, 10))
         self.assertEqual(self.readings["chapter-map-cooldown"][1]["days"], 2)
         self.assertTrue(self.readings["chapter-field-ready"][1]["empty_slot"])
         image = load("chapter-field-ready")
@@ -183,6 +189,15 @@ class ChapterRecognitionTests(unittest.TestCase):
         with patch.object(chapter, "_crop_text", return_value=None):
             self.assertEqual(chapter.recognize_chapter_page(image)[0], "unknown")
 
+    def test_settled_talent_still_requires_exact_portrait(self):
+        image = load("chapter-talent-before-settled")
+        image.paste(image.crop((937, 980, 1007, 1040)), (790, 980))
+        real_entries = chapter._entries
+        with patch.object(chapter, "_entries", side_effect=lambda im:
+                          self.entries["chapter-talent-before-settled"] if im.size == image.size else real_entries(im)):
+            state, _ = chapter.recognize_chapter_page(image)
+        self.assertEqual(state, "unknown")
+
     def test_field_requires_known_scene_within_small_camera_offset(self):
         for name in ("chapter-field-offset", "chapter-field-offset-left"):
             image = load(name)
@@ -242,15 +257,19 @@ class ChapterHourlyCooldownTests(unittest.TestCase):
 
 class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
-                 used=0, balance=1212183, available=True, scene="circle", day_change=False,
+                 used=0, balance=1212183, scene="circle", day_change=False,
                  collection_images=None, arrival_image=None, map_images=None, clicks=None,
-                 talent_field_image=None):
+                 talent_field_image=None, talent_images=None):
         image = Image.new("RGB", (2304, 1296))
         events = []
         checks = []
         field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True, ground_portal=False)
         def wait(hwnd, *, label, recognize, **_):
             checks.append(label)
+            if talent_images and label in {"chapter-before-1", "chapter-before-2"}:
+                candidate = talent_images[int(label[-1]) - 1]
+                found, values = recognize(candidate)
+                return found, candidate, values
             if talent_field_image is not None and label in {"chapter-tab-three", "chapter-after-cast"}:
                 found, values = recognize(talent_field_image)
                 return found, talent_field_image, values
@@ -275,9 +294,9 @@ class ChapterFlowTests(unittest.TestCase):
             elif label == "chapter-portal":
                 values = dict(state="portal")
             elif label.startswith("chapter-before-"):
-                values = dict(state="talent", used=used, other_used=(0, 0), balance=balance, cost=10, available=available)
+                values = dict(state="talent", used=used, other_used=(0, 0), balance=balance, cost=10)
             elif label in {"chapter-after-1", "chapter-after-2"}:
-                values = dict(state="talent", used=used + 1, other_used=(0, 0), balance=balance - 10, cost=10, available=False)
+                values = dict(state="talent", used=used + 1, other_used=(0, 0), balance=balance - 10, cost=10)
             if change and change[0] == label:
                 values.update(change[1])
             return label != fail, image, values
@@ -312,6 +331,24 @@ class ChapterFlowTests(unittest.TestCase):
             record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
             self.assertEqual(record["status"], "completed")
             self.assertTrue(record["returned_home"])
+
+    def test_settled_unused_talent_casts_once_and_same_day_resume_does_not_replay(self):
+        images = [load(name) for name in ("chapter-talent-before-settled", "chapter-talent-before-settled-2")]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (ok, reason), events, checks = self.run_flow(root, balance=1213143, talent_images=images)
+            self.assertTrue(ok, reason)
+            self.assertIn("chapter-before-2", checks)
+            self.assertEqual(events.count("chapter_cast_absorb_once"), 1)
+            self.assertEqual(events[-1], "chapter_return_home")
+            record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
+            self.assertEqual(record["status"], "completed")
+            self.assertEqual(record["after"]["used"], 1)
+            self.assertEqual(record["after"]["balance"], 1213133)
+            self.assertTrue(record["returned_home"])
+            (ok, reason), events, _ = self.run_flow(root)
+            self.assertTrue(ok, reason)
+            self.assertEqual(events, [])
 
     def test_companions_use_ground_circle_once_and_require_portal_before_cast(self):
         # Second real run: a roaming companion overlaps the old template edge.
@@ -423,8 +460,8 @@ class ChapterFlowTests(unittest.TestCase):
                     record = json.loads((root / "state" / (DAY + ".json")).read_text(encoding="utf-8"))
                     self.assertEqual(record["status"], "action_pending")
 
-    def test_unavailable_exhausted_insufficient_or_nonempty_slot_never_cast(self):
-        for options in (dict(used=7), dict(balance=9), dict(available=False),
+    def test_exhausted_insufficient_or_nonempty_slot_never_cast(self):
+        for options in (dict(used=7), dict(balance=9),
                         dict(change=("chapter-tab-three", dict(empty_slot=False))),
                         dict(change=("chapter-field", dict(portal_hand=False)))):
             with self.subTest(options=options), tempfile.TemporaryDirectory() as temporary:

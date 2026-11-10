@@ -142,14 +142,16 @@ def recognize_chapter_page(image):
                         (900, 1050, 1040, 1100))
             cost = _crop_text(image, (810, 1134, 845, 1160), "10")
             balance = one(r"[1-9]\d{0,2}(?:,\d{3})+|0|[1-9]\d{0,2}", (1980, 40, 2170, 95))
-            available = _difference(image, "chapter-absorb-portrait", (790, 980, 860, 1040)) < 8
-            used_card = _difference(image, "chapter-absorb-portrait-used", (790, 980, 860, 1040)) < 8
+            # These are the same portrait during fade-in and after settling,
+            # not usable/used states: a settled 0/7 frame exactly matches the
+            # old post-cast portrait. Use them only to verify card identity.
+            portrait = min(_difference(image, name, (790, 980, 860, 1040))
+                           for name in ("chapter-absorb-portrait", "chapter-absorb-portrait-used")) < 8
             if (count and cost and balance
                     and one("吸收", (780, 1095, 870, 1132))
                     and one("传说", (780, 1170, 870, 1220))
-                    and (available or used_card)):
+                    and portrait):
                 return "talent", {**details, "used": int(count.group(1)),
-                                  "available": available,
                                   "other_used": tuple(map(int, count.groups()[1:])),
                                   "balance": int(balance.group().replace(",", "")), "cost": 10}
             return "unknown", {**details, "error": "unverified absorb identity, count or cost"}
@@ -277,8 +279,8 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
             if not details["empty_slot"]:
                 stop("技能栏非空，不覆盖或施放已配置技能")
             click(image, (1835, 1063), "chapter_talent_page")
-            image, before = two({"talent"}, "chapter-before", ("used", "other_used", "balance", "cost", "available"))
-            if not before["available"] or before["used"] >= 7 or before["balance"] < before["cost"]:
+            image, before = two({"talent"}, "chapter-before", ("used", "other_used", "balance", "cost"))
+            if before["used"] >= 7 or before["balance"] < before["cost"]:
                 stop("吸收次数耗尽或药剂不足，不施放/购买/补充")
             if game_day_key(now) != day:
                 stop("游戏日已变化，不施放")
