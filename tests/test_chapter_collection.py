@@ -255,6 +255,36 @@ class ChapterHourlyCooldownTests(unittest.TestCase):
                 self.assertEqual(chapter.recognize_chapter_page(self.images[0])[0], "unknown")
 
 
+class ChapterFourDayCooldownTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Native result frames from the 2026-11-11 failed run, not synthetic OCR.
+        cls.images = [load(name) for name in ("chapter-map-cooldown-four-days",
+                                             "chapter-map-cooldown-four-days-2")]
+        cls.entries = chapter._entries(cls.images[0])
+
+    def test_native_four_day_result_is_cooldown(self):
+        for image in self.images:
+            state, details = chapter.recognize_chapter_page(image)
+            self.assertEqual(state, "map_cooldown", details)
+            self.assertEqual(details["days"], 4)
+
+    def test_four_day_support_preserves_counter_and_page_guards(self):
+        counter = next(e for e in self.entries if e[2] == "还剩4天")
+        cases = [self.entries + [counter], [e for e in self.entries if e != counter],
+                 self.entries + [(1200, 600, "确认", .99)]]
+        for text in ("还剩0天", "还剩5天", "还剩04天", "还剩14天", "还剩4小时"):
+            cases.append([(*e[:2], text, e[3]) if e == counter else e for e in self.entries])
+        for score in (.94, float("nan")):
+            cases.append([(*e[:3], score) if e == counter else e for e in self.entries])
+        for entries in cases:
+            with self.subTest(entries=entries), patch.object(chapter, "_entries", return_value=entries):
+                self.assertEqual(chapter.recognize_chapter_page(self.images[0])[0], "unknown")
+        for candidate in (ImageEnhance.Brightness(self.images[0]).enhance(.4),
+                          self.images[0].resize((1280, 720))):
+            self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
+
+
 class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
                  used=0, balance=1212183, scene="circle", day_change=False,
@@ -273,7 +303,7 @@ class ChapterFlowTests(unittest.TestCase):
             if talent_field_image is not None and label in {"chapter-tab-three", "chapter-after-cast"}:
                 found, values = recognize(talent_field_image)
                 return found, talent_field_image, values
-            if map_images and label in {"chapter-map-1", "chapter-map-2"}:
+            if map_images and label in {"chapter-map-1", "chapter-map-2", "chapter-result-1", "chapter-result-2"}:
                 candidate = map_images[int(label[-1]) - 1]
                 found, values = recognize(candidate)
                 return found, candidate, values
@@ -493,6 +523,86 @@ class ChapterFlowTests(unittest.TestCase):
                 (root / "2026-11-06.json").write_text(raw, encoding="utf-8")
                 with patch.object(chapter, "find_game_window") as window:
                     self.assertFalse(chapter.run_chapter_absorb(dry_run=False, log_root=root / "logs", state_root=root, now=NOW)[0])
+                    window.assert_not_called()
+
+    def test_same_day_pending_verifies_native_cooldown_and_returns_without_recasting(self):
+        frames = [load(name) for name in ("chapter-map-cooldown-four-days", "chapter-map-cooldown-four-days-2")]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (ok, _), events, _ = self.run_flow(root, fail="chapter-result-1", balance=1213593)
+            self.assertFalse(ok)
+            self.assertEqual(events.count("chapter_cast_absorb_once"), 1)
+            path = root / "state" / (DAY + ".json")
+            pending = json.loads(path.read_text(encoding="utf-8"))
+            (ok, reason), events, checks = self.run_flow(root, map_images=frames, balance=1213593)
+            self.assertTrue(ok, reason)
+            self.assertFalse(reason.startswith("skipped:"))
+            self.assertNotIn("chapter_cast_absorb_once", events)
+            self.assertNotIn("chapter_portal_hand", events)
+            self.assertNotIn("chapter-before-1", checks)
+            self.assertIn("chapter-after-2", checks)
+            self.assertIn("chapter-result-2", checks)
+            self.assertEqual(events[-1], "chapter_return_home")
+            record = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual((record["status"], record["returned_home"]), ("completed", True))
+            for key in ("before", "before_screenshot", "map_before"):
+                self.assertEqual(record[key], pending[key])
+            self.assertEqual(record["after"]["balance"], 1213583)
+            (ok, reason), events, _ = self.run_flow(root)
+            self.assertTrue(ok, reason)
+            self.assertEqual(events, [])
+
+    def test_pending_recovery_mismatch_or_navigation_failure_preserves_intent(self):
+        options = [dict(cooldown=False),
+                   dict(used=1), dict(balance=1212184),
+                   dict(change=("chapter-after-1", dict(used=0))),
+                   dict(change=("chapter-after-2", dict(balance=1212172))),
+                   dict(change=("chapter-after-1", dict(other_used=(1, 0)))),
+                   dict(change=("chapter-tab-three", dict(empty_slot=False))),
+                   dict(change=("chapter-map-2", dict(days=1)))]
+        options.extend(dict(fail=label) for label in (
+            "chapter-map-1", "chapter-map-2", "chapter-after-1", "chapter-after-2",
+            "chapter-result-1", "chapter-result-2", "chapter-home"))
+        for changes in options:
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                self.run_flow(root, fail="chapter-result-1")
+                path = root / "state" / (DAY + ".json")
+                original = path.read_bytes()
+                (ok, _), events, _ = self.run_flow(root, **(dict(cooldown=True) | changes))
+                self.assertFalse(ok)
+                self.assertNotIn("chapter_cast_absorb_once", events)
+                self.assertEqual(path.read_bytes(), original)
+
+    def test_pending_dry_run_rollover_and_invalid_record_never_cast(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.run_flow(root, fail="chapter-result-1")
+            path = root / "state" / (DAY + ".json")
+            original = path.read_bytes()
+            (ok, _), events, _ = self.run_flow(root, dry_run=True)
+            self.assertTrue(ok)
+            self.assertEqual(events, [])
+            self.assertEqual(path.read_bytes(), original)
+            with patch.object(chapter, "game_day_key", side_effect=[DAY, "2026-11-08"]):
+                (ok, _), events, _ = self.run_flow(root, cooldown=True)
+            self.assertFalse(ok)
+            self.assertNotIn("chapter_cast_absorb_once", events)
+            self.assertEqual(path.read_bytes(), original)
+            # Even a fully formed intent cannot be resumed on a later game day.
+            with patch.object(chapter, "find_game_window") as window:
+                self.assertFalse(chapter.run_chapter_absorb(
+                    dry_run=False, log_root=root / "later", state_root=root / "state",
+                    now=datetime(2026, 11, 8, 9))[0])
+                window.assert_not_called()
+            for change in (dict(used=True), dict(used=7), dict(balance=9), dict(cost=20),
+                           dict(other_used=[0]), dict(other_used=[0, True]), dict(other_used=[0, 8])):
+                record = json.loads(original)
+                record["before"].update(change)
+                path.write_text(json.dumps(record), encoding="utf-8")
+                with self.subTest(change=change), patch.object(chapter, "find_game_window") as window:
+                    self.assertFalse(chapter.run_chapter_absorb(
+                        dry_run=False, log_root=root / "invalid", state_root=root / "state", now=NOW)[0])
                     window.assert_not_called()
 
     def test_dry_run_and_day_rollover(self):

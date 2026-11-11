@@ -113,7 +113,7 @@ def recognize_chapter_page(image):
             # Reject the nonfunctional magic-circle submenu and any other map overlay.
             if any(text in {"战斗区", "魔法阵"} for _, _, text, score in entries if score >= .55):
                 return "unknown", {**details, "error": "map submenu open"}
-            value = one(r"([0-3])/3|还剩([1-3])天", (275, 1185, 375, 1230))
+            value = one(r"([0-3])/3|还剩([1-4])天", (275, 1185, 375, 1230))
             if not one(r"[0-3]/3", (385, 1185, 460, 1230)):
                 return "unknown", {**details, "error": "map collection counter missing"}
             if not value:
@@ -188,22 +188,37 @@ def recognize_chapter_page(image):
 def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=None):
     """Known chapter → two map reads → optional one cast → verified home.
 
-    An unresolved intent blocks later days too. Completion is saved only after
-    the return home. A manual result must never be inferred from a pending file.
+    A same-day intent permits verification only, never another cast. Unresolved
+    older intents still block. Completion requires verified results and home.
     """
     logger = RunLogger(log_root, annotate_clicks=True)
     state_root = Path(state_root) if state_root is not None else STATE_ROOT
     day = game_day_key(now)
     record_path = state_root / (day + ".json")
+    pending = None
     try:
         for path in state_root.glob("*.json"):
             value = json.loads(path.read_text(encoding="utf-8"))
             if (type(value.get("version")) is not int or value["version"] != 1
-                    or value.get("status") not in {"completed", "skipped"}
-                    or value.get("target") != "卢戈镇" or value.get("game_day") != path.stem
-                    or value.get("returned_home") is not True or not value.get("home_screenshot")):
+                    or value.get("target") != "卢戈镇" or value.get("game_day") != path.stem):
                 raise ValueError(f"unresolved collection record: {path.name}")
-        if record_path.exists():
+            if value.get("status") in {"completed", "skipped"}:
+                if value.get("returned_home") is not True or not value.get("home_screenshot"):
+                    raise ValueError(f"unresolved collection record: {path.name}")
+            elif value.get("status") == "action_pending" and path == record_path:
+                before = value.get("before", {})
+                if (not isinstance(before, dict)
+                        or type(before.get("used")) is not int or not 0 <= before["used"] < 7
+                        or type(before.get("balance")) is not int or before["balance"] < 10
+                        or type(before.get("cost")) is not int or before["cost"] != 10
+                        or not isinstance(before.get("other_used"), list) or len(before["other_used"]) != 2
+                        or any(type(count) is not int or not 0 <= count <= 7 for count in before["other_used"])
+                        or not value.get("before_screenshot") or not value.get("map_before")):
+                    raise ValueError(f"invalid collection intent: {path.name}")
+                pending = value
+            else:
+                raise ValueError(f"unresolved collection record: {path.name}")
+        if record_path.exists() and pending is None:
             return True, "skipped:本游戏日单章采集已记录，不重复输入"
     except Exception as exc:
         logger.failure(str(exc))
@@ -212,7 +227,8 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
     if not hwnd:
         return False, "game window not found"
     if dry_run:
-        return True, "dry-run planned Lugo absorb; no input or state write"
+        action = "pending Lugo absorb verification" if pending is not None else "Lugo absorb"
+        return True, f"dry-run planned {action}; no input or state write"
 
     def stop(reason):
         raise RuntimeError(reason)
@@ -241,7 +257,8 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
             stop(f"{label} 两帧读数变化")
         return image, details
 
-    record = {"version": 1, "game_day": day, "target": "卢戈镇", "status": "action_pending"}
+    record = pending if pending is not None else {
+        "version": 1, "game_day": day, "target": "卢戈镇", "status": "action_pending"}
     try:
         ok, image, reason = prepare_actionable_home(hwnd, logger=logger)
         if not ok:
@@ -257,46 +274,54 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
         # Minutes may tick down normally; state, day/hour format and hours must
         # remain stable across both reads before the cooldown skip is accepted.
         image, details = two({"map_ready", "map_cooldown"}, "chapter-map", ("state", "days", "hours"))
-        skipped = details["state"] == "map_cooldown"
-        record["map_before"] = str(logger.save_image(image, "chapter-map-before.png"))
+        if pending is not None and details["state"] != "map_cooldown":
+            stop("未决吸收没有地图冷却证据；保留意图，禁止重放")
+        skipped = pending is None and details["state"] == "map_cooldown"
+        if pending is None:
+            record["map_before"] = str(logger.save_image(image, "chapter-map-before.png"))
         click(image, (208, 60), "chapter_map_back")
         image, details = wait({"field"}, "chapter-field")
         if not skipped:
             # The two whitelisted spawns have independently demonstrated portal inputs.
-            if details["scene"] == "board":
-                click(image, (748, 1235), "chapter_visible_portal")
-            elif details["portal_hand"]:
-                click(image, (1694, 1064), "chapter_portal_hand")
-            elif details["ground_portal"]:
-                click(image, (1010, 670), "chapter_visible_portal")
-            else:
-                stop("缺少可用传送点交互控件")
-            image, _ = wait({"portal"}, "chapter-portal")
-            click(image, (162, 60), "chapter_portal_back")
-            image, _ = wait({"field"}, "chapter-portal-return")
+            if pending is None:
+                if details["scene"] == "board":
+                    click(image, (748, 1235), "chapter_visible_portal")
+                elif details["portal_hand"]:
+                    click(image, (1694, 1064), "chapter_portal_hand")
+                elif details["ground_portal"]:
+                    click(image, (1010, 670), "chapter_visible_portal")
+                else:
+                    stop("缺少可用传送点交互控件")
+                image, _ = wait({"portal"}, "chapter-portal")
+                click(image, (162, 60), "chapter_portal_back")
+                image, _ = wait({"field"}, "chapter-portal-return")
             click(image, (2194, 1215), "chapter_talent_tab_three")
             image, details = wait({"field"}, "chapter-tab-three")
             if not details["empty_slot"]:
                 stop("技能栏非空，不覆盖或施放已配置技能")
             click(image, (1835, 1063), "chapter_talent_page")
-            image, before = two({"talent"}, "chapter-before", ("used", "other_used", "balance", "cost"))
-            if before["used"] >= 7 or before["balance"] < before["cost"]:
-                stop("吸收次数耗尽或药剂不足，不施放/购买/补充")
-            if game_day_key(now) != day:
-                stop("游戏日已变化，不施放")
-            record["before"] = {key: before[key] for key in ("used", "other_used", "balance", "cost")}
-            record["before_screenshot"] = str(logger.save_image(image, "chapter-absorb-before.png"))
-            _write_record(record_path, record, reserve=True)
-            logger.event(action="absorb_intent", record=record)
-            # This card CASTS. Never click it again, including after capture failure.
-            click(image, (823, 1118), "chapter_cast_absorb_once")
-            image, details = wait({"field"}, "chapter-after-cast")
-            if not details["empty_slot"]:
-                stop("施放后技能栏发生未知变化")
-            click(image, (1835, 1063), "chapter_verify_talent")
+            if pending is None:
+                image, before = two({"talent"}, "chapter-before", ("used", "other_used", "balance", "cost"))
+                if before["used"] >= 7 or before["balance"] < before["cost"]:
+                    stop("吸收次数耗尽或药剂不足，不施放/购买/补充")
+                if game_day_key(now) != day:
+                    stop("游戏日已变化，不施放")
+                record["before"] = {key: before[key] for key in ("used", "other_used", "balance", "cost")}
+                record["before_screenshot"] = str(logger.save_image(image, "chapter-absorb-before.png"))
+                _write_record(record_path, record, reserve=True)
+                logger.event(action="absorb_intent", record=record)
+                # This card CASTS. Never click it again, including after capture failure.
+                click(image, (823, 1118), "chapter_cast_absorb_once")
+                image, details = wait({"field"}, "chapter-after-cast")
+                if not details["empty_slot"]:
+                    stop("施放后技能栏发生未知变化")
+                click(image, (1835, 1063), "chapter_verify_talent")
+            else:
+                before = pending["before"]
+                logger.event(action="verify_pending_absorb", record=record)
             image, after = two({"talent"}, "chapter-after", ("used", "other_used", "balance", "cost"))
             if (after["used"] != before["used"] + 1 or after["balance"] != before["balance"] - 10
-                    or after["other_used"] != before["other_used"]):
+                    or tuple(after["other_used"]) != tuple(before["other_used"])):
                 stop("吸收结果未验证；保留意图，禁止重放")
             record["after"] = {key: after[key] for key in ("used", "balance", "cost")}
             record["after_screenshot"] = str(logger.save_image(image, "chapter-absorb-after.png"))
@@ -321,6 +346,8 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
         _write_record(record_path, record, reserve=skipped)
         reason = ("skipped:卢戈镇吸收处于已识别冷却，两帧复核并返回主页" if skipped else
                   "卢戈镇仅施放一次吸收：次数+1、药剂-10、地图冷却均两帧验证并返回主页")
+        if pending is not None:
+            reason = "未决吸收已复核并返回主页，未再次施放：次数+1、药剂-10、地图冷却均两帧验证"
         logger.event(action="stop", result="success", record=record, reason=reason)
         return True, reason
     except Exception as exc:
