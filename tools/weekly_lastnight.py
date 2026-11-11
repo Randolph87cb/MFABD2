@@ -59,6 +59,12 @@ def recognize_lastnight_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
             return points[0] if len(points) == 1 else None
 
         bright = lambda box: float(np.mean(np.min(np.asarray(image.convert("RGB").crop(box)), axis=2) > 210)) > 0.20
+        new_damage = one(r"[1-9]\d{0,2}(?:,\d{3})*", (1340, 685, 1740, 745))
+        if (one("创造新纪录", (1330, 450, 1740, 530))
+                and one("最高伤害", (1370, 610, 1690, 685)) and new_damage
+                and one(r"\d{1,2}(?:\.\d+)?%", (1400, 755, 1650, 815))
+                and _crop_matches(image, (1495, 550, 1575, 610), "lastnight-new-record-badge.png")):
+            return "new_record", {**details, "damage": int(new_damage[2].replace(",", ""))}
         title = one("末日之书", (330, 25, 510, 90))
         back = bright((203, 49, 216, 73))
         if one("游戏卡珍藏集", (280, 20, 550, 95)) and one("查看战场奖励", (1770, 25, 2100, 95)):
@@ -100,12 +106,34 @@ def recognize_lastnight_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
         return "unknown", {"error": repr(exc)}
 
 
+def _pending_results(record, week):
+    """Re-read both original result captures; an intent alone proves no battle."""
+    if not isinstance(record.get("log_root"), str) or not record["log_root"]:
+        raise ValueError("pending record lacks original log root")
+    reserved = datetime.fromisoformat(record["reserved_at"])
+    if reserved.tzinfo is None or game_week_key(reserved) != week:
+        raise ValueError("pending evidence belongs to another game week")
+    root = Path(record["log_root"])
+    samples = [str(root / f"lastnight-result-verified-{index}.png") for index in (1, 2)]
+    damages = []
+    for sample in samples:
+        with Image.open(sample) as image:
+            state, details = recognize_lastnight_page(image)
+        if state != "result":
+            raise ValueError("pending record lacks verified result images")
+        damages.append(details["damage"])
+    if damages[0] != damages[1]:
+        raise ValueError("pending result damage conflict")
+    return damages[0], samples
+
+
 def run_weekly_lastnight(*, dry_run: bool, log_root: Path,
                          state_root: Path | None = None) -> tuple[bool, str]:
     logger = RunLogger(log_root, annotate_clicks=True)
     week = game_week_key()
     path = (STATE_ROOT if state_root is None else state_root) / f"{week}.json"
     logger.event(action="start", flow="weekly_lastnight", week=week, dry_run=dry_run)
+    pending_results = None
 
     def stop(reason):
         logger.failure(reason)
@@ -119,19 +147,21 @@ def run_weekly_lastnight(*, dry_run: bool, log_root: Path,
                     or record.get("status") not in ("action_pending", "completed")):
                 raise ValueError("invalid weekly Last Night record")
             if record["status"] == "action_pending":
-                return stop("末日之书本周输入未决，禁止自动重放，须核对原始证据")
-            samples = record.get("result_screenshots")
-            if (not isinstance(samples, list) or len(samples) != 2 or samples[0] == samples[1]
+                pending_results = _pending_results(record, week)
+            else:
+                samples = record.get("result_screenshots")
+                if (not isinstance(samples, list) or len(samples) != 2 or samples[0] == samples[1]
                     or not all(isinstance(p, str) and p for p in samples)
                     or type(record.get("damage")) is not int or record["damage"] <= 0
                     or record.get("returned_home") is not True
                     or not isinstance(record.get("home_screenshot"), str) or not record["home_screenshot"]):
-                raise ValueError("completed record lacks result and home evidence")
-        except (OSError, ValueError, TypeError) as exc:
+                    raise ValueError("completed record lacks result and home evidence")
+        except (OSError, ValueError, TypeError, KeyError) as exc:
             return stop(f"末日之书周记录异常，禁止输入：{exc}")
         if game_week_key() != week:
             return stop("读取末日之书记录时跨游戏周，停止")
-        return True, f"skipped:末日之书在游戏周 {week} 已验证完成"
+        if pending_results is None:
+            return True, f"skipped:末日之书在游戏周 {week} 已验证完成"
 
     hwnd = find_game_window()
     if not hwnd:
@@ -141,6 +171,22 @@ def run_weekly_lastnight(*, dry_run: bool, log_root: Path,
         return stop(f"未确认末日之书起点：{reason}")
     if dry_run:
         return True, "dry-run planned Last Night navigation; no input or weekly record"
+    if pending_results is not None:
+        # The supervisor returns home before retrying weekly. Only finish the
+        # already captured battle; never navigate to or start another battle.
+        if game_week_key() != week:
+            return stop("核对末日之书未决结果后跨游戏周，保留未决")
+        damage, samples = pending_results
+        try:
+            record.update(status="completed", damage=damage, result_screenshots=samples, returned_home=True,
+                          home_screenshot=str(logger.save_image(image, "lastnight-recovered-home.png")),
+                          completed_at=datetime.now(GAME_TIMEZONE).isoformat())
+            _write_record(path, record, reserve=False)
+        except OSError as exc:
+            return stop(f"末日之书未决结果收尾写盘失败：{exc}")
+        reason = "末日之书原始两帧结算已复核并确认主页；未再次战斗"
+        logger.event(action="stop", result="success", week=week, reason=reason)
+        return True, reason
     record = dict(version=1, week=week, status="action_pending", log_root=str(log_root),
                   reserved_at=datetime.now(GAME_TIMEZONE).isoformat())
     if game_week_key() != week:
@@ -188,7 +234,13 @@ def run_weekly_lastnight(*, dry_run: bool, log_root: Path,
             raise RuntimeError("末日之书两帧伤害冲突，禁止离开或重放")
         samples.append(str(logger.save_image(image, "lastnight-result-verified-2.png")))
         click(2060, 1210, "lastnight_leave_result")
-        image, _ = wait({"field_spawn", "field"}, "lastnight-return-field")
+        image, details = wait({"field_spawn", "field", "new_record"}, "lastnight-return-field")
+        if details["state"] == "new_record":
+            if details["damage"] != damage:
+                raise RuntimeError("末日之书新纪录与结算伤害冲突，保留未决")
+            # Dismiss the observed PC presentation by its title, once only.
+            click(1535, 490, "lastnight_dismiss_new_record")
+            image, _ = wait({"field_spawn", "field"}, "lastnight-after-new-record")
         click(2160, 68, "lastnight_return_home")
         ok, image, _ = wait_for_recognition(hwnd, logger=logger, recognize=_home,
                                              label="lastnight-final-home", timeout=45)
