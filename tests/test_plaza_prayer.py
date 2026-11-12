@@ -87,8 +87,10 @@ class PrayerRecognitionTests(unittest.TestCase):
 
 class PrayerFlowTests(unittest.TestCase):
     def run_flow(self, *, ready=True, clears=True, home=True, dry_run=False,
-                 retry_home=False, retry_state="prayer_unavailable", home_control=True):
+                 retry_home=False, retry_state="prayer_unavailable", home_control=True,
+                 final_home=False, final_state="prayer_unavailable", final_control=True):
         image = Image.new("RGB", (2304, 1296), "white")
+        after_key = image.copy()
         states = [
             (True, image, {"state": "square_card", "card_point": (0.286, 0.543)}),
             (True, image, {"state": "prayer_ready" if ready else "prayer_unavailable",
@@ -98,14 +100,18 @@ class PrayerFlowTests(unittest.TestCase):
             (home, image, {}),
         ]
         if not home:
-            states.append((retry_home, image, {}))
+            states.append((retry_home, after_key, {}))
+            if not retry_home:
+                states.append((final_home, image, {}))
         with tempfile.TemporaryDirectory() as temporary, \
                 patch("plaza_prayer.find_game_window", return_value=123), \
                 patch("plaza_prayer.prepare_actionable_home", return_value=(True, image, "home")), \
                 patch("plaza_prayer.wait_for_recognition", side_effect=states), \
                 patch("plaza_prayer.click_ratio_logged") as click, \
-                patch("plaza_prayer.recognize_prayer_page", return_value=(retry_state, {})), \
-                patch("plaza_prayer.recognize_return_home_control", return_value=(home_control, {})), \
+                patch("plaza_prayer.recognize_prayer_page", side_effect=lambda candidate:
+                      (final_state if candidate is after_key else retry_state, {})), \
+                patch("plaza_prayer.recognize_return_home_control", side_effect=lambda candidate:
+                      (final_control if candidate is after_key else home_control, {})), \
                 patch("plaza_prayer.post_home_key") as home_key, \
                 patch("plaza_prayer.time.sleep"):
             result = plaza_prayer.run_plaza_prayer(dry_run=dry_run, log_root=Path(temporary))
@@ -118,6 +124,34 @@ class PrayerFlowTests(unittest.TestCase):
             self.assertEqual(keys.count("free_goddess_prayer"), int(ready))
             self.assertEqual(keys.count("prayer_home"), 1)
             self.assertEqual(keys.count("H"), 1)
+            self.assertNotIn("prayer_home_retry", keys)
+
+    def test_unchanged_square_after_key_retries_mouse_once(self):
+        for ready in (False, True):
+            with self.subTest(ready=ready):
+                (ok, _), keys = self.run_flow(ready=ready, home=False, final_home=True)
+                self.assertTrue(ok)
+                self.assertEqual(keys.count("free_goddess_prayer"), int(ready))
+                self.assertEqual(keys.count("prayer_home"), 1)
+                self.assertEqual(keys.count("H"), 1)
+                self.assertEqual(keys.count("prayer_home_retry"), 1)
+
+    def test_final_mouse_retry_checks_frame_returned_after_key(self):
+        for state, control in (("unknown", True), ("prayer_ready", True),
+                               ("prayer_unavailable", False)):
+            with self.subTest(state=state, control=control):
+                (ok, _), keys = self.run_flow(
+                    home=False, final_state=state, final_control=control)
+                self.assertFalse(ok)
+                self.assertEqual(keys.count("H"), 1)
+                self.assertNotIn("prayer_home_retry", keys)
+
+    def test_expired_shared_deadline_prevents_final_mouse_retry(self):
+        with patch("plaza_prayer.time.monotonic", side_effect=[0, 0, 0, 0, 46, 46]):
+            (ok, _), keys = self.run_flow(home=False)
+        self.assertFalse(ok)
+        self.assertEqual(keys.count("H"), 1)
+        self.assertNotIn("prayer_home_retry", keys)
 
     def test_retry_requires_cleared_square_and_visible_home_control(self):
         for state, control in (("unknown", True), ("prayer_ready", True),
@@ -128,11 +162,12 @@ class PrayerFlowTests(unittest.TestCase):
                 self.assertNotIn("H", keys)
                 self.assertEqual(keys.count("free_goddess_prayer"), 1)
 
-    def test_failed_home_retry_stops_after_one_key(self):
+    def test_failed_home_recovery_stops_after_one_key_and_one_mouse_retry(self):
         (ok, reason), keys = self.run_flow(home=False)
         self.assertFalse(ok)
         self.assertIn("未确认返回主页", reason)
         self.assertEqual(keys.count("H"), 1)
+        self.assertEqual(keys.count("prayer_home_retry"), 1)
         self.assertEqual(keys.count("free_goddess_prayer"), 1)
 
     def test_one_prayer_only_after_ready_and_home_required(self):

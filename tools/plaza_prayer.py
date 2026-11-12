@@ -157,24 +157,32 @@ def run_plaza_prayer(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
         hwnd, logger=logger, recognize=recognize_home_labels,
         label="prayer-return-home", timeout=min(20.0, max(0.0, deadline - time.monotonic())),
     )
-    if not ok:
-        # The recorded home click left the cleared square unchanged.
-        # Use the existing H shortcut once, only on a newly verified square;
-        # never repeat the prayer or send a key to a loading/unknown page.
+    # Posted H can also leave the square unchanged. Allow one final mouse
+    # click, rechecking the latest frame before each recovery action. All
+    # return attempts share the original deadline and never repeat prayer.
+    for method in ("post_h_key", "home_click"):
+        if ok:
+            break
         state, square_details = recognize_prayer_page(image)
         home_control, home_details = recognize_return_home_control(image)
         remaining = max(0.0, deadline - time.monotonic())
         retry = state == "prayer_unavailable" and home_control and remaining > 0
-        logger.event(action="prayer_home_retry_check", state=state, retry=retry,
+        logger.event(action="prayer_home_retry_check", method=method, state=state, retry=retry,
                      square=square_details, home_control=home_details)
         if retry:
-            post_home_key(hwnd, dry_run=False, logger=logger)
+            if method == "post_h_key":
+                post_home_key(hwnd, dry_run=False, logger=logger)
+            else:
+                click_ratio_logged(hwnd, image, (2156 / 2304, 68 / 1296),
+                                   key="prayer_home_retry", logger=logger)
         remaining = max(0.0, deadline - time.monotonic())
-        if remaining:
-            ok, _image, _details = wait_for_recognition(
-                hwnd, logger=logger, recognize=recognize_home_labels,
-                label="prayer-return-home-final", timeout=remaining,
-            )
+        if not remaining:
+            break
+        ok, image, _details = wait_for_recognition(
+            hwnd, logger=logger, recognize=recognize_home_labels,
+            label=f"prayer-return-home-{method}",
+            timeout=min(10.0, remaining) if method == "post_h_key" else remaining,
+        )
     if not ok:
         return stop("祈求后未确认返回主页")
     reason = ("广场免费祈求已单次执行，入口与每日奖励消失并返回主页" if prayed
