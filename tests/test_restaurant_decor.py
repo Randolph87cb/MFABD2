@@ -18,10 +18,17 @@ from daily_plan import get_daily_plan
 FIXTURES = Path(__file__).parent / "fixtures/recognition"
 FIRST = "restaurant-decor-balance-first-2304x1296.png"
 SECOND = "restaurant-decor-balance-second-2304x1296.png"
+DAILY_SPEECH = "restaurant-decor-daily-counter-speech-2304x1296.png"
 READING = dict(balance=16078, earned_today=0, daily_limit=20)
 
 
 class DecorRecognitionTests(unittest.TestCase):
+    def test_recorded_npc_speech_obscuring_daily_counter_requires_fresh_capture(self):
+        with Image.open(FIXTURES / DAILY_SPEECH) as image:
+            reading, details = decor.recognize_decor_balance(image)
+        self.assertIsNone(reading)
+        self.assertEqual(details["error"], "unverified daily counter", details)
+
     def test_real_pc_frames_tooltip_and_adjacent_pages(self):
         for name in (FIRST, SECOND, "restaurant-decor-tooltip-2304x1296.png",
                      "business-management-claim-disabled-2304x1296.png",
@@ -110,6 +117,27 @@ class DecorFlowTests(unittest.TestCase):
             (ok, _), events = self.run_flow(readings)
             self.assertFalse(ok)
             self.assertNotIn("return", events)
+
+    def test_transient_counter_obstruction_requires_two_new_consecutive_reads(self):
+        obscured = (None, {"error": "unverified daily counter"})
+        (ok, _), events = self.run_flow([(READING, {}), obscured, (READING, {}), (READING, {})])
+        self.assertTrue(ok)
+        self.assertEqual(events, ["entry", "restaurant", "return"])
+        for readings in ([obscured] * 5,
+                         [(READING, {}), obscured, (READING, {}), obscured, (READING, {})]):
+            with self.subTest(readings=readings):
+                (ok, reason), events = self.run_flow(readings)
+                self.assertFalse(ok)
+                self.assertIn("复采达到上限", reason)
+                self.assertNotIn("return", events)
+
+    def test_changed_balance_after_obstruction_still_fails(self):
+        (ok, _), events = self.run_flow([
+            (None, {"error": "unverified daily counter"}),
+            (READING, {}), ({**READING, "balance": 16079}, {}),
+        ])
+        self.assertFalse(ok)
+        self.assertNotIn("return", events)
 
     def test_navigation_failure_and_dry_run(self):
         for fail, expected in (("entry", ["entry"]), ("restaurant", ["entry", "restaurant"]),
