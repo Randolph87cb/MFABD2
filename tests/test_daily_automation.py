@@ -2006,7 +2006,6 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(reason, "opened the last battlefield")
 
-    @patch("daily_arena.recognize_home_labels", return_value=(True, {"matched": True}))
     @patch("daily_arena.click_with_fixed_retry")
     @patch(
         "daily_arena.classify_state",
@@ -2014,23 +2013,20 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
     )
     @patch("daily_arena.safe_capture_client")
     @patch("daily_arena.find_game_window", return_value=123)
-    def test_battlefield_entry_accepts_a_brightness_misclassified_home(
+    def test_battlefield_entry_dismisses_brightness_overlay_before_using_home(
         self,
         _find_window: MagicMock,
         capture_client: MagicMock,
         _classify: MagicMock,
         click_with_retry: MagicMock,
-        recognize_home: MagicMock,
     ) -> None:
         home_image = Image.new("RGB", (80, 45), color=(240, 240, 240))
         arena_image = Image.new("RGB", (80, 45), color=(20, 20, 20))
         capture_client.return_value = home_image
-        click_with_retry.return_value = (
-            True,
-            "arena_lobby",
-            arena_image,
-            "opened the arena lobby",
-        )
+        click_with_retry.side_effect = [
+            (True, "real_home", home_image, "closed promotion"),
+            (True, "arena_lobby", arena_image, "opened the arena lobby"),
+        ]
 
         with tempfile.TemporaryDirectory() as temporary:
             ok, reason = enter_battlefield(
@@ -2040,8 +2036,10 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertEqual(reason, "opened the arena lobby")
-        recognize_home.assert_called_once_with(home_image)
-        self.assertEqual(click_with_retry.call_args.args[2], "home_return_battlefield")
+        self.assertEqual(
+            [call.args[2] for call in click_with_retry.call_args_list],
+            ["dismiss_overlay", "home_return_battlefield"],
+        )
 
     @patch("daily_arena.recognize_return_home_control", return_value=(True, {"found": True}))
     @patch("daily_arena.click_with_fixed_retry")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -29,6 +30,7 @@ from free_gacha import _click_ratio
 from game_text_recognition import (
     ARENA_VICTORY_RESULT_LABEL_GROUPS,
     recognize_arena_victory_result_labels,
+    recognize_home_labels,
 )
 
 
@@ -113,6 +115,92 @@ class ArenaCartridgeButtonTests(unittest.TestCase):
                     self.assertEqual(hwnd, 123)
                     self.assertTrue(left * scale_x <= x <= right * scale_x, (x, y))
                     self.assertTrue(top * scale_y <= y <= bottom * scale_y, (x, y))
+
+
+class BattlefieldOverlayTests(unittest.TestCase):
+    def test_recorded_promotion_with_readable_home_labels_is_dismissed_before_entry(self) -> None:
+        fixtures = Path(__file__).resolve().parent / "fixtures/recognition"
+        with (
+            Image.open(fixtures / "home-special-pass-overlay-3421x1927.png") as overlay,
+            Image.open(fixtures / "home-white-video-background.png") as home,
+            Image.open(fixtures / "arena-lobby-2567x1446.png") as lobby,
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_arena.find_game_window", return_value=123),
+            patch("daily_arena.safe_capture_client", return_value=overlay),
+            patch("free_gacha.safe_capture_client", side_effect=[home, lobby]) as capture,
+            patch("free_gacha.click_client") as click,
+            patch("free_gacha.time.sleep"),
+        ):
+            self.assertTrue(recognize_home_labels(overlay)[0])
+            log_root = Path(temporary)
+            ok, reason = enter_battlefield(dry_run=False, log_root=log_root)
+            events = [json.loads(line) for line in (log_root / "events.jsonl").read_text(
+                encoding="utf-8",
+            ).splitlines()]
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(capture.call_count, 2)
+        self.assertEqual(click.call_count, 2)
+        self.assertEqual(
+            [event["key"] for event in events if event["action"] == "click"],
+            ["dismiss_overlay", "home_return_battlefield"],
+        )
+
+    def test_overlay_entry_stops_on_failure_limit_or_dry_run(self) -> None:
+        overlay = Image.new("RGB", (80, 45), (40, 40, 40))
+        cases = (
+            ("unchanged", False, [(False, "blocking_ad_overlay", overlay, "unchanged")], False, 1),
+            ("unknown", False, [(False, "unknown", overlay, "unexpected page")], False, 1),
+            ("limit", False, [(True, "blocking_ad_overlay", overlay, "next overlay")] * 6, False, 6),
+            ("dry_run", True, [(True, "blocking_ad_overlay", overlay, "planned dismissal")], True, 1),
+        )
+        for name, dry_run, results, expected_ok, count in cases:
+            with (
+                self.subTest(name=name),
+                tempfile.TemporaryDirectory() as temporary,
+                patch("daily_arena.find_game_window", return_value=123),
+                patch("daily_arena.safe_capture_client", return_value=overlay),
+                patch("daily_arena.classify_state", return_value=("blocking_ad_overlay", {})),
+                patch("daily_arena.is_returnable_battlefield", return_value=False),
+                patch("daily_arena.click_with_fixed_retry", side_effect=results) as click,
+            ):
+                ok, reason = enter_battlefield(dry_run=dry_run, log_root=Path(temporary))
+                self.assertEqual(ok, expected_ok, reason)
+                self.assertEqual(click.call_count, count)
+                self.assertTrue(all(call.args[2] == "dismiss_overlay" for call in click.call_args_list))
+                if not expected_ok:
+                    self.assertTrue((Path(temporary) / "failure.txt").exists())
+
+    def test_only_changed_overlays_allow_another_dismissal(self) -> None:
+        overlay = Image.new("RGB", (80, 45), (40, 40, 40))
+        next_overlay = Image.new("RGB", (80, 45), (80, 80, 80))
+        home = Image.new("RGB", (80, 45), (240, 240, 240))
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("daily_arena.find_game_window", return_value=123),
+            patch("daily_arena.safe_capture_client", return_value=overlay),
+            patch("daily_arena.classify_state", return_value=("home_overlay", {})),
+            patch("daily_arena.is_returnable_battlefield", return_value=False),
+            patch("daily_arena.click_with_fixed_retry") as click,
+        ):
+            def click_effect(_hwnd, image, key, *, verify, **_kwargs):
+                if key == "home_return_battlefield":
+                    self.assertIs(image, home)
+                    return True, "arena_lobby", home, "entered lobby"
+                self.assertFalse(verify("blocking_ad_overlay", image))
+                self.assertFalse(verify("unknown", home))
+                after, state = (next_overlay, "blocking_ad_overlay") if image is overlay else (home, "real_home")
+                self.assertTrue(verify(state, after))
+                return True, state, after, "dismissed overlay"
+
+            click.side_effect = click_effect
+            ok, reason = enter_battlefield(dry_run=False, log_root=Path(temporary))
+
+        self.assertTrue(ok, reason)
+        self.assertEqual(
+            [call.args[2] for call in click.call_args_list],
+            ["dismiss_overlay", "dismiss_overlay", "home_return_battlefield"],
+        )
 
 
 class BattlefieldRestaurantRouteTests(unittest.TestCase):

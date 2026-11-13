@@ -27,7 +27,6 @@ from free_gacha import (
 from game_text_recognition import (
     recognize_arena_auto_battle_labels,
     recognize_arena_cartridge_labels,
-    recognize_home_labels,
     recognize_return_home_control,
 )
 from open_game import find_game_window
@@ -148,18 +147,36 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     state, details = classify_state(image)
     image_path = logger.save_image(image, f"step-001-before-{state}.png")
     logger.event(action="classify", state=state, details=details, screenshot=str(image_path))
-    if (
-        state == "blocking_ad_overlay"
-        and details.get("classification_rule") == "blocking_overlay_brightness"
-    ):
-        is_home, home_details = recognize_home_labels(image)
-        logger.event(
-            action="classify_home_fallback",
-            matched=is_home,
-            details=home_details,
+    # Home labels remain readable behind promotions; they do not prove that
+    # the return-battlefield control is interactive. Clear the obstruction first.
+    for _ in range(6):
+        if state not in {"home_overlay", "blocking_ad_overlay"} or is_returnable_battlefield(
+            state, image,
+        ):
+            break
+        overlay_before = image
+        ok, state, image, reason = click_with_fixed_retry(
+            hwnd,
+            image,
+            "dismiss_overlay",
+            verify=lambda candidate, candidate_image: (
+                candidate in ARENA_ENTRY_TRANSITIONS | {"real_home", "restaurant_home"}
+                or is_returnable_battlefield(candidate, candidate_image)
+                or (
+                    candidate in {"home_overlay", "blocking_ad_overlay"}
+                    and _mean_region_difference(overlay_before, candidate_image) >= 2.5
+                )
+            ),
+            description="dismiss home overlay before entering battlefield",
+            dry_run=dry_run,
+            logger=logger,
+            wait_on_unknown_transition=True,
         )
-        if is_home:
-            state = "real_home"
+        if not ok or dry_run:
+            logger.event(action="stop", result="success" if ok else "error", state=state, reason=reason)
+            if not ok:
+                logger.failure(reason)
+            return ok, reason
     if state in {"arena_lobby", "arena_cartridge_bar"}:
         reason = "already in arena lobby"
         logger.event(action="stop", result="success", state=state, reason=reason)
