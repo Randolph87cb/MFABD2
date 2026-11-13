@@ -316,6 +316,64 @@ class ActivityPaidSafetyTests(unittest.TestCase):
 
 
 class ActivitySettlementTests(unittest.TestCase):
+    def test_single_roulette_click_hits_recorded_button_interior(self) -> None:
+        # Native 2304x1296 failure capture: the old (1521, 960) click hit the
+        # lower price strip. Keep the input in the central button interior.
+        for kind in ("free_roulette", "token_roulette"):
+            for size in ((2304, 1296), (3421, 1927)):
+                with (
+                    self.subTest(kind=kind, size=size),
+                    patch("reward_flow.click_client") as click,
+                    patch("activity_rewards._activity_token_balance", return_value=(1, {})),
+                    patch("activity_rewards._wait_for_image", return_value=(True, Image.new("RGB", size))),
+                    patch("activity_rewards._return_to_activity_index", return_value=(True, None, "returned")),
+                ):
+                    image = Image.new("RGB", size)
+                    ok, _image, reason = activity_rewards._handle_activity(
+                        kind, 123, image,
+                        logger=MagicMock(next_click_index=MagicMock(return_value=1)),
+                        dry_run=False,
+                    )
+                    self.assertTrue(ok, reason)
+                    click.assert_called_once()
+                    hwnd, x, y = click.call_args.args
+                    self.assertEqual(hwnd, 123)
+                    scale_x, scale_y = size[0] / 2304, size[1] / 1296
+                    self.assertTrue(1440 * scale_x <= x <= 1610 * scale_x, (x, y))
+                    self.assertTrue(900 * scale_y <= y <= 940 * scale_y, (x, y))
+
+    def test_free_roulette_timeout_does_not_replay_the_spin(self) -> None:
+        image = Image.new("RGB", (2304, 1296))
+        with (
+            patch("reward_flow.click_client") as click,
+            patch("activity_rewards._wait_for_image", return_value=(False, image)),
+            patch("activity_rewards._return_to_activity_index") as return_index,
+        ):
+            ok, _image, reason = activity_rewards._handle_activity(
+                "free_roulette", 123, image,
+                logger=MagicMock(next_click_index=MagicMock(return_value=1)),
+                dry_run=False,
+            )
+        self.assertFalse(ok)
+        self.assertIn("点击未确认生效", reason)
+        click.assert_called_once()
+        return_index.assert_not_called()
+
+    def test_free_roulette_dry_run_does_not_send_input_or_wait(self) -> None:
+        image = Image.new("RGB", (2304, 1296))
+        with (
+            patch("reward_flow.click_client") as click,
+            patch("activity_rewards._wait_for_image") as wait,
+        ):
+            ok, _image, reason = activity_rewards._handle_activity(
+                "free_roulette", 123, image,
+                logger=MagicMock(next_click_index=MagicMock(return_value=1)),
+                dry_run=True,
+            )
+        self.assertTrue(ok, reason)
+        click.assert_not_called()
+        wait.assert_not_called()
+
     def test_bingo_unchanged_exchange_retries_once_then_closes_settlement(self) -> None:
         fixture = Path(__file__).parent / "fixtures/recognition/activity-bingo-exchange-unchanged-2304x1296.png"
         with Image.open(fixture) as source:
