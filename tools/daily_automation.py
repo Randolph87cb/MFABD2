@@ -54,6 +54,7 @@ from plaza_prayer import run_plaza_prayer  # noqa: E402
 from restaurant_decor import run_restaurant_decor_recheck  # noqa: E402
 from adventure_route import run_adventure_route_recheck  # noqa: E402
 from chapter_collection import run_chapter_absorb  # noqa: E402
+from chapter_probe import run_chapter_probe_recheck  # noqa: E402
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
@@ -123,6 +124,7 @@ MASTER_STAGE_NAMES = {
     "return_home": "抽卡后返回主页",
     "quick_hunt_entry": "进入快速狩猎",
     "chapter_collection": "卢戈镇一次吸收",
+    "chapter_probe_recheck": "只读复核卢戈镇探查",
     "hunting_ground_setup": "设置狩猎场",
     "hunting_ground_confirm": "执行狩猎场",
     "adventure_route_recheck": "只读复核金币航线设置",
@@ -1364,12 +1366,20 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
             log_root=log_root / "01-return-home",
         )
-        return _require_phase(
+        absorb_reason = _require_phase(
             master,
             "chapter_collection",
             lambda *, log_root: run_chapter_absorb(dry_run=False, log_root=log_root),
             log_root=log_root / "02-lugo-absorb",
         )
+        _require_phase(
+            master,
+            "chapter_probe_recheck",
+            lambda *, log_root: run_chapter_probe_recheck(dry_run=False, log_root=log_root),
+            log_root=log_root / "03-probe-recheck",
+        )
+        # An audit cannot turn an absorption cooldown skip into collection success.
+        return absorb_reason
     if phase_id == "arena":
         return _require_phase(
             master,

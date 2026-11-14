@@ -625,7 +625,8 @@ class ChapterFlowTests(unittest.TestCase):
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
                 with patch.object(daily, "ensure_home", return_value=(True, "home")) as home, \
-                     patch.object(daily, "run_chapter_absorb", return_value=(success, "skipped:cooldown")) as runner:
+                     patch.object(daily, "run_chapter_absorb", return_value=(success, "skipped:cooldown")) as runner, \
+                     patch.object(daily, "run_chapter_probe_recheck", return_value=(True, "readonly")) as probe:
                     if success:
                         reason = daily._execute_daily_phase("chapter_collection", master=daily.MasterLogger(root), run_root=root)
                         self.assertTrue(reason.startswith("skipped:"))
@@ -634,13 +635,14 @@ class ChapterFlowTests(unittest.TestCase):
                             daily._execute_daily_phase("chapter_collection", master=daily.MasterLogger(root), run_root=root)
                     home.assert_called_once()
                     runner.assert_called_once()
+                    self.assertEqual(probe.call_count, int(success))
         for preset in ("fast", "detailed"):
             plan = get_daily_plan(preset)
             stage = next(s for s in plan if s.id == "chapter_collection")
             self.assertEqual(stage.availability, "partial")
             self.assertFalse(stage.implemented)
             self.assertTrue(stage.current_runnable)
-            self.assertEqual(stage.current_runners, ("chapter_collection.run_chapter_absorb",))
+            self.assertEqual(stage.current_runners, ("chapter_collection.run_chapter_absorb", "chapter_probe.run_chapter_probe_recheck"))
             self.assertLess([s.id for s in plan].index(stage.id), [s.id for s in plan].index("arena"))
 
 
