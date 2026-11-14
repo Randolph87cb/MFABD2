@@ -328,6 +328,10 @@ def _repeatable_selected_activity_kind(card_texts: list[str]) -> str | None:
         return "regular"
     if "拼图活动" in labels:
         return "puzzle"
+    # Settling the free spin leaves the same marked roulette selected while
+    # event tokens remain.  Reuse only the token controls on an exact card.
+    if "转盘" in labels:
+        return "token_roulette"
     return None
 
 
