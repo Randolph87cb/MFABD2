@@ -160,9 +160,10 @@ _STAGES = (
     _StageDefinition(
         id="season_activity",
         name="赛季活动快速战斗",
-        availability=MISSING,
-        unavailable_reason="当前代码没有赛季活动识别与战斗流程。",
+        availability=PARTIAL,
+        unavailable_reason="现有流程仅只读复核Blood Royale普通1未通关、重复奖励锁定、AP及普通费用并返回；尚未实现赛季快速战斗。",
         safety_gate="仅能执行已解锁的免费战斗，禁止购买体力、刷新次数或自动消耗付费货币。",
+        current_runners=("season_activity.run_season_battle_recheck",),
     ),
     _StageDefinition(
         id="weekly",

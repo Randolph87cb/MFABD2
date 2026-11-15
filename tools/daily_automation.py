@@ -55,6 +55,7 @@ from restaurant_decor import run_restaurant_decor_recheck  # noqa: E402
 from adventure_route import run_adventure_route_recheck  # noqa: E402
 from chapter_collection import run_chapter_absorb  # noqa: E402
 from chapter_probe import run_chapter_probe_recheck  # noqa: E402
+from season_activity import run_season_battle_recheck  # noqa: E402
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
@@ -131,6 +132,7 @@ MASTER_STAGE_NAMES = {
     "rice_recheck": "只读复核免费米饭",
     "crystal_cave_cycle": "执行圣石洞穴",
     "daily_arena": "每日竞技场",
+    "season_battle_recheck": "只读复核赛季普通战斗资格",
     "weekly_home": "周常前返回主页",
     "weekly_cabin": "周常小屋一次免费点赞",
     "weekly_cabin_second_like": "周常小屋第二次免费点赞",
@@ -1386,6 +1388,19 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             "daily_arena",
             lambda *, log_root: run_daily_arena(dry_run=False, log_root=log_root),
             log_root=log_root,
+        )
+    if phase_id == "season_activity":
+        _require_phase(
+            master,
+            "prepare_home",
+            lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+            log_root=log_root / "01-return-home",
+        )
+        return _require_phase(
+            master,
+            "season_battle_recheck",
+            lambda *, log_root: run_season_battle_recheck(dry_run=False, log_root=log_root),
+            log_root=log_root / "02-eligibility-recheck",
         )
     if phase_id == "weekly":
         _require_phase(
