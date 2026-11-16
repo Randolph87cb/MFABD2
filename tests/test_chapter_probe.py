@@ -30,7 +30,8 @@ class ProbeRecognitionTests(unittest.TestCase):
         cls.map_entries = probe.chapter._entries(cls.map)
 
     def test_native_counter_cost_and_unchanged_result(self):
-        for name in ("chapter-probe-map-1", "chapter-probe-map-2", "chapter-probe-map-after"):
+        for name in ("chapter-probe-map-1", "chapter-probe-map-2", "chapter-probe-map-after",
+                     "chapter-map-cooldown-six-days", "chapter-map-cooldown-six-days-2"):
             found, details = probe.recognize_probe_map(load(name))
             self.assertTrue(found, details)
             self.assertEqual((details["collected"], details["limit"]), (0, 3))

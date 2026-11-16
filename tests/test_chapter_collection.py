@@ -255,25 +255,33 @@ class ChapterHourlyCooldownTests(unittest.TestCase):
                 self.assertEqual(chapter.recognize_chapter_page(self.images[0])[0], "unknown")
 
 
-class ChapterFourDayCooldownTests(unittest.TestCase):
+class ChapterDayCooldownTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Native result frames from the 2026-11-11 failed run, not synthetic OCR.
+        # Native result frames from the 2026-11-11 and 2026-11-16 failed runs.
         cls.images = [load(name) for name in ("chapter-map-cooldown-four-days",
-                                             "chapter-map-cooldown-four-days-2")]
+                                             "chapter-map-cooldown-four-days-2",
+                                             "chapter-map-cooldown-six-days",
+                                             "chapter-map-cooldown-six-days-2")]
         cls.entries = chapter._entries(cls.images[0])
 
-    def test_native_four_day_result_is_cooldown(self):
-        for image in self.images:
+    def test_native_day_results_are_cooldown(self):
+        for image, days in zip(self.images, (4, 4, 6, 6)):
             state, details = chapter.recognize_chapter_page(image)
             self.assertEqual(state, "map_cooldown", details)
-            self.assertEqual(details["days"], 4)
+            self.assertEqual(details["days"], days)
 
-    def test_four_day_support_preserves_counter_and_page_guards(self):
+    def test_day_support_preserves_counter_and_page_guards(self):
         counter = next(e for e in self.entries if e[2] == "还剩4天")
+        for days in range(1, 7):
+            entries = [(*e[:2], f"还剩{days}天", e[3]) if e == counter else e for e in self.entries]
+            with self.subTest(days=days), patch.object(chapter, "_entries", return_value=entries):
+                state, details = chapter.recognize_chapter_page(self.images[0])
+                self.assertEqual(state, "map_cooldown", details)
+                self.assertEqual(details["days"], days)
         cases = [self.entries + [counter], [e for e in self.entries if e != counter],
                  self.entries + [(1200, 600, "确认", .99)]]
-        for text in ("还剩0天", "还剩5天", "还剩04天", "还剩14天", "还剩4小时"):
+        for text in ("还剩0天", "还剩7天", "还剩04天", "还剩14天", "还剩4小时"):
             cases.append([(*e[:2], text, e[3]) if e == counter else e for e in self.entries])
         for score in (.94, float("nan")):
             cases.append([(*e[:3], score) if e == counter else e for e in self.entries])
@@ -289,13 +297,17 @@ class ChapterFlowTests(unittest.TestCase):
     def run_flow(self, root, *, cooldown=False, fail=None, change=None, dry_run=False,
                  used=0, balance=1212183, scene="circle", day_change=False,
                  collection_images=None, arrival_image=None, map_images=None, clicks=None,
-                 talent_field_image=None, talent_images=None):
+                 talent_field_image=None, talent_images=None, result_map_images=None):
         image = Image.new("RGB", (2304, 1296))
         events = []
         checks = []
         field = dict(state="field", scene=scene, empty_slot=True, portal_hand=True, ground_portal=False)
         def wait(hwnd, *, label, recognize, **_):
             checks.append(label)
+            if result_map_images and label in {"chapter-result-1", "chapter-result-2"}:
+                candidate = result_map_images[int(label[-1]) - 1]
+                found, values = recognize(candidate)
+                return found, candidate, values
             if talent_images and label in {"chapter-before-1", "chapter-before-2"}:
                 candidate = talent_images[int(label[-1]) - 1]
                 found, values = recognize(candidate)
@@ -551,6 +563,34 @@ class ChapterFlowTests(unittest.TestCase):
             (ok, reason), events, _ = self.run_flow(root)
             self.assertTrue(ok, reason)
             self.assertEqual(events, [])
+
+    def test_six_day_result_and_pending_resume_require_home_without_recasting(self):
+        frames = [load(name) for name in ("chapter-map-cooldown-six-days", "chapter-map-cooldown-six-days-2")]
+        for fail in (None, "chapter-home"):
+            with self.subTest(fail=fail), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (ok, reason), events, checks = self.run_flow(
+                    root, balance=1217083, result_map_images=frames, fail=fail)
+                self.assertEqual(ok, fail is None, reason)
+                self.assertIn("chapter-result-2", checks)
+                self.assertEqual(events.count("chapter_cast_absorb_once"), 1)
+                path = root / "state" / (DAY + ".json")
+                record = json.loads(path.read_text(encoding="utf-8"))
+                if fail:
+                    self.assertEqual(record["status"], "action_pending")
+                    (ok, reason), events, checks = self.run_flow(root, balance=1217083, map_images=frames)
+                    self.assertTrue(ok, reason)
+                    self.assertNotIn("chapter_cast_absorb_once", events)
+                    self.assertNotIn("chapter-before-1", checks)
+                    self.assertIn("chapter-after-2", checks)
+                    self.assertIn("chapter-result-2", checks)
+                    record = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(events[-1], "chapter_return_home")
+                self.assertEqual((record["status"], record["returned_home"]), ("completed", True))
+                self.assertEqual(record["after"]["balance"], 1217073)
+                (ok, reason), events, _ = self.run_flow(root)
+                self.assertTrue(ok, reason)
+                self.assertEqual(events, [])
 
     def test_pending_recovery_mismatch_or_navigation_failure_preserves_intent(self):
         options = [dict(cooldown=False),

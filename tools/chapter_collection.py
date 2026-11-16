@@ -113,7 +113,9 @@ def recognize_chapter_page(image):
             # Reject the nonfunctional magic-circle submenu and any other map overlay.
             if any(text in {"战斗区", "魔法阵"} for _, _, text, score in entries if score >= .55):
                 return "unknown", {**details, "error": "map submenu open"}
-            value = one(r"([0-3])/3|还剩([1-4])天", (275, 1185, 375, 1230))
+            # A fresh absorb can show six days; accept its countdown through
+            # the intervening days as well as the existing hourly format.
+            value = one(r"([0-3])/3|还剩([1-6])天", (275, 1185, 375, 1230))
             if not one(r"[0-3]/3", (385, 1185, 460, 1230)):
                 return "unknown", {**details, "error": "map collection counter missing"}
             if not value:
