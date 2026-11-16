@@ -160,7 +160,8 @@ class DecorFlowTests(unittest.TestCase):
                     patch("daily_automation.ensure_home", side_effect=operation("home")), \
                     patch("daily_automation.run_business_management", side_effect=operation("business")), \
                     patch("daily_automation.run_restaurant_decor_recheck", side_effect=operation("decor")), \
-                    patch("daily_automation.run_plaza_prayer", side_effect=lambda **_: (events.append("prayer") or True, "skipped:no prayer")):
+                    patch("daily_automation.run_plaza_prayer", side_effect=lambda **_: (events.append("prayer") or True, "skipped:no prayer")), \
+                    patch("daily_automation.run_guild_nonmember_check", side_effect=lambda **_: (events.append("guild") or True, "skipped:not joined")):
                 args = dict(master=daily_automation.MasterLogger(Path(temporary)), run_root=Path(temporary))
                 if failed:
                     with self.assertRaises(daily_automation.DailyRunError):
@@ -168,7 +169,7 @@ class DecorFlowTests(unittest.TestCase):
                 else:
                     reason = daily_automation._execute_daily_phase("daily_claims", **args)
                     self.assertFalse(reason.startswith("skipped:"))
-            self.assertEqual(events, ["home", "business", "decor"] + ([] if failed else ["prayer"]))
+            self.assertEqual(events, ["home", "business", "decor"] + ([] if failed else ["prayer", "guild"]))
         for preset in ("fast", "detailed"):
             stage = next(item for item in get_daily_plan(preset) if item.id == "daily_claims")
             self.assertFalse(stage.implemented)

@@ -52,6 +52,7 @@ from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
 from plaza_prayer import run_plaza_prayer  # noqa: E402
 from restaurant_decor import run_restaurant_decor_recheck  # noqa: E402
+from guild_checkin import run_guild_nonmember_check  # noqa: E402
 from adventure_route import run_adventure_route_recheck  # noqa: E402
 from chapter_collection import run_chapter_absorb  # noqa: E402
 from chapter_probe import run_chapter_probe_recheck  # noqa: E402
@@ -141,6 +142,7 @@ MASTER_STAGE_NAMES = {
     "weekly_arcade": "周常访问街机页面",
     "weekly_lastnight": "周常末日之书一次战斗",
     "restaurant_decor_recheck": "餐馆装饰币余额与每日额度只读复核",
+    "guild_nonmember_check": "公会签到未加入前置检查",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
     "plaza_prayer": "广场每日祈求",
@@ -1474,7 +1476,13 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: run_plaza_prayer(dry_run=False, log_root=log_root),
             log_root=log_root / "04-plaza-prayer",
         )
-        return f"{decor_reason}；{prayer_reason}"
+        guild_reason = _require_phase(
+            master,
+            "guild_nonmember_check",
+            lambda *, log_root: run_guild_nonmember_check(dry_run=False, log_root=log_root),
+            log_root=log_root / "05-guild-prerequisite",
+        )
+        return f"{decor_reason}；{prayer_reason}；{guild_reason}"
     reward_operations = {
         "task_rewards": ("task_rewards", run_task_rewards),
         "activity_rewards": ("activity_rewards", run_activity_rewards),

@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+import sys
+import tempfile
+import unittest
+from contextlib import ExitStack
+from pathlib import Path
+from unittest.mock import patch
+
+from PIL import Image, ImageEnhance
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+import daily_automation as daily
+import guild_checkin as guild
+from daily_plan import get_daily_plan
+
+FIXTURES = Path(__file__).parent / "fixtures/recognition"
+
+
+class GuildRecognitionTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.source = Image.open(FIXTURES / "guild-nonmember-1.png").convert("RGB")
+        cls.entries = guild._entries(cls.source)
+
+    def test_native_nonmember_home_and_adjacent_pages(self):
+        for name, expected in (("guild-nonmember-1", True), ("guild-nonmember-2", True),
+                               ("guild-entry-loading", False), ("guild-home-before", False),
+                               ("business-management-claim-disabled-2304x1296", False),
+                               ("season-locked-1", False)):
+            with self.subTest(name=name), Image.open(FIXTURES / (name + ".png")) as image:
+                found, details = guild.recognize_nonmember_guild(image)
+                self.assertEqual(found, expected, details)
+                if found:
+                    self.assertEqual(details["reading"], {"member": False, "checkin": "unavailable"})
+        for name in ("guild-home-before", "guild-home-after"):
+            with Image.open(FIXTURES / (name + ".png")) as image:
+                found, details = guild.recognize_guild_home(image, entry=True)
+                self.assertTrue(found, details)
+                self.assertEqual(details["balances"], (177326, 110945902, 1217793))
+
+    def test_every_nonmember_anchor_is_required_and_uncertainty_rejected(self):
+        # Synthetic member/application/empty-list variants, not real member evidence.
+        for index, (_, _, text, _) in enumerate(self.entries):
+            if text not in {"公会", "推荐公会", "申请列表", "创建公会", "用公会名称搜索", "搜索", "刷新", "立即加入"}:
+                continue
+            if text == "立即加入" and self.entries[index][1] > 410:
+                continue
+            for score in (.94, float("nan")):
+                entries = list(self.entries)
+                x, y, text, _ = entries[index]
+                entries[index] = (x, y, text, score)
+                with self.subTest(index=index, score=score), patch.object(guild, "_entries", return_value=entries):
+                    self.assertFalse(guild.recognize_nonmember_guild(self.source)[0])
+            with patch.object(guild, "_entries", return_value=self.entries[:index] + self.entries[index + 1:]):
+                self.assertFalse(guild.recognize_nonmember_guild(self.source)[0])
+        for entries in (self.entries + [(380, 60, "公会", .99)],
+                        self.entries + [(1150, 650, "确认加入", .55)],
+                        self.entries + [(1150, 650, "签到", .99)],
+                        self.entries + [(1150, 650, "公会管理", .99)]):
+            with patch.object(guild, "_entries", return_value=entries):
+                self.assertFalse(guild.recognize_nonmember_guild(self.source)[0])
+
+    def test_obscured_back_menu_size_and_ocr_errors_stop(self):
+        images = [self.source.resize((1152, 648)), ImageEnhance.Brightness(self.source).enhance(.4)]
+        for box in ((203, 49, 216, 73), (170, 145, 330, 385)):
+            changed = self.source.copy()
+            changed.paste((0, 0, 0), box)
+            images.append(changed)
+        for image in images:
+            self.assertFalse(guild.recognize_nonmember_guild(image)[0])
+        with patch.object(guild, "_entries", side_effect=RuntimeError("OCR offline")):
+            found, details = guild.recognize_nonmember_guild(self.source)
+        self.assertFalse(found)
+        self.assertIn("OCR offline", details["error"])
+
+    def test_home_entry_and_all_three_balances_are_required(self):
+        with Image.open(FIXTURES / "guild-home-before.png") as image:
+            entries = guild._entries(image)
+            for region in ((400, 215, 470, 260), (1200, 40, 1350, 95),
+                           (1390, 40, 1570, 95), (1600, 40, 1770, 95)):
+                left, top, right, bottom = region
+                changed = [(x, y, text, .94 if left <= x <= right and top <= y <= bottom else score)
+                           for x, y, text, score in entries]
+                with patch.object(guild, "_entries", return_value=changed):
+                    self.assertFalse(guild.recognize_guild_home(image, entry=True)[0])
+
+
+class GuildFlowTests(unittest.TestCase):
+    def flow(self, *, failure=None, changed=False, home_changed=False, dry_run=False, bad_start=False):
+        image = Image.new("RGB", (2304, 1296))
+        labels = []
+
+        def wait(hwnd, *, label, **kwargs):
+            labels.append(label)
+            member = changed and label == "guild-nonmember-2"
+            return failure != label, image, dict(reading={"member": member, "checkin": "unavailable"},
+                balances=(1, 2, 4 if home_changed and label == "guild-home" else 3))
+
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            for name, value in (("find_game_window", 123),
+                                ("prepare_actionable_home", (True, image, "home")),
+                                ("recognize_guild_home", (not bad_start, {"balances": (1, 2, 3)}))):
+                stack.enter_context(patch.object(guild, name, return_value=value))
+            stack.enter_context(patch.object(guild, "wait_for_recognition", side_effect=wait))
+            stack.enter_context(patch.object(guild.time, "sleep"))
+            click = stack.enter_context(patch.object(guild, "click_ratio_logged"))
+            result = guild.run_guild_nonmember_check(dry_run=dry_run, log_root=Path(directory))
+            keys = [call.kwargs["key"] for call in click.call_args_list]
+            points = [call.args[2] for call in click.call_args_list]
+        return result, keys, labels, points
+
+    def test_nonmember_is_skipped_without_any_join_claim_or_state_write(self):
+        (ok, reason), keys, labels, points = self.flow()
+        self.assertTrue(ok, reason)
+        self.assertTrue(reason.startswith("skipped:"))
+        self.assertIn("未入会或签到", reason)
+        self.assertEqual(keys, ["guild_entry", "guild_return_home"])
+        self.assertEqual(points, [(434 / 2304, 180 / 1296), (208 / 2304, 60 / 1296)])
+        self.assertEqual(labels, ["guild-nonmember-1", "guild-nonmember-2", "guild-home"])
+
+    def test_unknown_joined_or_failed_observation_never_retries_or_joins(self):
+        for label, count in (("guild-nonmember-1", 1), ("guild-nonmember-2", 1), ("guild-home", 2)):
+            with self.subTest(label=label):
+                (ok, _), keys, _, _ = self.flow(failure=label)
+                self.assertFalse(ok)
+                self.assertEqual(len(keys), count)
+        for kwargs, count in ((dict(changed=True), 1), (dict(home_changed=True), 2)):
+            (ok, _), keys, _, _ = self.flow(**kwargs)
+            self.assertFalse(ok)
+            self.assertEqual(len(keys), count)
+
+    def test_dry_run_and_bad_start_send_no_input(self):
+        for dry_run, bad_start in ((True, False), (True, True), (False, True)):
+            (ok, _), keys, labels, _ = self.flow(dry_run=dry_run, bad_start=bad_start)
+            self.assertEqual(ok, not bad_start)
+            self.assertEqual((keys, labels), ([], []))
+
+    def test_real_daily_entry_order_stop_and_partial_plan(self):
+        operations = ("ensure_home", "run_business_management", "run_restaurant_decor_recheck",
+                      "run_plaza_prayer", "run_guild_nonmember_check")
+        for fail in (None, *operations):
+            calls = []
+            roots = []
+
+            def operation(name):
+                def run(**kwargs):
+                    calls.append(name)
+                    roots.append(kwargs["log_root"].name)
+                    return name != fail, "skipped:not joined" if name == operations[-1] else name
+                return run
+
+            with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                for name in operations:
+                    stack.enter_context(patch.object(daily, name, operation(name)))
+                root = Path(directory)
+                if fail:
+                    with self.assertRaises(daily.DailyRunError):
+                        daily._execute_daily_phase("daily_claims", master=daily.MasterLogger(root), run_root=root)
+                else:
+                    reason = daily._execute_daily_phase("daily_claims", master=daily.MasterLogger(root), run_root=root)
+                    self.assertIn("skipped:not joined", reason)
+                    self.assertFalse(reason.startswith("skipped:"))  # Other claims still completed.
+                    self.assertEqual(roots[-1], "05-guild-prerequisite")
+            self.assertEqual(calls, list(operations[:operations.index(fail) + 1]) if fail else list(operations))
+        for preset in ("fast", "detailed"):
+            plan = get_daily_plan(preset)
+            stage = next(s for s in plan if s.id == "daily_claims")
+            self.assertEqual(stage.availability, "partial")
+            self.assertFalse(stage.implemented)
+            self.assertTrue(stage.current_runnable)
+            self.assertIn("guild_checkin.run_guild_nonmember_check", stage.current_runners)
+            self.assertEqual([s.id for s in plan][7:10], ["weekly", "daily_claims", "task_rewards"])
+
+
+if __name__ == "__main__":
+    unittest.main()
