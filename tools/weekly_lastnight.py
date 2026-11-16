@@ -234,13 +234,18 @@ def run_weekly_lastnight(*, dry_run: bool, log_root: Path,
             raise RuntimeError("末日之书两帧伤害冲突，禁止离开或重放")
         samples.append(str(logger.save_image(image, "lastnight-result-verified-2.png")))
         click(2060, 1210, "lastnight_leave_result")
-        image, details = wait({"field_spawn", "field", "new_record"}, "lastnight-return-field")
+        image, details = wait({"field_spawn", "field", "new_record", "ready"}, "lastnight-return-field")
         if details["state"] == "new_record":
             if details["damage"] != damage:
                 raise RuntimeError("末日之书新纪录与结算伤害冲突，保留未决")
             # Dismiss the observed PC presentation by its title, once only.
             click(1535, 490, "lastnight_dismiss_new_record")
-            image, _ = wait({"field_spawn", "field"}, "lastnight-after-new-record")
+            image, details = wait({"field_spawn", "field", "ready"}, "lastnight-after-new-record")
+        if details["state"] == "ready":
+            # Leaving a result can return to the verified battle menu. Its
+            # top-left back leads to the field; never press battle again.
+            click(208, 60, "lastnight_close_ready")
+            image, _ = wait({"field_spawn", "field"}, "lastnight-after-ready")
         click(2160, 68, "lastnight_return_home")
         ok, image, _ = wait_for_recognition(hwnd, logger=logger, recognize=_home,
                                              label="lastnight-final-home", timeout=45)

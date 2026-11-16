@@ -25,6 +25,7 @@ class LastNightTests(unittest.TestCase):
     def test_native_pages_and_adjacent_negatives(self):
         cases = {"collection": "collection", "collection-selected": "collection",
                  "field": "field_spawn", "ready": "ready", "ready-return": "ready",
+                 "ready-after-result": "ready",
                  "battle": "battle", "result": "result", "result-stable": "result",
                  "help": "unknown", "home": "unknown"}
         for name, expected in cases.items():
@@ -61,17 +62,22 @@ class LastNightTests(unittest.TestCase):
 
     def run_flow(self, root, *, fail_at=None, conflict=False, reserve_error=False,
                  complete_error=False, dry_run=False, cross_at=None, new_record=False,
-                 new_record_damage=700068622):
+                 new_record_damage=700068622, return_ready_image=None):
         events = []
         image = Image.new("RGB", (2304, 1296))
         states = ["collection", "field_spawn", "ready", "battle", "result", "result", "field_spawn", "home"]
         if new_record:
             states.insert(6, "new_record")
+        if return_ready_image is not None:
+            states.insert(7 if new_record else 6, "ready")
         calls = 0
         def wait(*_, **kwargs):
             nonlocal calls
             index = calls
             calls += 1
+            if index >= 6 and states[index] == "ready" and return_ready_image is not None:
+                found, details = kwargs["recognize"](return_ready_image)
+                return found and index != fail_at, return_ready_image, details
             damage = new_record_damage if states[index] == "new_record" else (
                 700068623 if conflict and index == 5 else 700068622)
             return index != fail_at, image, dict(state=states[index], point=(1330, 360), damage=damage)
@@ -139,6 +145,26 @@ class LastNightTests(unittest.TestCase):
                 self.assertEqual(record["status"], "action_pending" if options else "completed")
                 if options:
                     self.assertNotIn("lastnight_return_home", events)
+
+    def test_native_ready_after_result_backs_to_field_once_and_requires_home(self):
+        with Image.open(FIXTURES / "lastnight-ready-after-result-2304x1296.png") as image:
+            # The real 2026-11-16 leave action returned to the ready menu.
+            for new_record, failure in ((False, None), (False, 7), (False, 8), (True, None)):
+                with self.subTest(new_record=new_record, failure=failure), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)
+                    (ok, reason), events = self.run_flow(
+                        root, return_ready_image=image, new_record=new_record, fail_at=failure)
+                    self.assertEqual(ok, failure is None, reason)
+                    self.assertEqual(events.count("lastnight_start_once"), 1)
+                    self.assertEqual(events.count("lastnight_leave_result"), 1)
+                    self.assertEqual(events.count("lastnight_close_ready"), 1)
+                    record = json.loads((root / "state" / f"{WEEK}.json").read_text(encoding="utf-8"))
+                    self.assertEqual(record["status"], "completed" if failure is None else "action_pending")
+                    if failure is None:
+                        self.assertEqual(events[-2:], ["lastnight_close_ready", "lastnight_return_home"])
+                        self.assertTrue(record["returned_home"])
+                    elif failure == 7:
+                        self.assertNotIn("lastnight_return_home", events)
 
     def test_native_new_record_requires_full_identity_and_undimmed_badge(self):
         for name in ("lastnight-new-record", "lastnight-new-record-stable"):
