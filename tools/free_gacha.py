@@ -1533,7 +1533,9 @@ def run_free_gacha(
                 description="open gacha from home",
                 dry_run=dry_run,
                 logger=logger,
-                extend_on_visual_progress=True,
+                # Animated home art and the music bar can change without navigation.
+                # Use state verification and bounded retries for this safe entry.
+                extend_on_visual_progress=False,
             )
             if not ok:
                 logger.failure(reason)

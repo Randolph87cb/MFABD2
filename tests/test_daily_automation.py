@@ -1173,6 +1173,67 @@ class DailyAutomationStateTests(unittest.TestCase):
 
 
 class DailyAutomationEntryRecognitionTests(unittest.TestCase):
+    def test_gacha_entry_retries_despite_home_animation_and_remains_bounded(self) -> None:
+        for after_first, after_second, expected_clicks, expected_reason in (
+            ("real_home", "gacha_page", 2, "all requested free gacha targets completed"),
+            ("real_home", "real_home", 2, "did not take effect after 2 clicks"),
+            ("unknown", "gacha_page", 1, "unexpected state unknown; retry cancelled"),
+        ):
+            with self.subTest(after_first=after_first, after_second=after_second):
+                source = Image.new("RGB", (200, 100), color=(180, 180, 180))
+                page = Image.new("RGB", source.size)
+                home_frames = [
+                    Image.new("RGB", source.size, color=(shade, shade, shade))
+                    for shade in (140, 90, 30)
+                ]
+                clock = [0.0]
+                captures = [0]
+
+                def capture(*_args: object, **_kwargs: object) -> Image.Image:
+                    # Include recognition latency without real waiting or game access.
+                    clock[0] += 3.0
+                    captures[0] += 1
+                    if clicks.call_count >= 2 and after_second == "gacha_page":
+                        return page
+                    return source if captures[0] == 1 else home_frames[(captures[0] - 2) % 3]
+
+                def classify(image: Image.Image) -> tuple[str, dict[str, object]]:
+                    if image is page:
+                        return "gacha_page", {}
+                    return ("real_home" if image is source else after_first), {}
+
+                def sleep(seconds: float) -> None:
+                    clock[0] += seconds
+
+                logger = MagicMock()
+                logger.save_image.return_value = Path("offline.png")
+                with (
+                    patch("free_gacha.find_game_window", return_value=123),
+                    patch("free_gacha.RunLogger", return_value=logger),
+                    patch("free_gacha.safe_capture_client", side_effect=capture),
+                    patch("free_gacha.classify_state", side_effect=classify),
+                    patch("free_gacha.detect_home_reward_notification", return_value=(True, {})),
+                    patch("free_gacha.detect_selected_gacha_target", return_value="costume"),
+                    patch("free_gacha.detect_all_free_gacha_availability", return_value=("used", {})),
+                    patch("free_gacha._click_ratio") as clicks,
+                    patch("free_gacha.click_client") as native_click,
+                    patch("free_gacha.time.monotonic", side_effect=lambda: clock[0]),
+                    patch("free_gacha.time.sleep", side_effect=sleep),
+                ):
+                    result = run_free_gacha(
+                        targets=["costume"],
+                        timeout=360.0,
+                        interval=0.0,
+                        dry_run=False,
+                        test_mode=False,
+                        log_root=Path("unused-offline-log"),
+                    )
+
+                self.assertIn(expected_reason, result.reason)
+                self.assertEqual(clicks.call_count, expected_clicks)
+                self.assertTrue(all(call.args[2] == "home_gacha" for call in clicks.call_args_list))
+                native_click.assert_not_called()
+
     @patch("free_gacha._click_ratio")
     @patch("free_gacha.time.sleep")
     @patch("free_gacha.safe_capture_client")
