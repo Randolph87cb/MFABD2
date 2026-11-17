@@ -383,24 +383,32 @@ def enter_arena_from_plaza(*, dry_run: bool, log_root: Path) -> tuple[bool, str]
             ok = True
             reason = "opened battlefield quick cartridge by shortcut"
         else:
-            _click_ratio(
-                hwnd,
-                bar_image,
-                "battlefield_cartridge",
-                dry_run=False,
-                logger=logger,
-            )
-            next_state, bar_image = wait_for_state(
-                hwnd,
-                logger,
-                expected={"arena_cartridge_bar"},
-                timeout=20.0,
-                interval=1.0,
-                label="battlefield-quick-cartridge-button",
-            )
-            if next_state == "arena_cartridge_bar":
-                ok = True
-                reason = "opened battlefield quick cartridge by visible button"
+            for attempt in range(1, 3):
+                # Recheck the latest frame before each fallback click. An ignored
+                # input may be retried, but an unrecognized page must not be clicked.
+                if not is_returnable_battlefield(next_state, bar_image):
+                    reason = f"battlefield no longer recognized before cartridge button attempt {attempt}; current state={next_state}"
+                    break
+                _click_ratio(
+                    hwnd,
+                    bar_image,
+                    "battlefield_cartridge",
+                    dry_run=False,
+                    logger=logger,
+                    attempt=attempt,
+                )
+                next_state, bar_image = wait_for_state(
+                    hwnd,
+                    logger,
+                    expected={"arena_cartridge_bar"},
+                    timeout=20.0,
+                    interval=1.0,
+                    label=f"battlefield-quick-cartridge-button-{attempt}",
+                )
+                if next_state == "arena_cartridge_bar":
+                    ok = True
+                    reason = "opened battlefield quick cartridge by visible button"
+                    break
         if not ok:
             logger.failure(reason)
             return False, reason

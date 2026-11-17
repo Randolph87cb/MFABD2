@@ -2253,7 +2253,7 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
         self.assertIn("arena lobby reached", reason)
         post_quick_cartridge.assert_called_once_with(123, dry_run=False, logger=ANY)
         self.assertEqual(wait_for_state.call_count, 2)
-        self.assertEqual(click_ratio.call_args_list[0].args[2], "plaza_cartridge")
+        self.assertEqual(click_ratio.call_args_list[0].args[2], "battlefield_cartridge")
         self.assertEqual(click_ratio.call_args_list[1].args[2], "cartridge_first_gameplay")
 
     @patch("daily_arena.confirm_optional_rank_change", return_value=(True, "done"))

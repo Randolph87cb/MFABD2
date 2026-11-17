@@ -35,6 +35,48 @@ from game_text_recognition import (
 
 
 class ArenaCartridgeButtonTests(unittest.TestCase):
+    def test_battlefield_button_retries_only_while_the_scene_remains_returnable(self) -> None:
+        field = Image.new("RGB", (80, 45), (10, 10, 10))
+        after_shortcut = Image.new("RGB", field.size, (20, 20, 20))
+        after_click = Image.new("RGB", field.size, (30, 30, 30))
+        bar = Image.new("RGB", field.size, (40, 40, 40))
+        lobby = Image.new("RGB", field.size, (50, 50, 50))
+        cases = (
+            ("retry succeeds", [True, True, True], [("unknown", after_click), ("arena_cartridge_bar", bar)], True, 2),
+            ("two clicks ignored", [True, True, True], [("unknown", after_click)] * 2, False, 2),
+            ("changed after shortcut", [True, False], [("unknown", after_click)], False, 0),
+            ("changed after click", [True, True, False], [("unknown", after_click)], False, 1),
+        )
+        for name, returnable, click_results, expected_ok, button_clicks in cases:
+            with (
+                self.subTest(name=name),
+                tempfile.TemporaryDirectory() as temporary,
+                patch("daily_arena.find_game_window", return_value=123),
+                patch("daily_arena.safe_capture_client", side_effect=[field, lobby]),
+                patch("daily_arena.classify_state", side_effect=[("unknown", {}), ("arena_lobby", {})]),
+                patch("daily_arena.is_returnable_battlefield", side_effect=returnable),
+                patch("daily_arena.post_quick_cartridge_key"),
+                patch("daily_arena.wait_for_state", side_effect=[("unknown", after_shortcut), *click_results]),
+                patch("daily_arena._click_ratio") as click,
+                patch("daily_arena.click_with_fixed_retry", return_value=(True, "arena_cartridge_bar", bar, "selected gameplay")) as select,
+                patch("daily_arena.time.sleep"),
+            ):
+                ok, reason = enter_arena_from_plaza(dry_run=False, log_root=Path(temporary))
+
+                self.assertEqual(ok, expected_ok, reason)
+                entries = [call for call in click.call_args_list if call.args[2] == "battlefield_cartridge"]
+                self.assertEqual(len(entries), button_clicks)
+                if entries:
+                    self.assertIs(entries[0].args[1], after_shortcut)
+                if len(entries) == 2:
+                    self.assertIs(entries[1].args[1], after_click)
+                if expected_ok:
+                    self.assertEqual(select.call_args.args[2], "cartridge_gameplay_tab")
+                    self.assertEqual(click.call_args_list[-1].args[2], "cartridge_first_gameplay")
+                else:
+                    select.assert_not_called()
+                    self.assertTrue((Path(temporary) / "failure.txt").exists())
+
     @patch("free_gacha.click_client")
     def test_battlefield_fallback_hits_p_icon_then_continues_to_arena(
         self, click_client: MagicMock
