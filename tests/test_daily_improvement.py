@@ -67,10 +67,11 @@ class DailyImprovementTests(unittest.TestCase):
         self.assertEqual(call["label"], "codex-improvement")
         self.assertIn("tools/daily_automation.py", call["prompt"])
         self.assertIn("current_runners", call["prompt"])
+        self.assertIn("先评估魔兽追踪者战斗", call["prompt"])
         first = self.read_days()["2026-10-18"]
         self.assertEqual(first["thread_id"], "new-thread")
         self.assertEqual(first["status"], "turn_completed")
-        self.assertEqual(first["candidates"][0], "quick_hunt")
+        self.assertEqual(first["candidates"][:2], ["season_activity", "quick_hunt"])
         self.assertNotIn("equipment_daily", first["candidates"])
         self.assertNotIn("arbitrage", first["candidates"])
         self.improve()  # A fresh invocation reads the claim from disk.

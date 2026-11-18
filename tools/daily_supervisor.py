@@ -476,7 +476,7 @@ def improvement_prompt(
 
 要求：
 1. 先读项目规则、路线图、今日日志、相关实现和参考仓库；记录双方提交版本、具体业务差距、选定的唯一模块/子功能和验收标准。参考仓库仅用于比较业务语义，禁止修改、拉取或切换它，禁止照搬移动端坐标或 Android 架构。
-2. 优先推进列表中的第一个可安全落地的差距；若缺少 PC 证据、白名单或前置能力，在路线图写明原因，继续评估下一个候选。每轮最多交付一个模块/子功能，不附带重构或扩展其他模块。
+2. 若候选包含赛季活动（season_activity），先评估魔兽追踪者战斗的最小子功能，核对当前赛季是否开放、已有队伍是否可用、战斗是否免费，以及能否验证结算与返回。魔兽战斗已实现时，继续按列表评估下一候选。候选缺少 PC 证据、白名单或前置能力时，在路线图记录原因并继续评估下一项。每轮最多交付一个可安全落地的模块/子功能，不附带重构或扩展其他模块。
 3. 先使用已有截图做离线识别回放；确需补证据时，只允许目标模块的 PC 截图采集和最小单步 Demo。禁止重跑整套日常、--force 或已完成的消耗动作；不得修改/重置今日 daily_automation.json 来伪造完成或重放阶段。
 4. 沿用路线图的 PC 证据门、免费动作和失败即停规则。装备、精炼、分解、商店交易等仍须已有明确白名单与上限；本次增量开发授权不代替这些白名单。资源不足、未知页面或证据不足时保留阻塞记录，不能虚报实现或盲点。
 5. 验证通过的模块必须接入 tools/daily_automation.py 的真实执行入口和 tools/daily_plan.py 的 current_runners，并维护阶段状态与顺序；只写文件或改 availability 不算交付。仅补齐子功能时继续标为 partial；无 PC 闭环证据的模块保持关闭。不要修改监督器去增加当日重跑；正式流程由下一游戏日的计划任务加载新代码。
@@ -530,6 +530,7 @@ def improve_after_success(
             if stage.enabled and not stage.implemented
             and stage.id not in {"equipment_daily", "arbitrage", "close_game"}
         ]
+        candidates.sort(key=lambda stage: stage["id"] != "season_activity")
         if not candidates:
             logger.event("improvement_skipped", "当前预设没有可自动推进的缺失模块；安全白名单仍按路线图处理")
             return
