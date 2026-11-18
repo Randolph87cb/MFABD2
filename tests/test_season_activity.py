@@ -45,6 +45,41 @@ class SeasonRecognitionTests(unittest.TestCase):
                 readings.append(details["balances"])
         self.assertEqual(readings, [(176606, 110404802, 1217083)] * 2)
 
+    def test_native_home_stylized_blood_low_ocr_confidence(self):
+        # 2026-11-18 stopped before any input: BLOOD scored only .87537,
+        # while the native logo, ROYALE, subtitle and balances were intact.
+        with Image.open(FIXTURES / "season-home-blood-low-confidence.png") as image:
+            ok, details = season.recognize_season_home(image, entry=True)
+        self.assertTrue(ok, details)
+        self.assertEqual(details["balances"], (177351, 111590902, 1218693))
+
+    def test_home_entry_still_requires_logo_text_and_balances(self):
+        with Image.open(FIXTURES / "season-home-blood-low-confidence.png") as source:
+            image = source.convert("RGB")
+        entries = season._entries(image)
+        with patch.object(season, "_recognize_actionable_home", return_value=(True, {})):
+            # Even convincing OCR cannot authorize an obscured logo.
+            for color in ("black", "white"):
+                changed = image.copy()
+                changed.paste(color, (1910, 880, 2110, 935))
+                confident = [(x, y, text, .99 if text == "BLOOD" else score)
+                             for x, y, text, score in entries]
+                with self.subTest(color=color), patch.object(season, "_entries", return_value=confident):
+                    self.assertFalse(season.recognize_season_home(changed, entry=True)[0])
+            for label in ("ROYALE", "魔兽追踪者解锁", "177,351"):
+                for replacement, score, duplicate in ((label, .94, False),
+                                                       (label, float("nan"), False),
+                                                       ("OTHER", .99, False),
+                                                       (label, .99, True)):
+                    modified = [(x, y, replacement if text == label else text,
+                                 score if text == label else confidence)
+                                for x, y, text, confidence in entries]
+                    if duplicate:
+                        modified.extend(e for e in entries if e[2] == label)
+                    with self.subTest(label=label, replacement=replacement, score=score,
+                                      duplicate=duplicate), patch.object(season, "_entries", return_value=modified):
+                        self.assertFalse(season.recognize_season_home(image, entry=True)[0])
+
     def test_ocr_uncertainty_conflicts_unsafe_and_unseen_eligibility_rejected(self):
         for replacement, score, duplicate in (("5/5", .94, False), ("5/5", float("nan"), False),
                                                ("5/5", .99, True), ("6/5", .99, False),

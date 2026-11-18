@@ -31,11 +31,16 @@ def recognize_season_home(image, *, entry=False):
             (1200, 40, 1350, 95), (1390, 40, 1570, 95), (1600, 40, 1770, 95))]
         if not all(balances):
             return False, {**details, "error": "unverified home balances"}
-        if entry and not (
-                _one(entries, "BLOOD", (1970, 890, 2050, 930))
-                and _one(entries, "ROYALE", (1970, 940, 2050, 980))
-                and _one(entries, "魔兽追踪者解锁", (1900, 980, 2120, 1025))):
-            return False, {**details, "error": "unverified Blood Royale home entry"}
+        if entry:
+            # The stylized BLOOD lettering has unstable OCR confidence even
+            # on an intact entry. Verify its native artwork, keeping the
+            # adjacent text and balance confidence requirements unchanged.
+            logo_difference = _difference(image, "season-home-blood-logo", (1910, 880, 2110, 935))
+            details = {**details, "blood_logo_difference": logo_difference}
+            if not (logo_difference < 10
+                    and _one(entries, "ROYALE", (1970, 940, 2050, 980))
+                    and _one(entries, "魔兽追踪者解锁", (1900, 980, 2120, 1025))):
+                return False, {**details, "error": "unverified Blood Royale home entry"}
         return True, {**details, "balances": tuple(int(m.group().replace(",", "")) for m in balances)}
     except Exception as exc:
         return False, {"error": repr(exc)}
