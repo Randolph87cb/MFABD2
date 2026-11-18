@@ -63,6 +63,8 @@ def recognize_season_page(image):
         if (one("帮助", (370, 30, 450, 90))
                 and one("行程", (580, 30, 660, 90))
                 and (one("活动服装", (1680, 30, 1770, 90))
+                     # Observed when the last-day countdown expands to hours/minutes.
+                     or one("活动服装", (1540, 30, 1690, 90))
                      or one("活动服装", (1910, 30, 2020, 90)))
                 and all(one(text, (x - 65, 1120, x + 65, 1180)) for text, x in (
                     ("剧情", 588), ("普通战斗", 813), ("挑战战斗", 1039),

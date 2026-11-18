@@ -45,6 +45,36 @@ class SeasonRecognitionTests(unittest.TestCase):
                 readings.append(details["balances"])
         self.assertEqual(readings, [(176606, 110404802, 1217083)] * 2)
 
+    def test_native_main_last_day_header(self):
+        # 2026-11-18: the wider hours/minutes countdown shifts 活动服装 left.
+        with Image.open(FIXTURES / "season-main-last-day.png") as image:
+            state, details = season.recognize_season_page(image)
+        self.assertEqual(state, "main", details)
+
+    def test_last_day_main_still_requires_identity_and_unobstructed_controls(self):
+        with Image.open(FIXTURES / "season-main-last-day.png") as source:
+            image = source.convert("RGB")
+        entries = season._entries(image)
+        for label in ("帮助", "行程", "活动服装", "剧情", "普通战斗", "挑战战斗",
+                      "魔兽追踪者", "任务", "活动商店"):
+            for score in (.94, float("nan")):
+                changed = [(x, y, text, score if text == label else confidence)
+                           for x, y, text, confidence in entries]
+                with self.subTest(label=label, score=score), patch.object(season, "_entries", return_value=changed):
+                    self.assertEqual(season.recognize_season_page(image)[0], "unknown")
+        for changed in (
+                entries + [(1628, 60, "活动服装", .99)],
+                entries + [(1150, 600, "确认购买", .99)],
+                [(1810 if text == "活动服装" else x, y, text, score)
+                 for x, y, text, score in entries]):
+            with patch.object(season, "_entries", return_value=changed):
+                self.assertEqual(season.recognize_season_page(image)[0], "unknown")
+        for box in ((185, 395, 800, 705), (203, 49, 216, 73)):
+            changed = image.copy()
+            changed.paste("black", box)
+            with self.subTest(box=box), patch.object(season, "_entries", return_value=entries):
+                self.assertEqual(season.recognize_season_page(changed)[0], "unknown")
+
     def test_native_home_stylized_blood_low_ocr_confidence(self):
         # 2026-11-18 stopped before any input: BLOOD scored only .87537,
         # while the native logo, ROYALE, subtitle and balances were intact.
