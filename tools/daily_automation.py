@@ -592,6 +592,11 @@ def overlay_transition_succeeded(before: Any, next_state: str, after: Any) -> bo
         return True
     if next_state in {"home_overlay", "blocking_ad_overlay"}:
         return _mean_region_difference(before, after) >= 2.5
+    if next_state in {"unknown", "gacha_animation"}:
+        # Login ads can lead directly to a Pickup promotion. Hand it back to
+        # ensure_home only when entry OCR confirms it, never on artwork alone.
+        entry_state, _details = recognize_entry_status(after)
+        return entry_state == "startup_promotion"
     return False
 
 
