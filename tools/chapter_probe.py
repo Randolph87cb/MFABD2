@@ -133,8 +133,8 @@ def run_chapter_probe_recheck(*, dry_run: bool, log_root: Path):
         image, details = wait(page({"collection", "chapter_card"}), "probe-collection")
         if details["state"] == "collection":
             click(image, (2268, 164), "probe_story_scroll")
-            image, _ = wait(page({"chapter_card"}), "probe-story-card")
-        click(image, (320, 670), "probe_chapter_one")
+            image, details = wait(page({"chapter_card"}), "probe-story-card")
+        click(image, details["chapter_one_point"], "probe_chapter_one")
         image, _ = wait(page({"field"}), "probe-arrival", timeout=90)
         click(image, (247, 201), "probe_map")
         image, before = two(recognize_probe_map, "probe-map", ("collected", "limit"))

@@ -82,18 +82,22 @@ class ProbeRecognitionTests(unittest.TestCase):
 
 
 class ProbeFlowTests(unittest.TestCase):
-    def run_flow(self, *, fail=None, change=None, nonempty=False, dry_run=False, no_window=False):
+    def run_flow(self, *, fail=None, change=None, nonempty=False, dry_run=False, no_window=False,
+                 collection_image=None):
         home = load("chapter-probe-home")
         calls = []
         captures = []
 
         def wait(hwnd, *, recognize, label, **kwargs):
             captures.append(label)
+            if collection_image is not None and label in {"probe-collection", "probe-story-card"}:
+                found, details = recognize(collection_image)
+                return found, collection_image, details
             details = {"state": "field", "empty_slot": not nonempty}
             if label == "probe-collection":
                 details = {"state": "collection"}
             elif label == "probe-story-card":
-                details = {"state": "chapter_card"}
+                details = {"state": "chapter_card", "chapter_one_point": (320, 670)}
             elif label.startswith("probe-map"):
                 details = {"collected": 0, "limit": 3}
             elif label.startswith("probe-talent-"):
@@ -127,6 +131,13 @@ class ProbeFlowTests(unittest.TestCase):
         # Card text/cost/upgrade is never an input target, even with ample potions.
         self.assertFalse(any(940 < point[1] * 1296 < 1240 and point[0] * 2304 < 1700 for _, point in calls))
         self.assertEqual(sum(key == "probe_talent_page" for key, _ in calls), 1)
+
+    def test_reopened_scrolled_collection_uses_verified_chapter_point(self):
+        result, calls, captures = self.run_flow(collection_image=load("chapter-collection-playing-scrolled"))
+        self.assertTrue(result[0], result)
+        self.assertIn(("probe_chapter_one", (320 / 2304, 552 / 1296)), calls)
+        self.assertNotIn("probe_story_scroll", [key for key, _ in calls])
+        self.assertNotIn("probe-story-card", captures)
 
     def test_each_failed_observation_stops_without_retrying_an_input(self):
         _, successful, labels = self.run_flow()

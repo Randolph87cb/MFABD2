@@ -100,10 +100,14 @@ def recognize_chapter_page(image):
         if one("游戏卡珍藏集", (285, 30, 505, 90)):
             # The current chapter has a play icon / 游戏中 overlay on its art.
             # Match that observed variant without relaxing the card identity.
-            if (one("剧情游戏卡20/20", (185, 480, 410, 545))
-                    and min(_difference(image, name, (230, 610, 410, 725))
-                            for name in ("chapter-card-one", "chapter-card-one-playing")) < 8):
-                return "chapter_card", details
+            # Reopening the collection can retain its scroll position. Only
+            # accept the two recorded layouts, with heading and art shifted
+            # together, and carry their verified click point to both callers.
+            for dy in (0, -118):
+                if (one("剧情游戏卡20/20", (185, 480 + dy, 410, 545 + dy))
+                        and min(_difference(image, name, (230, 610 + dy, 410, 725 + dy))
+                                for name in ("chapter-card-one", "chapter-card-one-playing")) < 8):
+                    return "chapter_card", {**details, "chapter_one_point": (320, 670 + dy)}
             return "collection", details
         if (one("安全卢戈镇", (280, 30, 490, 90))
                 and one("普通", (580, 30, 655, 90))
@@ -270,7 +274,7 @@ def run_chapter_absorb(*, dry_run: bool, log_root: Path, state_root=None, now=No
         if details["state"] == "collection":
             click(image, (2268, 164), "chapter_story_scroll")
             image, details = wait({"chapter_card"}, "chapter-story-card")
-        click(image, (320, 670), "chapter_one")
+        click(image, details["chapter_one_point"], "chapter_one")
         image, details = wait({"field"}, "chapter-arrival", timeout=90)
         click(image, (247, 201), "chapter_map")
         # Minutes may tick down normally; state, day/hour format and hours must

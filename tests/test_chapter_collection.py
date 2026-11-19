@@ -46,7 +46,7 @@ class ChapterRecognitionTests(unittest.TestCase):
     def test_native_navigation_and_actual_absorb_result(self):
         expected = {
             "chapter-collection-top": "chapter_card", "chapter-field-board": "field",
-            "chapter-collection-playing": "chapter_card", "chapter-collection-playing-scrolled": "collection",
+            "chapter-collection-playing": "chapter_card", "chapter-collection-playing-scrolled": "chapter_card",
             "chapter-field-circle": "field", "chapter-map-ready": "map_ready",
             "chapter-field-offset": "field",
             "chapter-field-companions": "field",
@@ -216,6 +216,33 @@ class ChapterRecognitionTests(unittest.TestCase):
                     self.assertEqual(chapter.recognize_chapter_page(candidate)[0], "unknown")
 
 
+class ChapterScrolledCardTests(unittest.TestCase):
+    def test_scrolled_card_requires_matching_heading_art_and_safe_page(self):
+        image = load("chapter-collection-playing-scrolled")
+        entries = chapter._entries(image)
+        state, details = chapter.recognize_chapter_page(image)
+        self.assertEqual(state, "chapter_card")
+        self.assertEqual(details["chapter_one_point"], (320, 552))
+        heading = next(e for e in entries if e[2] == "剧情游戏卡20/20")
+        for changed in (
+            [e for e in entries if e != heading], entries + [heading],
+            [(*e[:3], .94) if e == heading else e for e in entries],
+            [(*e[:3], float("nan")) if e == heading else e for e in entries],
+            [(e[0], e[1] + 118, e[2], e[3]) if e == heading else e for e in entries],
+            entries + [(1200, 600, "确认", .99)],
+        ):
+            with self.subTest(changed=changed), patch.object(chapter, "_entries", return_value=changed):
+                self.assertNotEqual(chapter.recognize_chapter_page(image)[0], "chapter_card")
+        for neighbour in (False, True):
+            candidate = image.copy()
+            # A neighbouring card or an occluded first card cannot supply the target.
+            candidate.paste(image.crop((566, 492, 746, 607)) if neighbour else "black",
+                            (230, 492, 410, 607))
+            with patch.object(chapter, "_entries", return_value=entries):
+                self.assertNotEqual(chapter.recognize_chapter_page(candidate)[0], "chapter_card")
+        self.assertEqual(chapter.recognize_chapter_page(image.resize((1280, 720)))[0], "unknown")
+
+
 class ChapterHourlyCooldownTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -330,7 +357,7 @@ class ChapterFlowTests(unittest.TestCase):
             if label == "chapter-collection":
                 values = dict(state="collection")
             elif label == "chapter-story-card":
-                values = dict(state="chapter_card")
+                values = dict(state="chapter_card", chapter_one_point=(320, 670))
             elif label.startswith("chapter-map-") or label.startswith("chapter-result-") and label[-1:].isdigit():
                 values = dict(state="map_cooldown" if cooldown or label.startswith("chapter-result-") else "map_ready", days=2 if cooldown or label.startswith("chapter-result-") else None)
             elif label == "chapter-portal":
@@ -417,12 +444,15 @@ class ChapterFlowTests(unittest.TestCase):
     def test_current_chapter_overlay_navigates_with_native_recognition(self):
         playing = load("chapter-collection-playing")
         scrolled = load("chapter-collection-playing-scrolled")
-        for frames in ((playing,), (scrolled, playing)):
-            with self.subTest(scrolled=len(frames) == 2), tempfile.TemporaryDirectory() as temporary:
-                (ok, reason), events, _ = self.run_flow(Path(temporary), cooldown=True, collection_images=frames)
+        for image, point in ((playing, (320, 670)), (scrolled, (320, 552))):
+            with self.subTest(point=point), tempfile.TemporaryDirectory() as temporary:
+                clicks = []
+                (ok, reason), events, _ = self.run_flow(Path(temporary), cooldown=True,
+                                                      collection_images=(image,), clicks=clicks)
                 self.assertTrue(ok, reason)
-                self.assertEqual(events.count("chapter_story_scroll"), len(frames) - 1)
+                self.assertNotIn("chapter_story_scroll", events)
                 self.assertEqual(events.count("chapter_one"), 1)
+                self.assertIn(("chapter_one", (point[0] / 2304, point[1] / 1296)), clicks)
                 self.assertNotIn("chapter_cast_absorb_once", events)
 
     def test_offset_arrival_reaches_map_cooldown_and_returns_home(self):
