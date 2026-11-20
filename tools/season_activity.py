@@ -1,4 +1,4 @@
-"""Audit Blood Royale normal battle 1 eligibility; never start any battle."""
+"""Audit Blood Royale eligibility; skip the observed unsupported Cheer On season."""
 
 from __future__ import annotations
 
@@ -40,7 +40,17 @@ def recognize_season_home(image, *, entry=False):
             if not (logo_difference < 10
                     and _one(entries, "ROYALE", (1970, 940, 2050, 980))
                     and _one(entries, "魔兽追踪者解锁", (1900, 980, 2120, 1025))):
-                return False, {**details, "error": "unverified Blood Royale home entry"}
+                # 2026-11-20: the retained PC frame shows a new season.
+                # This identity only permits a no-input skip, never navigation
+                # or reuse of Blood Royale's eligibility/battle coordinates.
+                cheer_difference = _difference(image, "season-home-cheer-logo", (1910, 895, 2105, 970))
+                details = {**details, "cheer_logo_difference": cheer_difference}
+                if (cheer_difference < 6
+                        and _one(entries, r"D-[1-9]\d?", (1950, 840, 2070, 890))
+                        and _one(entries, "普通战斗解锁", (1900, 980, 2120, 1025))):
+                    details = {**details, "unsupported_season": "Cheer On!"}
+                else:
+                    return False, {**details, "error": "unverified season home entry"}
         return True, {**details, "balances": tuple(int(m.group().replace(",", "")) for m in balances)}
     except Exception as exc:
         return False, {"error": repr(exc)}
@@ -128,6 +138,12 @@ def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
         found, before = recognize_season_home(image, entry=True)
         if not found:
             raise RuntimeError("赛季入口/主页余额未确认；未输入")
+        if before.get("unsupported_season"):
+            reason = (f"skipped:{before['unsupported_season']}为尚未实现的新赛季；"
+                      "已确认主页入口及余额，未进入活动、未战斗")
+            logger.event(action="stop", result="success", reason=reason, battle=False,
+                         details=before)
+            return True, reason
         if dry_run:
             return True, "dry-run planned season eligibility audit; no input or state write"
         click(image, (2010, 935), "season_entry")

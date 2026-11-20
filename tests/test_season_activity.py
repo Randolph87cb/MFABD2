@@ -83,6 +83,40 @@ class SeasonRecognitionTests(unittest.TestCase):
         self.assertTrue(ok, details)
         self.assertEqual(details["balances"], (177351, 111590902, 1218693))
 
+    def test_native_cheer_home_identifies_only_an_unsupported_season(self):
+        # Exact retained failure frame, 2026-11-20 08:44:55; not a live capture.
+        with Image.open(FIXTURES / "season-home-cheer.png") as image:
+            ok, details = season.recognize_season_home(image, entry=True)
+        self.assertTrue(ok, details)
+        self.assertEqual(details["unsupported_season"], "Cheer On!")
+        self.assertEqual(details["balances"], (177376, 112210902, 1220193))
+        self.assertNotIn("reading", details)
+
+    def test_cheer_skip_rejects_unknown_obscured_or_uncertain_entry(self):
+        with Image.open(FIXTURES / "season-home-cheer.png") as source:
+            image = source.convert("RGB")
+        entries = season._entries(image)
+        with patch.object(season, "_recognize_actionable_home", return_value=(True, {})):
+            for label in ("普通战斗解锁", "D-12", "177,376"):
+                for replacement, score, duplicate in (("OTHER", .99, False), (label, .94, False),
+                                                       (label, float("nan"), False), (label, .99, True)):
+                    changed = [(x, y, replacement if text == label else text,
+                                score if text == label else confidence)
+                               for x, y, text, confidence in entries]
+                    if duplicate:
+                        changed.extend(e for e in entries if e[2] == label)
+                    with self.subTest(label=label, score=score, duplicate=duplicate), patch.object(
+                            season, "_entries", return_value=changed):
+                        self.assertFalse(season.recognize_season_home(image, entry=True)[0])
+            for color in ("black", "white"):
+                changed = image.copy()
+                changed.paste(color, (1910, 895, 2105, 970))
+                with patch.object(season, "_entries", return_value=entries):
+                    self.assertFalse(season.recognize_season_home(changed, entry=True)[0])
+            self.assertFalse(season.recognize_season_home(image.resize((1152, 648)), entry=True)[0])
+        with patch.object(season, "_recognize_actionable_home", return_value=(False, {})):
+            self.assertFalse(season.recognize_season_home(image, entry=True)[0])
+
     def test_home_entry_still_requires_logo_text_and_balances(self):
         with Image.open(FIXTURES / "season-home-blood-low-confidence.png") as source:
             image = source.convert("RGB")
@@ -156,6 +190,21 @@ class SeasonRecognitionTests(unittest.TestCase):
 
 
 class SeasonFlowTests(unittest.TestCase):
+    def test_retained_new_season_frame_skips_without_any_navigation(self):
+        with Image.open(FIXTURES / "season-home-cheer.png") as source:
+            image = source.convert("RGB")
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            stack.enter_context(patch.object(season, "find_game_window", return_value=123))
+            stack.enter_context(patch.object(season, "prepare_actionable_home", return_value=(True, image, "home")))
+            click = stack.enter_context(patch.object(season, "click_ratio_logged"))
+            wait = stack.enter_context(patch.object(season, "wait_for_recognition"))
+            for dry_run in (False, True):
+                ok, reason = season.run_season_battle_recheck(dry_run=dry_run, log_root=Path(directory))
+                self.assertTrue(ok, reason)
+                self.assertTrue(reason.startswith("skipped:Cheer On!"), reason)
+            click.assert_not_called()
+            wait.assert_not_called()
+
     def flow(self, *, failure=None, changed=False, home_changed=False, dry_run=False, bad_start=False):
         image = Image.new("RGB", (2304, 1296), "white")
         labels = []
