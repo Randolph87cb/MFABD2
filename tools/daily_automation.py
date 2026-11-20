@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from PIL import Image
+
 
 TOOLS_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = TOOLS_DIR.parent
@@ -500,10 +502,35 @@ def recognize_daily_entry_state(
     return state, details
 
 
+def recognize_startup_iap_error(image: Any) -> tuple[bool, dict[str, Any]]:
+    """Only acknowledge the recorded NoProductsAvailable initialization error."""
+    if image.size != (2304, 1296):
+        return False, {"error": "unverified client size"}
+    try:
+        panel = image.crop((900, 490, 1405, 820))
+        with Image.open(TOOLS_DIR / "assets/startup-iap-init-error.png") as template:
+            # Independently require title, exact exception body and sole confirm
+            # control; a generic payment/purchase dialog must never match.
+            differences = {
+                name: _mean_region_difference(panel.crop(box), template.crop(box), (0, 0, 1, 1))
+                for name, box in {
+                    "title": (170, 9, 340, 52),
+                    "exception": (10, 83, 492, 220),
+                    "confirm": (65, 266, 438, 323),
+                }.items()
+            }
+        return all(value < 6 for value in differences.values()), {"differences": differences}
+    except Exception as exc:
+        return False, {"error": repr(exc)}
+
+
 def classify_daily_entry_context(
     image: Any,
 ) -> tuple[str, dict[str, Any], str, dict[str, Any]]:
     """Apply specific known-state recognition before the return-home fallback."""
+    iap_error, iap_details = recognize_startup_iap_error(image)
+    if iap_error:
+        return "entry_screen", {}, "startup_iap_error", iap_details
     text_result = recognize_entry_status(image)
     text_state, text_details = text_result
     if text_state != "unknown":
@@ -667,6 +694,7 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     terms_agreement_attempts = 0
     google_sign_in_clicked = False
     google_account_clicked = False
+    iap_error_acknowledged = False
     poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
         if not audio_muted and time.monotonic() >= next_mute_attempt:
@@ -715,6 +743,21 @@ def enter_game_logged(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             details=details,
             entry_details=entry_details,
         )
+
+        if entry_state == "startup_iap_error":
+            if iap_error_acknowledged:
+                reason = "NoProductsAvailable initialization error persisted after confirmation; no repeated input"
+                logger.failure(reason)
+                return False, reason
+            _click_logged_ratio(
+                hwnd, image, (1152 / 2304, 784 / 1296),
+                key="startup_iap_error_confirm", logger=logger, attempt=1,
+            )
+            iap_error_acknowledged = True
+            last_progress_at = time.monotonic()
+            poll.reset()
+            time.sleep(poll.next_delay())
+            continue
 
         if entry_state == "maintenance":
             maintenance = entry_details["text"]["maintenance"]
