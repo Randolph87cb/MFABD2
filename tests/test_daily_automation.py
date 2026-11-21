@@ -1116,8 +1116,9 @@ class DailyAutomationStateTests(unittest.TestCase):
         execute_phase.side_effect = execute
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            first = run_daily(project_root=root, force=False, network_timeout=1.0)
-            second = run_daily(project_root=root, force=False, network_timeout=1.0)
+            with patch("daily_automation.ensure_home", return_value=(True, "home")):
+                first = run_daily(project_root=root, force=False, network_timeout=1.0)
+                second = run_daily(project_root=root, force=False, network_timeout=1.0)
 
         self.assertEqual((first, second), (2, 0))
         self.assertEqual(calls.count("start"), 1)
@@ -1136,7 +1137,7 @@ class DailyAutomationStateTests(unittest.TestCase):
     @patch("daily_automation.DesktopActivityGuard")
     @patch("daily_automation._execute_daily_phase", return_value="completed")
     @patch("builtins.print")
-    def test_completed_same_day_run_does_not_inject_desktop_activity_again(
+    def test_completed_same_day_run_checks_rewards_again(
         self,
         _print: MagicMock,
         _execute_phase: MagicMock,
@@ -1148,9 +1149,12 @@ class DailyAutomationStateTests(unittest.TestCase):
             root = Path(temporary)
             self.assertEqual(run_daily(project_root=root, force=False, network_timeout=1.0), 0)
             desktop_guard_type.reset_mock()
-            self.assertEqual(run_daily(project_root=root, force=False, network_timeout=1.0), 0)
+            with patch("daily_automation.find_game_window", return_value=123):
+                self.assertEqual(run_daily(project_root=root, force=False, network_timeout=1.0), 0)
 
-        desktop_guard_type.assert_not_called()
+        desktop_guard_type.return_value.start.assert_called_once()
+        self.assertEqual([c.args[0] for c in _execute_phase.call_args_list][-4:],
+                         ["task_rewards", "activity_rewards", "pass_rewards", "mail_rewards"])
 
     @patch("daily_automation.os.chdir")
     @patch("daily_automation.DesktopActivityGuard")

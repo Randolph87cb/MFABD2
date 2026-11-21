@@ -14,6 +14,7 @@ from typing import Any, Tuple
 FAST_PRESET = "fast"
 DETAILED_PRESET = "detailed"
 DAILY_PRESETS = (FAST_PRESET, DETAILED_PRESET)
+REWARD_RECHECK_PHASE_IDS = frozenset({"task_rewards", "activity_rewards", "pass_rewards", "mail_rewards"})
 
 IMPLEMENTED = "implemented"
 PARTIAL = "partial"
@@ -161,7 +162,7 @@ _STAGES = (
         id="season_activity",
         name="赛季活动快速战斗",
         availability=PARTIAL,
-        unavailable_reason="现有流程仅只读复核Blood Royale普通1未通关、重复奖励锁定、AP及普通费用并返回；尚未实现赛季快速战斗。",
+        unavailable_reason="现有流程按赛季共用菜单与普通1锁定页只读复核AP及普通费用并返回；尚未实现赛季快速战斗。",
         safety_gate="仅能执行已解锁的免费战斗，禁止购买体力、刷新次数或自动消耗付费货币。",
         current_runners=("season_activity.run_season_battle_recheck",),
     ),

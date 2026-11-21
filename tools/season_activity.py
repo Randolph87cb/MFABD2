@@ -1,4 +1,4 @@
-"""Audit Blood Royale eligibility; skip the observed unsupported Cheer On season."""
+"""Audit the shared season normal-1 layout without starting a battle."""
 
 from __future__ import annotations
 
@@ -21,6 +21,16 @@ LOCKED_CROPS = {
 }
 
 
+def _label(entries, pattern, box):
+    """Match a single label inside its ROI even when a neighbouring label shifts."""
+    left, top, right, bottom = box
+    matches = [(re.fullmatch(pattern, text), score) for x, y, text, score in entries
+               if left <= x <= right and top <= y <= bottom and re.fullmatch(pattern, text)]
+    if len(matches) != 1 or not matches[0][1] >= .95:
+        return None
+    return matches[0][0]
+
+
 def recognize_season_home(image, *, entry=False):
     found, details = _recognize_actionable_home(image)
     if not found or image.size != (2304, 1296):
@@ -32,25 +42,13 @@ def recognize_season_home(image, *, entry=False):
         if not all(balances):
             return False, {**details, "error": "unverified home balances"}
         if entry:
-            # The stylized BLOOD lettering has unstable OCR confidence even
-            # on an intact entry. Verify its native artwork, keeping the
-            # adjacent text and balance confidence requirements unchanged.
-            logo_difference = _difference(image, "season-home-blood-logo", (1910, 880, 2110, 935))
-            details = {**details, "blood_logo_difference": logo_difference}
-            if not (logo_difference < 10
-                    and _one(entries, "ROYALE", (1970, 940, 2050, 980))
-                    and _one(entries, "魔兽追踪者解锁", (1900, 980, 2120, 1025))):
-                # 2026-11-20: the retained PC frame shows a new season.
-                # This identity only permits a no-input skip, never navigation
-                # or reuse of Blood Royale's eligibility/battle coordinates.
-                cheer_difference = _difference(image, "season-home-cheer-logo", (1910, 895, 2105, 970))
-                details = {**details, "cheer_logo_difference": cheer_difference}
-                if (cheer_difference < 6
-                        and _one(entries, r"D-[1-9]\d?", (1950, 840, 2070, 890))
-                        and _one(entries, "普通战斗解锁", (1900, 980, 2120, 1025))):
-                    details = {**details, "unsupported_season": "Cheer On!"}
-                else:
-                    return False, {**details, "error": "unverified season home entry"}
+            # The entry artwork changes every season. A countdown and unlock
+            # subtitle in the season panel identify navigation, not permission
+            # to fight. The destination must still pass its own layout checks.
+            countdown = _label(entries, r"D-(?:\d{1,2}|DAY)", (1900, 810, 2120, 895))
+            subtitle = _one(entries, r".+解锁", (1880, 975, 2150, 1035))
+            if not countdown or not subtitle:
+                return False, {**details, "error": "unverified season entry controls"}
         return True, {**details, "balances": tuple(int(m.group().replace(",", "")) for m in balances)}
     except Exception as exc:
         return False, {"error": repr(exc)}
@@ -72,31 +70,25 @@ def recognize_season_page(image):
             return "unknown", {**details, "error": "back control obscured"}
         if (one("帮助", (370, 30, 450, 90))
                 and one("行程", (580, 30, 660, 90))
-                and (one("活动服装", (1680, 30, 1770, 90))
-                     # Observed when the last-day countdown expands to hours/minutes.
-                     or one("活动服装", (1540, 30, 1690, 90))
-                     or one("活动服装", (1910, 30, 2020, 90)))
+                and _label(entries, "活动服装", (1450, 30, 2050, 90))
                 and all(one(text, (x - 65, 1120, x + 65, 1180)) for text, x in (
                     ("剧情", 588), ("普通战斗", 813), ("挑战战斗", 1039),
-                    ("魔兽追踪者", 1265), ("任务", 1490), ("活动商店", 1716)))
-                and _difference(image, "season-blood-royale-logo", (185, 395, 800, 705)) < 8):
+                    ("魔兽追踪者", 1265), ("任务", 1490), ("活动商店", 1716)))):
             return "main", details
         ap = one(r"([0-5])/5", (2080, 40, 2160, 90))
         if (one("普通战斗", (340, 30, 490, 90))
                 and one("普通战斗1", (1070, 135, 1260, 200))
-                and one("活动服装", (1540, 30, 1690, 90))
-                and one(r"活动还剩[1-9]\d?天", (1740, 30, 1940, 90))
+                and _label(entries, "活动服装", (1450, 30, 2050, 90))
+                and one(r"活动还剩(?:\d+天|\d+小时(?:\d+分钟)?|\d+分钟)", (1650, 30, 2000, 90))
                 and one("反复奖励", (1950, 135, 2090, 200))
                 and one("通关奖励", (910, 280, 1040, 340))
                 and one("在战斗中获胜", (990, 360, 1160, 420))
                 and one("胜利且全员生存", (980, 480, 1190, 545))
                 and one("在8回合内获胜", (980, 605, 1180, 670))
-                and one("BLOOD", (90, 1140, 200, 1200))
-                and one("ROYALE", (90, 1200, 200, 1240))
                 and ap
                 and all(_difference(image, name, box) < 6 for name, box in LOCKED_CROPS.items())):
             return "normal_locked", {**details, "reading": dict(
-                season="Blood Royale", stage=1, ap=int(ap.group(1)), ap_limit=5,
+                stage=1, ap=int(ap.group(1)), ap_limit=5,
                 normal_cost=1, cleared=False, repeat_reward_locked=True, quick_battle=False)}
         return "unknown", {**details, "error": "unverified season or eligibility"}
     except Exception as exc:
@@ -138,12 +130,6 @@ def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
         found, before = recognize_season_home(image, entry=True)
         if not found:
             raise RuntimeError("赛季入口/主页余额未确认；未输入")
-        if before.get("unsupported_season"):
-            reason = (f"skipped:{before['unsupported_season']}为尚未实现的新赛季；"
-                      "已确认主页入口及余额，未进入活动、未战斗")
-            logger.event(action="stop", result="success", reason=reason, battle=False,
-                         details=before)
-            return True, reason
         if dry_run:
             return True, "dry-run planned season eligibility audit; no input or state write"
         click(image, (2010, 935), "season_entry")
@@ -161,7 +147,7 @@ def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
         image, after = wait(recognize_season_home, "season-home")
         if before["balances"] != after["balances"]:
             raise RuntimeError("赛季只读返回后主页余额变化")
-        reason = (f"skipped:Blood Royale普通1未通关，重复奖励锁定，AP {second['reading']['ap']}/5，"
+        reason = (f"skipped:赛季普通1未通关，重复奖励锁定，AP {second['reading']['ap']}/5，"
                   "普通战斗费用1；快速战斗未解锁，已只读复核并返回主页，未战斗")
         logger.event(action="stop", result="success", reason=reason, battle=False)
         return True, reason

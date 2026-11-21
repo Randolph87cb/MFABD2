@@ -41,22 +41,33 @@ def recognize_decor_balance(image: Image.Image) -> tuple[dict[str, int] | None, 
                for _, _, text, score in entries if score >= 0.55):
             return None, {**details, "error": "tooltip or dialog present"}
 
-        def one(pattern, region):
+        def one(pattern, region, *, contains=False, crop_fallback=False):
             left, top, right, bottom = region
             candidates = [(text, score) for x, y, text, score in entries
                           if left <= x <= right and top <= y <= bottom]
-            if len(candidates) != 1:
-                return None
-            text, score = candidates[0]
-            return re.fullmatch(pattern, text) if score >= 0.95 else None
+            match = None
+            if len(candidates) == 1:
+                text, score = candidates[0]
+                if score >= .95:
+                    match = (re.search if contains else re.fullmatch)(pattern, text)
+            if match is not None or not crop_fallback:
+                return match
+            # Isolate the numeric field before OCR instead of parsing a numeric
+            # prefix from a box that also includes a distant NPC speech bubble.
+            result = _ocr_engine()(np.asarray(image.convert("RGB").crop(region)))
+            texts = result.txts if result.txts is not None else ()
+            scores = result.scores if result.scores is not None else ()
+            details.setdefault("region_reads", {})[str(region)] = list(zip(map(str, texts), map(float, scores)))
+            if len(texts) == len(scores) == 1 and float(scores[0]) >= .95:
+                return re.fullmatch(pattern, "".join(str(texts[0]).split()))
+            return None
 
-        # Full-frame OCR can merge the adjacent help icon into the title.
-        title = one(r"格鲁菲餐厅[？?]?", (150, 35, 345, 95))
+        title = one("格鲁菲餐厅", (150, 35, 345, 95), contains=True)
         employees = one("员工", (150, 1210, 260, 1270))
         customers = one("客人", (285, 1210, 400, 1270))
         settlement = one("结算", (1880, 1150, 2150, 1230))
-        total = one(r"(0|[1-9]\d*|[1-9]\d{0,2}(?:,\d{3})+)", (1395, 40, 1535, 90))
-        daily = one(r"每日(0|[1-9]\d?)/20", (1380, 90, 1510, 130))
+        total = one(r"(0|[1-9]\d*|[1-9]\d{0,2}(?:,\d{3})+)", (1395, 40, 1535, 90), crop_fallback=True)
+        daily = one(r"每日(0|[1-9]\d?)/20", (1380, 90, 1510, 130), crop_fallback=True)
         house = np.asarray(image.convert("RGB"))[48:82, 2140:2175]
         bright = float(np.mean(np.min(house, axis=2) > 210))
         details["home_bright"] = bright

@@ -60,16 +60,16 @@ class DecorRecognitionTests(unittest.TestCase):
             engine.return_value.return_value = result
             return decor.recognize_decor_balance(image)
 
-    def test_title_merged_with_help_icon_requires_exact_name_and_confidence(self):
+    def test_title_contains_name_in_title_region_with_other_controls_and_confidence(self):
         # 2026-11-21 failure: the second full-frame OCR read was 格鲁菲餐厅？
         # at confidence 0.98238; the help icon is visible next to the title.
-        for title in ("格鲁菲餐厅？", "格鲁菲餐厅?"):
+        for title in ("格鲁菲餐厅？", "格鲁菲餐厅?", "格鲁菲餐厅？？", "格鲁菲餐厅帮助", "前往格鲁菲餐厅"):
             with self.subTest(title=title):
                 reading, details = self.recognize_entries(title=title, title_confidence=.98238)
                 self.assertEqual(reading, READING, details)
                 self.assertIsNone(self.recognize_entries(title=title, title_confidence=.94)[0])
                 self.assertIsNone(self.recognize_entries(title=title, extra=[(1700, 500, "装饰币", .9)])[0])
-        for title in ("其他餐厅？", "格鲁菲餐厅？？", "格鲁菲餐厅帮助", "前往格鲁菲餐厅"):
+        for title in ("其他餐厅？", "格鲁菲", "餐厅帮助"):
             with self.subTest(title=title):
                 self.assertIsNone(self.recognize_entries(title=title)[0])
 
@@ -92,6 +92,21 @@ class DecorRecognitionTests(unittest.TestCase):
             (1614, 61, "16,875的时候突然想起来，就来了。", .99782)])
         self.assertIsNone(reading)
         self.assertEqual(details["error"], "unverified balance counter")
+
+    def test_numeric_region_is_re_read_when_full_frame_merges_distant_speech(self):
+        with Image.open(FIXTURES / FIRST) as source:
+            image = source.convert("RGB")
+        original = decor._ocr_engine()
+        def recognize(pixels):
+            result = original(pixels)
+            if pixels.shape[:2] == (1296, 2304):
+                result.txts = [text + "的时候突然想起来，就来了。" if text == "16,078" else text
+                               for text in result.txts]
+            return result
+        with patch("restaurant_decor._ocr_engine", return_value=recognize):
+            reading, details = decor.recognize_decor_balance(image)
+        self.assertEqual(reading, READING, details)
+        self.assertIn("region_reads", details)
 
     def test_ambiguous_low_confidence_dialog_and_wrong_title_refuse(self):
         for score in (.94, float("nan")):
@@ -207,7 +222,7 @@ class DecorFlowTests(unittest.TestCase):
                 else:
                     reason = daily_automation._execute_daily_phase("daily_claims", **args)
                     self.assertFalse(reason.startswith("skipped:"))
-            self.assertEqual(events, ["home", "business", "decor"] + ([] if failed else ["prayer", "guild"]))
+            self.assertEqual(events, ["home", "business", "decor"] + (["home"] if failed else []) + ["prayer", "guild"])
         for preset in ("fast", "detailed"):
             stage = next(item for item in get_daily_plan(preset) if item.id == "daily_claims")
             self.assertFalse(stage.implemented)

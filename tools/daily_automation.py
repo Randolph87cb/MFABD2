@@ -1,4 +1,4 @@
-"""Run the BrownDust II daily automation once per local calendar day."""
+"""Run checkpointed daily tasks and recheck rewards on every normal invocation."""
 
 from __future__ import annotations
 
@@ -68,6 +68,7 @@ from pass_rewards import run_pass_rewards  # noqa: E402
 from task_rewards import run_task_rewards  # noqa: E402
 from mute_browndust import set_mute  # noqa: E402
 from daily_plan import (  # noqa: E402
+    REWARD_RECHECK_PHASE_IDS,
     DAILY_PRESETS,
     DAILY_STAGE_IDS,
     FAST_PRESET,
@@ -1261,7 +1262,7 @@ def _require_phase(
             technical_reason=reason,
             log_root=str(log_root),
         )
-        raise DailyRunError(f"{stage_name}执行异常，已保留现场") from exc
+        raise DailyRunError(f"{stage_name}执行异常：{reason}；已保留现场") from exc
     if not ok:
         stage_name = MASTER_STAGE_NAMES.get(stage, stage)
         master.event(
@@ -1271,7 +1272,7 @@ def _require_phase(
             technical_reason=reason,
             log_root=str(log_root),
         )
-        raise DailyRunError(f"{stage_name}执行失败，已保留现场")
+        raise DailyRunError(f"{stage_name}执行失败：{reason}；已保留现场")
     if reason.startswith("skipped:"):
         master.event(
             stage,
@@ -1300,6 +1301,7 @@ def daily_plan_report(preset: str | None = None) -> dict[str, Any]:
     return {
         "mode": "target-plan",
         "compatibility_stage_ids": list(CURRENT_PHASE_IDS),
+        "recheck_each_run": [phase for phase in CURRENT_PHASE_IDS if phase in REWARD_RECHECK_PHASE_IDS],
         "presets": [daily_plan_to_dict(name) for name in selected],
     }
 
@@ -1506,31 +1508,31 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
             log_root=log_root / "01-return-home",
         )
-        _require_phase(
-            master,
-            "business_management",
-            lambda *, log_root: run_business_management(dry_run=False, log_root=log_root),
-            log_root=log_root / "02-claim-rewards",
-        )
-        decor_reason = _require_phase(
-            master,
-            "restaurant_decor_recheck",
-            lambda *, log_root: run_restaurant_decor_recheck(dry_run=False, log_root=log_root),
-            log_root=log_root / "03-decor-recheck",
-        )
-        prayer_reason = _require_phase(
-            master,
-            "plaza_prayer",
-            lambda *, log_root: run_plaza_prayer(dry_run=False, log_root=log_root),
-            log_root=log_root / "04-plaza-prayer",
-        )
-        guild_reason = _require_phase(
-            master,
-            "guild_nonmember_check",
-            lambda *, log_root: run_guild_nonmember_check(dry_run=False, log_root=log_root),
-            log_root=log_root / "05-guild-prerequisite",
-        )
-        return f"{decor_reason}；{prayer_reason}；{guild_reason}"
+        reasons, failures = [], []
+        needs_recovery = False
+        for stage, operation, directory in (
+            ("business_management", run_business_management, "02-claim-rewards"),
+            ("restaurant_decor_recheck", run_restaurant_decor_recheck, "03-decor-recheck"),
+            ("plaza_prayer", run_plaza_prayer, "04-plaza-prayer"),
+            ("guild_nonmember_check", run_guild_nonmember_check, "05-guild-prerequisite"),
+        ):
+            if needs_recovery:
+                _require_phase(master, "prepare_home",
+                               lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+                               log_root=log_root / f"{directory}-recovery")
+            try:
+                reasons.append(_require_phase(
+                    master, stage,
+                    lambda *, log_root, operation=operation: operation(dry_run=False, log_root=log_root),
+                    log_root=log_root / directory,
+                ))
+                needs_recovery = False
+            except DailyRunError as exc:
+                failures.append(str(exc))
+                needs_recovery = True
+        if failures:
+            raise DailyRunError("；".join(failures))
+        return "；".join(reasons)
     reward_operations = {
         "task_rewards": ("task_rewards", run_task_rewards),
         "activity_rewards": ("activity_rewards", run_activity_rewards),
@@ -1629,8 +1631,9 @@ def run_daily(
         if force
         else tuple(
             phase_id
-            for phase_id in store.phases_to_run(force_phase=force_phase)
-            if phase_id in CURRENT_PHASE_IDS
+            for phase_id in CURRENT_PHASE_IDS
+            if phase_id in store.phases_to_run(force_phase=force_phase)
+            or (force_phase is None and phase_id in REWARD_RECHECK_PHASE_IDS)
         )
     )
     if not phases_to_run:
@@ -1647,6 +1650,8 @@ def run_daily(
 
     desktop_guard: DesktopActivityGuard | None = None
     active_phase: str | None = None
+    failures: dict[str, str] = {}
+    completed_phases: list[str] = []
     try:
         if not wait_for_network(master, timeout=network_timeout):
             raise DailyRunError("network check timed out")
@@ -1661,15 +1666,45 @@ def run_daily(
                 log_root=run_root / "00-resume-game",
             )
 
+        needs_recovery = False
         for phase_id in phases_to_run:
+            if needs_recovery:
+                # Preserve the original failure and its screenshots. Only a
+                # verified navigation back home permits the next independent task.
+                _require_phase(master, "prepare_home",
+                               lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
+                               log_root=_phase_log_root(run_root, phase_id) / "00-recover-after-failure")
             active_phase = phase_id
             store.mark_running(phase_id)
-            reason = _execute_daily_phase(phase_id, master=master, run_root=run_root)
+            try:
+                reason = _execute_daily_phase(phase_id, master=master, run_root=run_root)
+            except MaintenanceDeferred:
+                raise
+            except Exception as exc:
+                store.mark_failed(phase_id, str(exc))
+                failures[phase_id] = str(exc)
+                master.event(phase_id, "error", "阶段失败已记录，将恢复主页后继续后续独立阶段",
+                             technical_reason=str(exc), traceback=traceback.format_exc())
+                active_phase = None
+                if phase_id == "start" or force_phase is not None:
+                    raise
+                needs_recovery = True
+                continue
             if reason.startswith("skipped:"):
                 store.mark_skipped(phase_id)
             else:
                 store.mark_completed(phase_id)
+            completed_phases.append(phase_id)
             active_phase = None
+            needs_recovery = False
+
+        if failures:
+            master.event("daily", "error", "后续可恢复阶段已执行，仍有失败项待修复", failures=failures)
+            master.summary(result="failed", reason="；".join(failures.values()), failures=failures,
+                           started_at=started.isoformat(timespec="seconds"),
+                           completed_at=datetime.now().isoformat(timespec="seconds"),
+                           completed_phases=completed_phases, run_root=str(run_root), state=store.state)
+            return 2
 
         master.event("daily", "success", "当前 PC 已具备的日常阶段已经完成")
         master.summary(
@@ -1677,7 +1712,7 @@ def run_daily(
             started_at=started.isoformat(timespec="seconds"),
             completed_at=datetime.now().isoformat(timespec="seconds"),
             run_root=str(run_root),
-            completed_phases=list(phases_to_run),
+            completed_phases=completed_phases,
             state=store.state,
         )
         return 0
@@ -1698,6 +1733,8 @@ def run_daily(
         master.summary(
             result="failed",
             reason=reason,
+            failures=failures,
+            completed_phases=completed_phases,
             started_at=started.isoformat(timespec="seconds"),
             completed_at=datetime.now().isoformat(timespec="seconds"),
             run_root=str(run_root),

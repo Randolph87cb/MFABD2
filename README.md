@@ -58,7 +58,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 - 不启动识别标注网站；
 - 仅保留 `logs\daily`、`daily-check`、`supervisor`、`recovery` 中最近 7 天的日期日志；
 - 当前可运行阶段没有全部完成时，在当前目录创建 Codex 线程，读取日志并参考
-  `.external\MFABD2-reference`；修复后使用正常状态机从失败阶段继续到最后阶段，最多修复两轮；
+  `.external\MFABD2-reference`；修复后使用正常状态机重试未完成阶段，最多修复两轮；
+- 独立阶段失败会保留失败记录，确认恢复主页后继续后项；登录失败、维护或无法恢复主页时停止。
+  任务、活动、通行证、邮件每轮正常运行都会重查；已完成的消耗阶段不重放。
+  修复线程按 [`docs/automation-repair.md`](docs/automation-repair.md) 使用共同页面特征与区域 OCR，
+  按步骤读取全部失败原因，避免为单张截图或每个新赛季添加特殊分支。
 - 自动修复前若主仓库已有未提交改动，监督器会停止自动修改，避免覆盖人工工作。
 - 每日流程正常完成（包括修复后成功续跑）并成功收尾后，先发送完成通知，再新建一个独立
   Codex 开发线程，对比 `.external\MFABD2-reference`，推进一个缺失模块或部分模块的子功能。

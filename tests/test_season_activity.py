@@ -15,7 +15,7 @@ import season_activity as season
 from daily_plan import get_daily_plan
 
 FIXTURES = Path(__file__).parent / "fixtures/recognition"
-READING = dict(season="Blood Royale", stage=1, ap=5, ap_limit=5,
+READING = dict(stage=1, ap=5, ap_limit=5,
                normal_cost=1, cleared=False, repeat_reward_locked=True, quick_battle=False)
 
 
@@ -65,11 +65,11 @@ class SeasonRecognitionTests(unittest.TestCase):
         for changed in (
                 entries + [(1628, 60, "活动服装", .99)],
                 entries + [(1150, 600, "确认购买", .99)],
-                [(1810 if text == "活动服装" else x, y, text, score)
+                [(1300 if text == "活动服装" else x, y, text, score)
                  for x, y, text, score in entries]):
             with patch.object(season, "_entries", return_value=changed):
                 self.assertEqual(season.recognize_season_page(image)[0], "unknown")
-        for box in ((185, 395, 800, 705), (203, 49, 216, 73)):
+        for box in ((203, 49, 216, 73),):
             changed = image.copy()
             changed.paste("black", box)
             with self.subTest(box=box), patch.object(season, "_entries", return_value=entries):
@@ -83,16 +83,16 @@ class SeasonRecognitionTests(unittest.TestCase):
         self.assertTrue(ok, details)
         self.assertEqual(details["balances"], (177351, 111590902, 1218693))
 
-    def test_native_cheer_home_identifies_only_an_unsupported_season(self):
+    def test_native_different_season_uses_the_same_entry_controls(self):
         # Exact retained failure frame, 2026-11-20 08:44:55; not a live capture.
         with Image.open(FIXTURES / "season-home-cheer.png") as image:
             ok, details = season.recognize_season_home(image, entry=True)
         self.assertTrue(ok, details)
-        self.assertEqual(details["unsupported_season"], "Cheer On!")
+        self.assertNotIn("unsupported_season", details)
         self.assertEqual(details["balances"], (177376, 112210902, 1220193))
         self.assertNotIn("reading", details)
 
-    def test_cheer_skip_rejects_unknown_obscured_or_uncertain_entry(self):
+    def test_season_entry_requires_countdown_subtitle_and_balances(self):
         with Image.open(FIXTURES / "season-home-cheer.png") as source:
             image = source.convert("RGB")
         entries = season._entries(image)
@@ -112,25 +112,17 @@ class SeasonRecognitionTests(unittest.TestCase):
                 changed = image.copy()
                 changed.paste(color, (1910, 895, 2105, 970))
                 with patch.object(season, "_entries", return_value=entries):
-                    self.assertFalse(season.recognize_season_home(changed, entry=True)[0])
+                    self.assertTrue(season.recognize_season_home(changed, entry=True)[0])
             self.assertFalse(season.recognize_season_home(image.resize((1152, 648)), entry=True)[0])
         with patch.object(season, "_recognize_actionable_home", return_value=(False, {})):
             self.assertFalse(season.recognize_season_home(image, entry=True)[0])
 
-    def test_home_entry_still_requires_logo_text_and_balances(self):
+    def test_home_entry_requires_countdown_unlock_text_and_balances(self):
         with Image.open(FIXTURES / "season-home-blood-low-confidence.png") as source:
             image = source.convert("RGB")
         entries = season._entries(image)
         with patch.object(season, "_recognize_actionable_home", return_value=(True, {})):
-            # Even convincing OCR cannot authorize an obscured logo.
-            for color in ("black", "white"):
-                changed = image.copy()
-                changed.paste(color, (1910, 880, 2110, 935))
-                confident = [(x, y, text, .99 if text == "BLOOD" else score)
-                             for x, y, text, score in entries]
-                with self.subTest(color=color), patch.object(season, "_entries", return_value=confident):
-                    self.assertFalse(season.recognize_season_home(changed, entry=True)[0])
-            for label in ("ROYALE", "魔兽追踪者解锁", "177,351"):
+            for label in ("D-DAY", "魔兽追踪者解锁", "177,351"):
                 for replacement, score, duplicate in ((label, .94, False),
                                                        (label, float("nan"), False),
                                                        ("OTHER", .99, False),
@@ -160,7 +152,7 @@ class SeasonRecognitionTests(unittest.TestCase):
                 self.entries + [(1560, 1180, "快速战斗", .99)],
                 [(x, y, "普通战斗2" if text == "普通战斗1" else text, score)
                  for x, y, text, score in self.entries],
-                [(x, y, "BROKEN" if text == "BLOOD" else text, score)
+                [(x, y, "活动已结束" if text.startswith("活动还剩") else text, score)
                  for x, y, text, score in self.entries]):
             with patch.object(season, "_entries", return_value=entries):
                 self.assertEqual(season.recognize_season_page(self.source)[0], "unknown")
@@ -179,6 +171,18 @@ class SeasonRecognitionTests(unittest.TestCase):
             self.assertEqual(state, "unknown")
             self.assertIn("OCR unavailable", details["error"])
 
+    def test_countdown_units_and_style_do_not_change_locked_page_identity(self):
+        for countdown in ("活动还剩2天", "活动还剩22小时59分钟", "活动还剩8分钟"):
+            entries = [(1496 if text == "活动服装" else x, y,
+                        countdown if text.startswith("活动还剩") else text, score)
+                       for x, y, text, score in self.entries]
+            changed = self.source.copy()
+            changed.paste("white", (80, 1100, 210, 1260))
+            with self.subTest(countdown=countdown), patch.object(season, "_entries", return_value=entries):
+                state, details = season.recognize_season_page(changed)
+            self.assertEqual(state, "normal_locked", details)
+            self.assertEqual(details["reading"], READING)
+
     def test_zero_ap_is_only_an_audit_never_battle_permission(self):
         entries = [(x, y, "0/5" if text == "5/5" else text, score)
                    for x, y, text, score in self.entries]
@@ -190,21 +194,6 @@ class SeasonRecognitionTests(unittest.TestCase):
 
 
 class SeasonFlowTests(unittest.TestCase):
-    def test_retained_new_season_frame_skips_without_any_navigation(self):
-        with Image.open(FIXTURES / "season-home-cheer.png") as source:
-            image = source.convert("RGB")
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-            stack.enter_context(patch.object(season, "find_game_window", return_value=123))
-            stack.enter_context(patch.object(season, "prepare_actionable_home", return_value=(True, image, "home")))
-            click = stack.enter_context(patch.object(season, "click_ratio_logged"))
-            wait = stack.enter_context(patch.object(season, "wait_for_recognition"))
-            for dry_run in (False, True):
-                ok, reason = season.run_season_battle_recheck(dry_run=dry_run, log_root=Path(directory))
-                self.assertTrue(ok, reason)
-                self.assertTrue(reason.startswith("skipped:Cheer On!"), reason)
-            click.assert_not_called()
-            wait.assert_not_called()
-
     def flow(self, *, failure=None, changed=False, home_changed=False, dry_run=False, bad_start=False):
         image = Image.new("RGB", (2304, 1296), "white")
         labels = []

@@ -227,6 +227,8 @@ def completion_report(project_root: Path) -> dict[str, Any]:
         "run_status": state.get("status"),
         "statuses": statuses,
         "incomplete": incomplete,
+        "errors": {phase_id: phases[phase_id].get("error") for phase_id in incomplete
+                   if phase_id in phases and phases[phase_id].get("error")},
         "failed_phase": incomplete[0] if incomplete else None,
         "state_path": str(state_path),
     }
@@ -373,18 +375,10 @@ def run_codex_turn(
 
 
 def local_control_prompt(project_root: Path) -> str:
-    return f"""本项目的 CLI 线程已获用户授权以完全访问运行。
-游戏控制采用项目本地 Python/Win32 脚本，不依赖桌面端 Computer Use、cua_repl 或 node_repl。
-先读 {project_root / 'docs' / 'cli-game-control.md'}。
-使用 .venv/Scripts/python.exe tools/game_control.py status 检查本地控制入口；
-需要且获本轮任务允许的 PC 补证，使用该脚本的 open、capture、click、swipe、key、close 子命令。
-先用 capture 取得并查看原生 client.png，再用同次 observation.json 执行一个动作，查看返回的新截图。
-游戏刚启动可能出现初始化白屏；不要输入，等待渲染并有限次重试只读 capture，不能把首帧空白当作权限拒绝。
-该本地入口是用户明确选择的游戏控制方式；即使插件显示 Native computer APIs are disabled，
-或没有独立 node_repl，也不能据此认定本项目无法操作游戏而放弃开发。
-应实际检查本地脚本；若失败，记录命令、退出码和真实 Windows/游戏错误。
-完全访问不扩大业务授权：是否允许启动游戏、消耗资源或修改文件，仍以本轮具体要求为准；
-修复线程的“禁止启动游戏”以及开发线程的证据门、免费动作和今日去重规则继续有效。"""
+    return f"""本线程使用已授权的本地 Python/Win32 游戏通道。说明：{project_root / 'docs/cli-game-control.md'}。
+本地入口为 .venv/Scripts/python.exe tools/game_control.py status；不依赖桌面控制插件。
+是否允许启动、输入或消耗以本轮任务为准；修复线程不得启动游戏。"""
+
 
 
 def repair_prompt(
@@ -396,24 +390,22 @@ def repair_prompt(
     supervisor_log: Path,
     round_number: int,
 ) -> str:
-    return f"""你正在处理棕尘2每日自动化的第 {round_number} 轮无人值守修复。
-
+    return f"""棕尘2无人值守修复第 {round_number} 轮。先读 docs/automation-repair.md。
 工作目录：{project_root}
-监督日志：{supervisor_log}
-本轮 summary：{summary_path or '没有生成 summary.json，请从监督日志和状态文件排查'}
+最新 summary：{summary_path or '未生成；检查状态文件及监督事件日志'}
 状态文件：{report.get('state_path')}
-当前阶段状态：{json.dumps(report.get('statuses', {}), ensure_ascii=False)}
-首个未完成阶段：{report.get('failed_phase')}
-只读参考仓库：{reference_root}
+未完成阶段：{json.dumps(report.get('incomplete', [report.get('failed_phase')]), ensure_ascii=False)}
+错误：{json.dumps(report.get('errors', {}), ensure_ascii=False)}
+监督日志（按需定向读取，勿整段读取嵌套输出）：{supervisor_log}
+只读参考：{reference_root}
 
-要求：
-1. 先查看日志、状态和相关本地代码，定位真实失败原因并做最小修复。
-2. 可以查询只读参考仓库，主要参考它的 Android 业务流程语义；实现必须沿用当前项目的 Python、桌面窗口和状态机方式，禁止照搬 Android 架构。
-3. 禁止修改参考仓库，禁止启动游戏或执行真实每日流程；只运行离线测试、静态检查和 --show-plan 等无副作用验证。
-4. 保持网络无限等待行为不变。不要引入模糊进程终止；只能处理精确识别的本次运行进程。
-5. 正常续跑入口会自动执行 failed/running/pending 阶段，因此不要把自动恢复改成 --force-phase。
-6. 完成离线验证后，只提交与本轮自动修复直接相关的代码和测试，使用中文提交信息并推送当前 main 分支；不要提交 logs、state、.external 或其他本地运行产物。清楚说明改动、验证和提交推送结果。
+定位全部失败的共同原因，优先稳定文字、ROI、裁剪重读和状态转换；不要为单张截图或赛季名称追加特例。
+失败保留记录、恢复主页后继续独立阶段；奖励每轮重查；不要把自动恢复改成 --force-phase。
+禁止修改参考仓库、每日状态或启动游戏；保持网络无限等待。
+完成离线验证后，精确提交相关代码、测试、必要文档，中文提交并推送当前 main 分支。
+分别报告已修复、离线通过和真实续跑待验收；提交成功不代表日常完成。
 """
+
 
 
 def followup_prompt(
@@ -423,13 +415,16 @@ def followup_prompt(
     supervisor_log: Path,
     round_number: int,
 ) -> str:
-    return f"""第 {round_number} 次真实续跑仍未完成，请继续同一线程修复。
-监督日志：{supervisor_log}
+    return f"""第 {round_number} 次真实续跑仍未完成，继续同一线程，遵守 docs/automation-repair.md。
 最新 summary：{summary_path or '无'}
-当前阶段状态：{json.dumps(report.get('statuses', {}), ensure_ascii=False)}
-首个未完成阶段：{report.get('failed_phase')}
-继续遵守上一轮约束：先读新日志；只做最小修复；不得启动游戏；不得修改参考仓库。完成离线验证后，按项目规则提交并推送本轮相关改动，不要提交本地运行产物。
+未完成阶段：{json.dumps(report.get('incomplete', [report.get('failed_phase')]), ensure_ascii=False)}
+错误：{json.dumps(report.get('errors', {}), ensure_ascii=False)}
+监督日志（定向读取）：{supervisor_log}
+先核对上一轮改动实际解决了什么，再检查其余失败的共同原因；不得仅换一个截图特例。
+不得启动游戏、修改状态或参考仓库。完成离线验证后提交并推送本轮相关改动；不提交运行产物。
+报告未解决项和实跑边界。
 """
+
 
 
 def finalize_prompt(*, supervisor_log: Path, summary_path: Path | None) -> str:
