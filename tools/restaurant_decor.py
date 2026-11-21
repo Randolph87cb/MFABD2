@@ -60,8 +60,12 @@ def recognize_decor_balance(image: Image.Image) -> tuple[dict[str, int] | None, 
         house = np.asarray(image.convert("RGB"))[48:82, 2140:2175]
         bright = float(np.mean(np.min(house, axis=2) > 210))
         details["home_bright"] = bright
-        if not all((title, employees, customers, settlement, total)) or bright < 0.20:
+        if not all((title, employees, customers, settlement)) or bright < 0.20:
             return None, {**details, "error": "unverified restaurant controls or counters"}
+        if total is None:
+            # NPC speech can also merge with the balance. Never extract a
+            # numeric prefix from speech; wait for a fresh, complete reading.
+            return None, {**details, "error": "unverified balance counter"}
         if daily is None:
             # NPC speech can temporarily cover/merge with this counter. Reject
             # this frame; the runner may only capture again without input.
@@ -111,7 +115,7 @@ def run_restaurant_decor_recheck(*, dry_run: bool, log_root: Path) -> tuple[bool
         logger.event(action="decor_balance_recheck", sample=sample + 1,
                      reading=reading, details=details, screenshot=str(path))
         if reading is None:
-            if details.get("error") == "unverified daily counter":
+            if details.get("error") in {"unverified daily counter", "unverified balance counter"}:
                 readings.clear()
                 continue
             return stop("装饰币余额/每日额度未确认，不领取、不盲目返回")
@@ -119,7 +123,7 @@ def run_restaurant_decor_recheck(*, dry_run: bool, log_root: Path) -> tuple[bool
         if len(readings) == 2:
             break
     if len(readings) != 2:
-        return stop("装饰币每日额度未连续两帧确认，只读复采达到上限")
+        return stop("装饰币余额/每日额度未连续两帧确认，只读复采达到上限")
     if readings[0] != readings[1]:
         return stop("装饰币两帧读数变化，不推断领取或继续输入")
     ok, reason = return_home_from_restaurant(dry_run=False, log_root=log_root / "03-return-home")

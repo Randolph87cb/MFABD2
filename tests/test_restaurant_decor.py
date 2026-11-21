@@ -83,6 +83,16 @@ class DecorRecognitionTests(unittest.TestCase):
         for total in ("16.0K", "16,07", "-1", "+16078", "016078"):
             self.assertIsNone(self.recognize_entries(balance=total)[0], total)
 
+    def test_balance_merged_with_npc_speech_requires_fresh_capture(self):
+        reading, details = self.recognize_entries(balance="16,875的时候突然想起来，就来了。")
+        self.assertIsNone(reading)
+        self.assertEqual(details["error"], "unverified balance counter")
+        # In the recorded failure the merged box center left the balance ROI.
+        reading, details = self.recognize_entries(balance="", extra=[
+            (1614, 61, "16,875的时候突然想起来，就来了。", .99782)])
+        self.assertIsNone(reading)
+        self.assertEqual(details["error"], "unverified balance counter")
+
     def test_ambiguous_low_confidence_dialog_and_wrong_title_refuse(self):
         for score in (.94, float("nan")):
             self.assertIsNone(self.recognize_entries(confidence=score)[0])
@@ -152,6 +162,20 @@ class DecorFlowTests(unittest.TestCase):
         ])
         self.assertFalse(ok)
         self.assertNotIn("return", events)
+
+    def test_balance_obstruction_retries_without_return_until_two_consistent_reads(self):
+        obscured = (None, {"error": "unverified balance counter"})
+        (ok, _), events = self.run_flow([
+            (READING, {}), obscured, (READING, {}), (READING, {})])
+        self.assertTrue(ok)
+        self.assertEqual(events, ["entry", "restaurant", "return"])
+        for readings in ([obscured] * 5,
+                         [(READING, {}), obscured, (READING, {}), obscured, (READING, {})],
+                         [obscured, (READING, {}), ({**READING, "balance": 16876}, {})]):
+            with self.subTest(readings=readings):
+                (ok, _), events = self.run_flow(readings)
+                self.assertFalse(ok)
+                self.assertNotIn("return", events)
 
     def test_navigation_failure_and_dry_run(self):
         for fail, expected in (("entry", ["entry"]), ("restaurant", ["entry", "restaurant"]),
