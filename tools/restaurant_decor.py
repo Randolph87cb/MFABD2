@@ -50,7 +50,8 @@ def recognize_decor_balance(image: Image.Image) -> tuple[dict[str, int] | None, 
             text, score = candidates[0]
             return re.fullmatch(pattern, text) if score >= 0.95 else None
 
-        title = one("格鲁菲餐厅", (150, 35, 345, 95))
+        # Full-frame OCR can merge the adjacent help icon into the title.
+        title = one(r"格鲁菲餐厅[？?]?", (150, 35, 345, 95))
         employees = one("员工", (150, 1210, 260, 1270))
         customers = one("客人", (285, 1210, 400, 1270))
         settlement = one("结算", (1880, 1150, 2150, 1230))

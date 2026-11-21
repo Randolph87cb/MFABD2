@@ -46,8 +46,9 @@ class DecorRecognitionTests(unittest.TestCase):
             self.assertIsNone(reading)
             self.assertIn("unavailable", details["error"])
 
-    def recognize_entries(self, extra=(), daily="每日0/20", balance="16,078", confidence=0.99):
-        entries = [(242, 69, "格鲁菲餐厅", .99), (203, 1238, "员工", .99),
+    def recognize_entries(self, extra=(), daily="每日0/20", balance="16,078", confidence=0.99,
+                          title="格鲁菲餐厅", title_confidence=.99):
+        entries = [(242, 69, title, title_confidence), (203, 1238, "员工", .99),
                    (341, 1240, "客人", .99), (2011, 1189, "结算", .99),
                    (1484, 69, balance, confidence), (1434, 106, daily, .99)] + list(extra)
         boxes = [np.array([[x-10, y-5], [x+10, y-5], [x+10, y+5], [x-10, y+5]])
@@ -58,6 +59,19 @@ class DecorRecognitionTests(unittest.TestCase):
                 patch("restaurant_decor._ocr_engine") as engine:
             engine.return_value.return_value = result
             return decor.recognize_decor_balance(image)
+
+    def test_title_merged_with_help_icon_requires_exact_name_and_confidence(self):
+        # 2026-11-21 failure: the second full-frame OCR read was 格鲁菲餐厅？
+        # at confidence 0.98238; the help icon is visible next to the title.
+        for title in ("格鲁菲餐厅？", "格鲁菲餐厅?"):
+            with self.subTest(title=title):
+                reading, details = self.recognize_entries(title=title, title_confidence=.98238)
+                self.assertEqual(reading, READING, details)
+                self.assertIsNone(self.recognize_entries(title=title, title_confidence=.94)[0])
+                self.assertIsNone(self.recognize_entries(title=title, extra=[(1700, 500, "装饰币", .9)])[0])
+        for title in ("其他餐厅？", "格鲁菲餐厅？？", "格鲁菲餐厅帮助", "前往格鲁菲餐厅"):
+            with self.subTest(title=title):
+                self.assertIsNone(self.recognize_entries(title=title)[0])
 
     def test_daily_range_and_balance_are_separate_from_other_resources(self):
         for count in (0, 1, 19, 20):
