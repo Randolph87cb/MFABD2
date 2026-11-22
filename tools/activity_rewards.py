@@ -1,7 +1,8 @@
 """Collect rewards from marked Activities entries.
 
-The flow deliberately uses only fixed-position OCR and the existing red
-diamond/exclamation detector.  It never infers a page from brightness or a
+Page and action recognition use fixed-position OCR and the existing red
+diamond/exclamation detector. Image comparison detects list movement only.
+The flow never infers a page from brightness or a
 button's enabled state from colour.  In particular, a paid-diamond purchase
 confirmation is clicked only when *one captured frame* contains both the
 fixed-position ``免费1次`` offer and the fixed-position ``购买`` confirmation.
@@ -16,6 +17,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Callable
 
+import numpy as np
 from PIL import Image
 
 from free_gacha import RunLogger, safe_capture_client
@@ -55,6 +57,9 @@ def _offset_center(
 
 # Fixed geometry mirrored from upstream Activities.json.
 ACTIVITY_PAGE_REGION = _region(108, 110, 529, 483)
+ACTIVITY_HEADER_REGION = (0.12, 0.015, 0.10, 0.065)
+# Card interiors only: exclude the selection border, badge strip and detail animation.
+ACTIVITY_LIST_VISUAL_REGION = (0.175, 0.255, 0.080, 0.485)
 # Current-client calibration: list-card red exclamations sit at x≈0.266.
 # Keep the strip narrow so artwork elsewhere cannot satisfy the detector.
 ACTIVITY_LIST_BADGE_REGION = (0.255, 0.170, 0.025, 0.620)
@@ -144,7 +149,7 @@ DICE_RUN_SETTLE_SECONDS = 15.0
 
 
 CONTROL_GROUPS: dict[str, dict[str, Any]] = {
-    "page": {"region": ACTIVITY_PAGE_REGION, "labels": ("活动",)},
+    "page": {"region": ACTIVITY_HEADER_REGION, "labels": ("活动",)},
     "token_exchange": {"region": TOKEN_EXCHANGE_REGION, "labels": ("兑换",)},
     "token_exchange_batch": {
         "region": TOKEN_EXCHANGE_BATCH_REGION,
@@ -377,6 +382,27 @@ def _activity_list_progressed(before: tuple[str, ...], after: tuple[str, ...]) -
     return old_left and new_entered
 
 
+def _activity_list_visual_progress(before: Image.Image, after: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Require widespread changes inside list cards, ignoring right-side animation."""
+    if before.size != after.size:
+        return False, {"error": "client size changed"}
+    x, y, w, h = ACTIVITY_LIST_VISUAL_REGION
+    box = tuple(round(v) for v in (before.width*x, before.height*y,
+                                    before.width*(x+w), before.height*(y+h)))
+    def pixels(image):
+        return np.asarray(image.convert("RGB").crop(box).resize((64, 160)), dtype=np.float32)
+    delta = np.mean(np.abs(pixels(before) - pixels(after)), axis=2)
+    changed = delta > 18
+    # Several bands must change: a single blinking badge or local text update
+    # is insufficient to establish that the list moved.
+    band_fractions = [float(band.mean()) for band in np.array_split(changed, 5)]
+    changed_bands = sum(fraction >= .15 for fraction in band_fractions)
+    progressed = float(changed.mean()) >= .20 and changed_bands >= 3
+    return progressed, {"mean_difference": float(delta.mean()),
+                        "changed_fraction": float(changed.mean()),
+                        "band_fractions": band_fractions, "region": ACTIVITY_LIST_VISUAL_REGION}
+
+
 def _activity_detail_progressed(before_texts: list[str], after_texts: list[str]) -> bool:
     """Confirm a detail-page change when a stylized card title cannot be linked."""
 
@@ -414,9 +440,25 @@ def _read_activity_card_identity(
     return _read_texts_at(image, region)
 
 
+def recognize_activity_navigation(image: Image.Image) -> tuple[bool, dict[str, Any]]:
+    """Use the fixed upper-left page title, not activity copy in the body."""
+    grouped, _matches, error = LabelRecognitionSession(image).recognize(
+        {"page": CONTROL_GROUPS["page"]})
+    if error is not None:
+        return False, error
+    titles = grouped.get("page", [])
+    found = len(titles) == 1 and "".join(titles[0].split()) == "活动"
+    return found, {"titles": titles, "region": ACTIVITY_HEADER_REGION}
+
+
 def _is_activity_page(image: Image.Image) -> tuple[bool, dict[str, Any]]:
-    matches, details = recognize_activity_controls(image)
-    return bool(matches.get("page")), details
+    return recognize_activity_navigation(image)
+
+
+def return_from_activity(hwnd: int, *, logger: RunLogger) -> tuple[bool, str]:
+    # Recovery only closes the page; it must not mark incomplete rewards as claimed.
+    return return_to_home(hwnd, logger=logger, recognize_source=recognize_activity_navigation,
+                          source_name="活动页面")
 
 
 def _wait_for_image(
@@ -1350,6 +1392,8 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             logger.failure(reason)
             return False, reason
         before_identity = _activity_list_identity(image)
+        before_scroll = image.copy()
+        before_path = logger.save_image(before_scroll, f"scroll-{cycle}-before.png")
         swipe_ratio_logged(
             hwnd,
             image,
@@ -1370,7 +1414,8 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             return False, reason
         next_badges = find_red_exclamation_badges(image, ACTIVITY_LIST_BADGE_REGION)
         after_identity = _activity_list_identity(image)
-        progressed = _activity_list_progressed(before_identity, after_identity)
+        progressed, visual_details = _activity_list_visual_progress(before_scroll, image)
+        after_path = logger.save_image(image, f"scroll-{cycle}-after.png")
         at_end, end_details = _activity_list_at_end(image)
         logger.event(
             action="activity_scroll_result",
@@ -1380,11 +1425,14 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
             before_identity=before_identity,
             after_identity=after_identity,
             progressed=progressed,
+            visual_details=visual_details,
+            before_screenshot=str(before_path),
+            after_screenshot=str(after_path),
             at_end=at_end,
             end_details=end_details,
         )
         if not next_badges and not progressed and not at_end:
-            reason = "活动列表滑动后固定区域文字没有变化，滑动未生效，未判定完成"
+            reason = "活动列表滑动后卡片区域图像未确认变化，未判定完成"
             logger.failure(reason)
             return False, reason
 

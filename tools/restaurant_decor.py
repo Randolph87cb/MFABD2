@@ -41,14 +41,14 @@ def recognize_decor_balance(image: Image.Image) -> tuple[dict[str, int] | None, 
                for _, _, text, score in entries if score >= 0.55):
             return None, {**details, "error": "tooltip or dialog present"}
 
-        def one(pattern, region, *, contains=False, crop_fallback=False):
+        def one(pattern, region, *, contains=False, crop_fallback=False, min_confidence=.95):
             left, top, right, bottom = region
             candidates = [(text, score) for x, y, text, score in entries
                           if left <= x <= right and top <= y <= bottom]
             match = None
             if len(candidates) == 1:
                 text, score = candidates[0]
-                if score >= .95:
+                if score >= min_confidence:
                     match = (re.search if contains else re.fullmatch)(pattern, text)
             if match is not None or not crop_fallback:
                 return match
@@ -62,7 +62,7 @@ def recognize_decor_balance(image: Image.Image) -> tuple[dict[str, int] | None, 
                 return re.fullmatch(pattern, "".join(str(texts[0]).split()))
             return None
 
-        title = one("格鲁菲餐厅", (150, 35, 345, 95), contains=True)
+        title = one("格鲁菲餐厅", (150, 35, 345, 95), contains=True, min_confidence=.90)
         employees = one("员工", (150, 1210, 260, 1270))
         customers = one("客人", (285, 1210, 400, 1270))
         settlement = one("结算", (1880, 1150, 2150, 1230))

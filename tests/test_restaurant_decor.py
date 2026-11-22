@@ -67,7 +67,8 @@ class DecorRecognitionTests(unittest.TestCase):
             with self.subTest(title=title):
                 reading, details = self.recognize_entries(title=title, title_confidence=.98238)
                 self.assertEqual(reading, READING, details)
-                self.assertIsNone(self.recognize_entries(title=title, title_confidence=.94)[0])
+                self.assertEqual(self.recognize_entries(title=title, title_confidence=.941)[0], READING)
+                self.assertIsNone(self.recognize_entries(title=title, title_confidence=.89)[0])
                 self.assertIsNone(self.recognize_entries(title=title, extra=[(1700, 500, "装饰币", .9)])[0])
         for title in ("其他餐厅？", "格鲁菲", "餐厅帮助"):
             with self.subTest(title=title):

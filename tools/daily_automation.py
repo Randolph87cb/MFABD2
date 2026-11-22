@@ -61,7 +61,7 @@ from season_activity import recognize_season_navigation, return_from_season, run
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
-from activity_rewards import run_activity_rewards  # noqa: E402
+from activity_rewards import recognize_activity_navigation, return_from_activity, run_activity_rewards  # noqa: E402
 from mail_rewards import run_mail_rewards  # noqa: E402
 from pass_rewards import run_pass_rewards  # noqa: E402
 from task_rewards import run_task_rewards  # noqa: E402
@@ -1068,6 +1068,15 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details = classify_state(image)
+        if state in {"unknown", "blocking_ad_overlay", "home_overlay", "real_home"}:
+            activity_found, activity_details = recognize_activity_navigation(image)
+            if activity_found:
+                path = logger.save_image(image, f"step-{step:03d}-activity.png")
+                logger.event(action="activity_recovery", details=activity_details, screenshot=str(path))
+                ok, reason = return_from_activity(hwnd, logger=logger)
+                if not ok:
+                    logger.failure(reason)
+                return ok, reason
         if state == "unknown":
             season_state, season_details = recognize_season_navigation(image)
             if season_state != "unknown":

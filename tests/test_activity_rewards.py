@@ -1447,7 +1447,7 @@ class ActivityFlowTests(unittest.TestCase):
                     log_root=Path(temporary),
                 )
         self.assertFalse(ok)
-        self.assertIn("滑动未生效", reason)
+        self.assertIn("卡片区域图像未确认变化", reason)
         self.assertEqual(swipe.call_count, 1)
         return_home.assert_not_called()
 
