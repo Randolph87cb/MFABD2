@@ -142,7 +142,7 @@ class PassRewardEntryTests(unittest.TestCase):
         self.assertIn("home OCR", reason)
         notification.assert_not_called()
 
-    @patch("pass_rewards.recognize_text_at", return_value=(True, {}))
+    @patch("pass_rewards._recognize_label_groups", return_value=({"title": ["通行证 ?"]}, {}, None))
     def test_pass_page_confirmation_uses_only_fixed_title_ocr(
         self,
         recognize_text_at: MagicMock,
@@ -152,8 +152,7 @@ class PassRewardEntryTests(unittest.TestCase):
         self.assertTrue(found)
         recognize_text_at.assert_called_once_with(
             unittest.mock.ANY,
-            pass_rewards.PASS_TITLE_REGION,
-            ("通行证",),
+            {"title": {"region": pass_rewards.PASS_TITLE_REGION, "labels": ("通行证",)}},
         )
 
     def test_upstream_coordinates_use_1280_by_720(self) -> None:
@@ -669,7 +668,7 @@ class PassRewardFlowTests(unittest.TestCase):
 
     def test_claim_text_remaining_after_click_is_a_failure(self) -> None:
         ok, reason, click, _swipe, dismiss, home = self._run(
-            captures=[_image()] * 7,
+            captures=[_image()] * 16,
             badges=[[_badge()]],
             claim=True,
             overlays=[False, False, False, False],
@@ -689,7 +688,8 @@ class PassRewardFlowTests(unittest.TestCase):
         _overlay: MagicMock,
         _claim: MagicMock,
     ) -> None:
-        found, details = pass_rewards._confirm_claim_effect(_image())
+        with patch("pass_rewards._confirm_pass_reward_page", return_value=_recognition(True)):
+            found, details = pass_rewards._confirm_claim_effect(_image())
 
         self.assertTrue(found)
         self.assertFalse(details["claim_text_present"])

@@ -260,6 +260,10 @@ def swipe_client_foreground(
         raise ctypes.WinError()
 
     button_down = False
+    original_rect = RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(original_rect)):
+        raise ctypes.WinError()
+    moved = False
     try:
         user32.ShowWindow(hwnd, SW_RESTORE)
         start = POINT(start_x, start_y)
@@ -268,14 +272,32 @@ def swipe_client_foreground(
             raise ctypes.WinError()
         if not user32.ClientToScreen(hwnd, ctypes.byref(end)):
             raise ctypes.WinError()
+        # Captured clients can exceed the desktop. SetCursorPos silently clips
+        # off-screen coordinates, so translate the window (never resize it) to
+        # keep the entire drag inside the virtual desktop.
+        left, top = user32.GetSystemMetrics(76), user32.GetSystemMetrics(77)
+        width, height = user32.GetSystemMetrics(78), user32.GetSystemMetrics(79)
+        if abs(end.x - start.x) >= width or abs(end.y - start.y) >= height:
+            raise RuntimeError("swipe path does not fit the virtual desktop")
+        dx = max(left - min(start.x, end.x), min(0, left + width - 1 - max(start.x, end.x)))
+        dy = max(top - min(start.y, end.y), min(0, top + height - 1 - max(start.y, end.y)))
+        if dx or dy:
+            _set_window_origin(hwnd, original_rect.left + dx, original_rect.top + dy)
+            moved = True
+            start.x += dx
+            end.x += dx
+            start.y += dy
+            end.y += dy
         user32.SetForegroundWindow(hwnd)
         time.sleep(delay)
         if user32.GetForegroundWindow() != hwnd:
             raise RuntimeError("target game window did not become foreground before swipe")
         if not user32.SetCursorPos(start.x, start.y):
             raise ctypes.WinError()
+        time.sleep(delay)
         user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
         button_down = True
+        time.sleep(delay)
         step_delay = duration / steps
         for step in range(1, steps + 1):
             if user32.GetForegroundWindow() != hwnd:
@@ -293,6 +315,8 @@ def swipe_client_foreground(
     finally:
         if button_down:
             user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        if moved:
+            _set_window_origin(hwnd, original_rect.left, original_rect.top)
         user32.SetCursorPos(original_cursor.x, original_cursor.y)
 
 

@@ -14,7 +14,7 @@ from typing import Any
 from PIL import Image
 
 from free_gacha import RunLogger, safe_capture_client
-from game_text_recognition import LabelRecognitionSession, recognize_home_labels, recognize_reward_overlay_labels
+from game_text_recognition import LabelRecognitionSession, _recognize_label_groups, recognize_home_labels, recognize_reward_overlay_labels
 from home_notifications import detect_home_reward_notification, find_red_exclamation_badges
 from open_game import find_game_window
 from reward_flow import (
@@ -92,7 +92,17 @@ def _has_pass_item_popup_close(image: object) -> bool:
 
 def _confirm_pass_reward_page(image: Image.Image) -> tuple[bool, dict[str, Any]]:
     """Confirm the pass page solely from fixed-position OCR of ``通行证``."""
-    return recognize_text_at(image, PASS_TITLE_REGION, ("通行证",))
+    grouped, _matches, error = _recognize_label_groups(
+        image, {"title": {"region": PASS_TITLE_REGION, "labels": ("通行证",)}})
+    if error is not None:
+        return False, error
+    texts = grouped["title"]
+    return any("通行证" in re.sub(r"\s+", "", text) for text in texts), {"texts": texts}
+
+
+def return_from_pass(hwnd: int, *, logger: RunLogger) -> tuple[bool, str]:
+    return return_to_home(hwnd, logger=logger, recognize_source=_confirm_pass_reward_page,
+                          source_name="通行证页面")
 
 
 def _confirm_selected_pass_panel(image: Image.Image) -> tuple[bool, dict[str, Any]]:
@@ -174,6 +184,7 @@ def _confirm_claim_effect(image: Image.Image) -> tuple[bool, dict[str, Any]]:
         not claim_present
         and claim_details.get("available") is True
         and "error" not in claim_details
+        and _confirm_pass_reward_page(image)[0]
     )
     return is_overlay or claim_text_disappeared, {
         "reward_overlay": is_overlay,
@@ -231,6 +242,24 @@ def _capture_until(
             return True, image, details
     assert last_image is not None
     return False, last_image, last_details
+
+
+def _claim_task_rewards(
+    hwnd: int, image: Image.Image, *, logger: RunLogger, label: str,
+) -> tuple[bool, Image.Image, dict[str, Any]]:
+    for attempt in range(1, 3):
+        _click_logged(hwnd, image, PASS_CLAIM_ALL_POINT, key="pass_claim_all", logger=logger)
+        found, image, details = _capture_until(
+            hwnd, logger=logger, label=f"{label}-attempt-{attempt}",
+            recognize=_confirm_claim_effect, required_consecutive=2)
+        if found:
+            return True, image, details
+        # A fresh source-page confirmation is required before repeating input.
+        if attempt == 2 or not _confirm_pass_reward_page(image)[0] or not _confirm_pass_task_page(image)[0]:
+            return False, image, details
+        logger.event(action="retry_click", key="pass_claim_all", attempt=attempt + 1,
+                     reason="fixed pass title and task controls remained after click")
+    raise AssertionError("bounded claim loop")
 
 
 def _close_item_detail(
@@ -558,14 +587,8 @@ def _collect_from_pass_page(
             else:
                 return False, "通行证卡片点击后页面状态不明确，未执行任务标签点击"
 
-            _click_logged(hwnd, task_page, PASS_CLAIM_ALL_POINT, key="pass_claim_all", logger=logger)
-            claim_effect, outcome, effect_details = _capture_until(
-                hwnd,
-                logger=logger,
-                label=f"pass-claim-result-{step:02d}",
-                recognize=_confirm_claim_effect,
-                required_consecutive=2,
-            )
+            claim_effect, outcome, effect_details = _claim_task_rewards(
+                hwnd, task_page, logger=logger, label=f"pass-claim-result-{step:02d}")
             if not claim_effect:
                 reason = "点击“全部获得”后单步超时，固定位置文字仍存在，领取未生效"
                 logger.failure(reason)
@@ -847,14 +870,8 @@ def claim_selected_pass_task_rewards(*, log_root: Path) -> tuple[bool, str]:
     image = safe_capture_client(hwnd, logger=logger)
     if not _confirm_claim_all(image)[0]:
         return False, "全部获得 was not found at its fixed position"
-    _click_logged(hwnd, image, PASS_CLAIM_ALL_POINT, key="pass_claim_all", logger=logger)
-    found, _after, _details = _capture_until(
-        hwnd,
-        logger=logger,
-        label="pass-claim-result",
-        recognize=_confirm_claim_effect,
-        required_consecutive=2,
-    )
+    found, _after, _details = _claim_task_rewards(
+        hwnd, image, logger=logger, label="pass-claim-result")
     return (
         (True, "claimed selected pass task rewards")
         if found

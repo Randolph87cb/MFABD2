@@ -63,7 +63,7 @@ from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
 from activity_rewards import recognize_activity_navigation, return_from_activity, run_activity_rewards  # noqa: E402
 from mail_rewards import run_mail_rewards  # noqa: E402
-from pass_rewards import run_pass_rewards  # noqa: E402
+from pass_rewards import run_pass_rewards, _confirm_pass_reward_page, return_from_pass  # noqa: E402
 from task_rewards import run_task_rewards  # noqa: E402
 from mute_browndust import set_mute  # noqa: E402
 from daily_plan import (  # noqa: E402
@@ -1069,6 +1069,13 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         image = safe_capture_client(hwnd, logger=logger)
         state, details = classify_state(image)
         if state in {"unknown", "blocking_ad_overlay", "home_overlay", "real_home"}:
+            pass_found, pass_details = _confirm_pass_reward_page(image)
+            if pass_found:
+                logger.event(action="pass_recovery", details=pass_details)
+                ok, reason = return_from_pass(hwnd, logger=logger)
+                if not ok:
+                    logger.failure(reason)
+                return ok, reason
             activity_found, activity_details = recognize_activity_navigation(image)
             if activity_found:
                 path = logger.save_image(image, f"step-{step:03d}-activity.png")

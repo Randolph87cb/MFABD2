@@ -23,6 +23,7 @@ from PIL import Image
 from free_gacha import RunLogger, safe_capture_client
 from game_text_recognition import (
     LabelRecognitionSession,
+    _recognize_label_groups,
     recognize_home_labels,
     recognize_reward_overlay_labels,
 )
@@ -63,8 +64,8 @@ ACTIVITY_LIST_VISUAL_REGION = (0.175, 0.255, 0.080, 0.485)
 # Current-client calibration: list-card red exclamations sit at x≈0.266.
 # Keep the strip narrow so artwork elsewhere cannot satisfy the detector.
 ACTIVITY_LIST_BADGE_REGION = (0.255, 0.170, 0.025, 0.620)
-ACTIVITY_LIST_TEXT_REGION = _region(100, 100, 205, 516)
-ACTIVITY_LIST_END_REGION = _region(125, 335, 176, 281)
+ACTIVITY_LIST_TEXT_REGION = (0.168, 0.245, 0.105, 0.515)
+ACTIVITY_LIST_END_REGION = (0.168, 0.550, 0.105, 0.210)
 ACTIVITY_DETAIL_IDENTITY_REGION = (0.250, 0.120, 0.660, 0.360)
 # Current-client calibration: identify this activity from the single-exchange
 # button on the left.  The adjacent batch button dynamically uses the largest
@@ -279,9 +280,11 @@ def _dice_switch_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
 
 
 def _read_texts_at(image: Image.Image, region: NormalizedRegion) -> tuple[list[str], dict[str, Any]]:
-    grouped, _matches, error = LabelRecognitionSession(image).recognize(
-        {"identity": {"region": region, "labels": ()}}
-    )
+    groups = {"identity": {"region": region, "labels": ()}}
+    if region in (ACTIVITY_LIST_TEXT_REGION, ACTIVITY_LIST_END_REGION):
+        grouped, _matches, error = _recognize_label_groups(image, groups)
+    else:
+        grouped, _matches, error = LabelRecognitionSession(image).recognize(groups)
     if error is not None:
         return [], error
     texts = grouped.get("identity", [])
@@ -442,12 +445,11 @@ def _read_activity_card_identity(
 
 def recognize_activity_navigation(image: Image.Image) -> tuple[bool, dict[str, Any]]:
     """Use the fixed upper-left page title, not activity copy in the body."""
-    grouped, _matches, error = LabelRecognitionSession(image).recognize(
-        {"page": CONTROL_GROUPS["page"]})
+    grouped, _matches, error = _recognize_label_groups(image, {"page": CONTROL_GROUPS["page"]})
     if error is not None:
         return False, error
     titles = grouped.get("page", [])
-    found = len(titles) == 1 and "".join(titles[0].split()) == "活动"
+    found = any("活动" in "".join(title.split()) for title in titles)
     return found, {"titles": titles, "region": ACTIVITY_HEADER_REGION}
 
 
@@ -1394,47 +1396,53 @@ def _run_activity_rewards_impl(*, dry_run: bool, log_root: Path) -> tuple[bool, 
         before_identity = _activity_list_identity(image)
         before_scroll = image.copy()
         before_path = logger.save_image(before_scroll, f"scroll-{cycle}-before.png")
-        swipe_ratio_logged(
-            hwnd,
-            image,
-            SCROLL_BEGIN,
-            SCROLL_END,
-            key=f"activity_list_scroll_{cycle}",
-            logger=logger,
-            duration=ACTIVITY_SCROLL_DURATION,
-            end_hold=ACTIVITY_SCROLL_END_HOLD,
-            foreground=True,
-        )
-        swipes += 1
-        time.sleep(POLL_INTERVAL)
-        image = safe_capture_client(hwnd, logger=logger)
-        if not _is_activity_page(image)[0]:
-            reason = "activity title was lost while scrolling the activity list"
-            logger.failure(reason)
-            return False, reason
-        next_badges = find_red_exclamation_badges(image, ACTIVITY_LIST_BADGE_REGION)
-        after_identity = _activity_list_identity(image)
-        progressed, visual_details = _activity_list_visual_progress(before_scroll, image)
-        after_path = logger.save_image(image, f"scroll-{cycle}-after.png")
-        at_end, end_details = _activity_list_at_end(image)
-        logger.event(
-            action="activity_scroll_result",
-            cycle=cycle,
-            swipes=swipes,
-            next_badges=len(next_badges),
-            before_identity=before_identity,
-            after_identity=after_identity,
-            progressed=progressed,
-            visual_details=visual_details,
-            before_screenshot=str(before_path),
-            after_screenshot=str(after_path),
-            at_end=at_end,
-            end_details=end_details,
-        )
-        if not next_badges and not progressed and not at_end:
-            reason = "活动列表滑动后卡片区域图像未确认变化，未判定完成"
-            logger.failure(reason)
-            return False, reason
+        for attempt in range(1, 3):
+            swipe_ratio_logged(
+                hwnd,
+                image,
+                SCROLL_BEGIN,
+                SCROLL_END,
+                key=f"activity_list_scroll_{cycle}_attempt_{attempt}",
+                logger=logger,
+                duration=ACTIVITY_SCROLL_DURATION,
+                end_hold=ACTIVITY_SCROLL_END_HOLD,
+                foreground=True,
+            )
+            swipes += 1
+            time.sleep(POLL_INTERVAL)
+            image = safe_capture_client(hwnd, logger=logger)
+            if not _is_activity_page(image)[0]:
+                reason = "activity title was lost while scrolling the activity list"
+                logger.failure(reason)
+                return False, reason
+            next_badges = find_red_exclamation_badges(image, ACTIVITY_LIST_BADGE_REGION)
+            after_identity = _activity_list_identity(image)
+            progressed, visual_details = _activity_list_visual_progress(before_scroll, image)
+            after_path = logger.save_image(image, f"scroll-{cycle}-attempt-{attempt}-after.png")
+            at_end, end_details = _activity_list_at_end(image)
+            logger.event(
+                action="activity_scroll_result",
+                cycle=cycle,
+                swipes=swipes,
+                next_badges=len(next_badges),
+                before_identity=before_identity,
+                after_identity=after_identity,
+                progressed=progressed,
+                visual_details=visual_details,
+                before_screenshot=str(before_path),
+                after_screenshot=str(after_path),
+                at_end=at_end,
+                end_details=end_details,
+            )
+            if not next_badges and not progressed and not at_end:
+                if attempt < 2:
+                    logger.event(action="retry_swipe", cycle=cycle, attempt=attempt + 1,
+                                 reason="activity title confirmed and card region unchanged")
+                    continue
+                reason = "活动列表滑动后卡片区域图像未确认变化，未判定完成"
+                logger.failure(reason)
+                return False, reason
+            break
 
     reason = f"activity scan exceeded hard limit {MAX_SCAN_CYCLES}"
     logger.failure(reason)

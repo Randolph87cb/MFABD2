@@ -29,7 +29,7 @@ class DailyRecoveryTests(unittest.TestCase):
 
     def test_multiple_failures_leave_evidence_but_run_later_rewards(self):
         def execute(phase, **kwargs):
-            if phase in {"arena", "season_activity", "activity_rewards"}:
+            if phase in {"arena", "season_activity", "activity_rewards", "pass_rewards"}:
                 raise daily.DailyRunError(phase + " failed")
             return "completed"
         with tempfile.TemporaryDirectory() as directory:
@@ -43,7 +43,7 @@ class DailyRecoveryTests(unittest.TestCase):
         self.assertEqual(calls, list(daily.CURRENT_PHASE_IDS))
         self.assertEqual(state["phases"]["arena"]["status"], "failed")
         self.assertEqual(state["phases"]["mail_rewards"]["status"], "completed")
-        self.assertEqual(set(summary["failures"]), {"arena", "season_activity", "activity_rewards"})
+        self.assertEqual(set(summary["failures"]), {"arena", "season_activity", "activity_rewards", "pass_rewards"})
 
     def test_cannot_restore_home_does_not_run_next_task_or_erase_original_failure(self):
         def execute(phase, **kwargs):

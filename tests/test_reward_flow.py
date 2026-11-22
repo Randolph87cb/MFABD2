@@ -534,6 +534,8 @@ class SwipeClientTests(unittest.TestCase):
         _get_size: MagicMock,
         _sleep: MagicMock,
     ) -> None:
+        user32.GetSystemMetrics.side_effect = lambda index: {76: 0, 77: 0, 78: 1920, 79: 1080}[index]
+        user32.GetWindowRect.return_value = 1
         user32.ClientToScreen.return_value = 1
         user32.GetCursorPos.return_value = 1
         user32.GetForegroundWindow.return_value = 123
@@ -554,6 +556,8 @@ class SwipeClientTests(unittest.TestCase):
         _get_size: MagicMock,
         _sleep: MagicMock,
     ) -> None:
+        user32.GetSystemMetrics.side_effect = lambda index: {76: 0, 77: 0, 78: 1920, 79: 1080}[index]
+        user32.GetWindowRect.return_value = 1
         user32.ClientToScreen.return_value = 1
         user32.GetCursorPos.return_value = 1
         user32.GetForegroundWindow.side_effect = [123, 999]
@@ -574,6 +578,7 @@ class SwipeClientTests(unittest.TestCase):
         _get_size: MagicMock,
         _win_error: MagicMock,
     ) -> None:
+        user32.GetSystemMetrics.side_effect = lambda index: {76: 0, 77: 0, 78: 1920, 79: 1080}[index]
         user32.GetWindowRect.return_value = 1
         user32.ClientToScreen.return_value = 1
         user32.GetCursorPos.return_value = 0
@@ -592,6 +597,7 @@ class SwipeClientTests(unittest.TestCase):
         _get_size: MagicMock,
         _sleep: MagicMock,
     ) -> None:
+        user32.GetSystemMetrics.side_effect = lambda index: {76: 0, 77: 0, 78: 1920, 79: 1080}[index]
         user32.GetWindowRect.return_value = 1
         user32.ClientToScreen.return_value = 1
         user32.GetCursorPos.return_value = 1
