@@ -29,12 +29,8 @@ def recognize_guild_home(image, *, entry=False):
         return False, {"error": repr(exc)}
 
 
-def recognize_nonmember_guild(image):
-    """Only the native recommendations list, never a member or application page.
-
-    Guild names and member counts vary; they do not authorize any input. The
-    complete non-member navigation and two list join labels must coexist.
-    """
+def recognize_guild_navigation(image):
+    """Identify the non-member navigation shell, independently of list contents."""
     if image.size != (2304, 1296):
         return False, {"error": "unverified client size"}
     try:
@@ -51,16 +47,41 @@ def recognize_nonmember_guild(image):
             ("用公会名称搜索", (900, 30, 1140, 85)),
             ("搜索", (1820, 30, 1920, 85)),
             ("刷新", (2000, 30, 2100, 85)),
-            ("立即加入", (1230, 185, 1350, 240)),
-            ("立即加入", (1230, 350, 1350, 410)),
         )
         arrow = np.asarray(image.convert("RGB"))[49:73, 203:216]
         bright = float(np.mean(np.min(arrow, axis=2) > 210))
-        if bright < .20 or not all(_one(entries, text, box) for text, box in anchors):
+        if bright < .20 or not all(_one(entries, ".*" + text + ".*", box) for text, box in anchors):
             return False, {**details, "back_bright": bright, "error": "unverified non-member recommendations"}
-        return True, {**details, "reading": {"member": False, "checkin": "unavailable"}}
+        return True, details
     except Exception as exc:
         return False, {"error": repr(exc)}
+
+
+def recognize_nonmember_guild(image):
+    """Require the navigation shell and two join controls, regardless of join policy.
+
+    A recommendation may require approval or permit immediate entry. Neither
+    authorizes clicking it. Names, counts and join policy are not page identity.
+    """
+    found, details = recognize_guild_navigation(image)
+    if not found:
+        return False, details
+    if not all(_one(details["texts"], r".+加入", box) for box in (
+            (1230, 185, 1350, 240), (1230, 350, 1350, 410))):
+        return False, {**details, "error": "unverified recommendation join controls"}
+    return True, {**details, "reading": {"member": False, "checkin": "unavailable"}}
+
+
+def return_from_guild(hwnd, image, *, logger):
+    """Return from a verified navigation shell once; unknown destinations stop."""
+    found, _ = recognize_guild_navigation(image)
+    if not found:
+        return False, "公会返回控件未确认；未输入"
+    click_ratio_logged(hwnd, image, (208 / 2304, 60 / 1296),
+                       key="guild_return_home", logger=logger)
+    ok, _, _ = wait_for_recognition(hwnd, logger=logger, label="guild-recovery-home",
+                                    timeout=45, recognize=_recognize_actionable_home)
+    return ok, "returned to real_home" if ok else "公会返回主页未确认；停止输入"
 
 
 def run_guild_nonmember_check(*, dry_run: bool, log_root: Path):

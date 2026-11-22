@@ -25,6 +25,7 @@ class GuildRecognitionTests(unittest.TestCase):
 
     def test_native_nonmember_home_and_adjacent_pages(self):
         for name, expected in (("guild-nonmember-1", True), ("guild-nonmember-2", True),
+                               ("guild-recommendations-approval", True),
                                ("guild-entry-loading", False), ("guild-home-before", False),
                                ("business-management-claim-disabled-2304x1296", False),
                                ("season-locked-1", False)):
@@ -85,8 +86,57 @@ class GuildRecognitionTests(unittest.TestCase):
                 with patch.object(guild, "_entries", return_value=changed):
                     self.assertFalse(guild.recognize_guild_home(image, entry=True)[0])
 
+    def test_join_policy_and_title_decoration_do_not_define_membership(self):
+        for policy in ("立即加入", "审核加入", "申请加入"):
+            entries = [(x, y, policy if text == "立即加入" else
+                        text + "?帮助" if text == "公会" else text, score)
+                       for x, y, text, score in self.entries]
+            with self.subTest(policy=policy), patch.object(guild, "_entries", return_value=entries):
+                found, details = guild.recognize_nonmember_guild(self.source)
+                self.assertTrue(found, details)
+                self.assertEqual(details["reading"], {"member": False, "checkin": "unavailable"})
+
+    def test_return_navigation_does_not_infer_membership_from_missing_rows(self):
+        entries = [entry for entry in self.entries if entry[2] != "立即加入"]
+        with patch.object(guild, "_entries", return_value=entries):
+            found, details = guild.recognize_guild_navigation(self.source)
+            self.assertTrue(found, details)
+            self.assertNotIn("reading", details)
+            self.assertFalse(guild.recognize_nonmember_guild(self.source)[0])
+        for label in ("公会", "推荐公会", "申请列表", "创建公会", "搜索", "刷新", "用公会名称搜索"):
+            entries = [entry for entry in self.entries if entry[2] != label]
+            with self.subTest(label=label), patch.object(guild, "_entries", return_value=entries):
+                self.assertFalse(guild.recognize_guild_navigation(self.source)[0])
+
 
 class GuildFlowTests(unittest.TestCase):
+    def test_recovery_uses_back_once_and_requires_verified_home(self):
+        image = Image.new("RGB", (2304, 1296))
+        for known, home, count in ((True, True, 1), (True, False, 1), (False, False, 0)):
+            with self.subTest(known=known, home=home), ExitStack() as stack:
+                stack.enter_context(patch.object(guild, "recognize_guild_navigation", return_value=(known, {})))
+                stack.enter_context(patch.object(guild, "wait_for_recognition", return_value=(home, image, {})))
+                click = stack.enter_context(patch.object(guild, "click_ratio_logged"))
+                ok, _ = guild.return_from_guild(123, image, logger=None)
+                self.assertEqual(ok, known and home)
+                self.assertEqual(click.call_count, count)
+                if count:
+                    self.assertEqual(click.call_args.args[2], (208 / 2304, 60 / 1296))
+                    self.assertEqual(click.call_args.kwargs["key"], "guild_return_home")
+
+    def test_ensure_home_routes_guild_shell_without_claiming_checkin(self):
+        image = Image.new("RGB", (2304, 1296))
+        for recovered in (True, False):
+            with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                stack.enter_context(patch("open_game.find_game_window", return_value=123))
+                stack.enter_context(patch.object(daily, "safe_capture_client", return_value=image))
+                stack.enter_context(patch.object(daily, "classify_state", return_value=("unknown", {})))
+                stack.enter_context(patch.object(daily, "recognize_season_navigation", return_value=("unknown", {})))
+                stack.enter_context(patch.object(daily, "recognize_guild_navigation", return_value=(True, {})))
+                recover = stack.enter_context(patch.object(daily, "return_from_guild", return_value=(recovered, "home")))
+                self.assertEqual(daily.ensure_home(timeout=5, log_root=Path(directory)), (recovered, "home"))
+                recover.assert_called_once()
+
     def flow(self, *, failure=None, changed=False, home_changed=False, dry_run=False, bad_start=False):
         image = Image.new("RGB", (2304, 1296))
         labels = []
@@ -136,7 +186,7 @@ class GuildFlowTests(unittest.TestCase):
             self.assertEqual(ok, not bad_start)
             self.assertEqual((keys, labels), ([], []))
 
-    def test_real_daily_entry_order_stop_and_partial_plan(self):
+    def test_real_daily_entry_order_recovery_and_partial_plan(self):
         operations = ("ensure_home", "run_business_management", "run_restaurant_decor_recheck",
                       "run_plaza_prayer", "run_guild_nonmember_check")
         for fail in (None, *operations):
@@ -162,7 +212,12 @@ class GuildFlowTests(unittest.TestCase):
                     self.assertIn("skipped:not joined", reason)
                     self.assertFalse(reason.startswith("skipped:"))  # Other claims still completed.
                     self.assertEqual(roots[-1], "05-guild-prerequisite")
-            self.assertEqual(calls, list(operations[:operations.index(fail) + 1]) if fail else list(operations))
+            expected = list(operations)
+            if fail == "ensure_home":
+                expected = ["ensure_home"]
+            elif fail and fail != operations[-1]:
+                expected.insert(operations.index(fail) + 1, "ensure_home")
+            self.assertEqual(calls, expected)
         for preset in ("fast", "detailed"):
             plan = get_daily_plan(preset)
             stage = next(s for s in plan if s.id == "daily_claims")
