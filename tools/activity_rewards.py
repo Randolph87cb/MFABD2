@@ -1,7 +1,8 @@
 """Collect rewards from marked Activities entries.
 
-Page and action recognition use fixed-position OCR and the existing red
-diamond/exclamation detector. Image comparison detects list movement only.
+Activity actions use preset labels and the current OCR text boxes, without
+fixed action regions or click coordinates. Navigation and resource reads keep
+their page-specific checks. Image comparison detects list movement only.
 The flow never infers a page from brightness or a
 button's enabled state from colour.  In particular, a paid-diamond purchase
 confirmation is clicked only when *one captured frame* contains both the
@@ -29,7 +30,8 @@ from game_text_recognition import (
 )
 from home_notifications import detect_home_reward_notification, find_red_exclamation_badges
 from open_game import find_game_window
-from reward_flow import click_ratio_logged, prepare_actionable_home, return_to_home, swipe_ratio_logged
+from activity_targets import read_controls, center as target_center, unique_target, adjacent_toggle
+from reward_flow import click_ratio_logged as _click_ratio_logged, prepare_actionable_home, return_to_home, swipe_ratio_logged
 
 
 NormalizedRegion = tuple[float, float, float, float]
@@ -185,18 +187,70 @@ CONTROL_GROUPS: dict[str, dict[str, Any]] = {
 }
 
 
+ACTION_CONTROL_GROUPS = {
+    "activity_regular_claim_all": "regular_claim", "activity_puzzle_unlock_all": "puzzle_unlock",
+    "activity_bingo_unlock_all": "bingo_unlock", "activity_free_roulette": "free_roulette",
+    "activity_token_exchange": "token_exchange", "activity_token_exchange_batch": "token_exchange_batch",
+    "activity_token_confirm": "token_confirm", "activity_clothing_claim_now": "clothing_claim_now",
+    "activity_clothing_claim_button": "clothing_button", "activity_clothing_open": "clothing_claim_now",
+    "activity_paid_free_open": "paid_free", "activity_paid_free_confirm": "paid_purchase",
+    "activity_token_roulette_1": "token_roulette", "activity_token_roulette_10": "token_roulette_ten",
+    "activity_token_roulette_1_balance_unreadable": "token_roulette",
+    "activity_dice_auto": "dice_auto", "activity_dice_switch_on": "dice_auto",
+}
+
+
 def recognize_activity_controls(image: Image.Image) -> tuple[MatchMap, dict[str, Any]]:
-    """OCR every fixed activity region once and return matched labels."""
-    grouped, matches, error = LabelRecognitionSession(image).recognize(CONTROL_GROUPS)
-    if error is not None:
-        return {}, error
-    return matches, {"available": True, "texts": grouped, "matches": matches}
+    """Exact action labels anywhere on the current frame; retain their OCR boxes."""
+    try:
+        groups = {**CONTROL_GROUPS, "token_roulette_ten": {"labels": ("旋转10次",)}}
+        groups["token_exchange"] = {"labels": ("兑换", "兑换1次")}
+        groups["token_exchange_batch"] = {"labels": ("全部解锁",), "pattern": r"兑换(?:[2-9]|[1-9]\d+)次"}
+        anchors, observations = read_controls(image, groups)
+        matches = {name: [entry["text"] for entry in entries] for name, entries in anchors.items()}
+        texts = {name: list(values) for name, values in matches.items()}
+        # Keep nearby price/fee copy in the purchase gate; exact button matching
+        # must not discard the context that distinguishes free from paid.
+        for purchase in anchors.get("paid_purchase", []):
+            box = np.asarray(purchase["box"])
+            cx, cy = box.mean(axis=0)
+            width, height = np.ptp(box, axis=0)
+            for entry in observations:
+                ex, ey = np.asarray(entry["box"]).mean(axis=0)
+                if abs(ex-cx) <= width*3 and abs(ey-cy) <= height*12 and entry["text"] != "免费1次":
+                    texts["paid_purchase"].append(entry["text"])
+        return matches, {"available": True, "texts": texts, "matches": matches,
+                         "anchors": anchors, "observations": observations}
+    except Exception as exc:
+        return {}, {"available": False, "error": repr(exc)}
+
+
+def click_ratio_logged(hwnd, image, point, *, key, logger, **kwargs):
+    """Action keys never fall back to their legacy planned coordinates."""
+    group = ACTION_CONTROL_GROUPS.get(key)
+    if group:
+        _matches, details = recognize_activity_controls(image)
+        entry = unique_target(details.get("anchors", {}), group, image,
+                              first=group == "clothing_button")
+        if key == "activity_paid_free_confirm" and not paid_confirmation_is_safe(_matches, details):
+            raise ValueError("purchase target failed same-frame free-offer gate")
+        if key == "activity_paid_free_open" and not paid_free_offer_is_safe(_matches, details):
+            raise ValueError("free offer target was not verified")
+        point = target_center(entry, image)
+        if group == "dice_auto":
+            toggle = adjacent_toggle(image, entry)
+            if toggle["state"] == "on":
+                logger.event(action="control_already_enabled", key=key, toggle=toggle)
+                return
+            point = toggle["point"]
+        logger.event(action="ocr_action_target", key=key, text=entry["text"], box=entry["box"], point=point)
+    return _click_ratio_logged(hwnd, image, point, key=key, logger=logger, **kwargs)
 
 
 def classify_activity_from_matches(matches: MatchMap) -> str:
-    """Dispatch an activity from fixed-position OCR matches.
+    """Dispatch an activity from verified action labels and page semantics.
 
-    More specific layouts precede the broad regular-claim region.  A purchase
+    More specific controls precede broad free-clothing copy. A purchase
     label without the free offer is explicitly unsafe rather than unknown.
     """
     if matches.get("paid_purchase") and not matches.get("paid_free"):
@@ -210,7 +264,7 @@ def classify_activity_from_matches(matches: MatchMap) -> str:
         ("bingo_unlock", "bingo"),
         ("free_roulette", "free_roulette"),
         ("token_roulette", "token_roulette"),
-        # A fixed-position action label is stronger than broad activity copy.
+        # An exact action label is stronger than broad activity copy.
         # In particular, ordinary Pickup tasks contain text such as
         # "强化…服装", which can fuzzily resemble the free-clothing
         # "+5强化" marker.
@@ -235,6 +289,16 @@ def _normalized_ui_text(value: object) -> str:
 
 def paid_confirmation_is_safe(matches: MatchMap, details: dict[str, Any]) -> bool:
     """Require exact free/purchase text from one immutable OCR frame."""
+    anchors = details.get("anchors")
+    if anchors is not None:
+        free, purchase = anchors.get("paid_free", []), anchors.get("paid_purchase", [])
+        if len(free) != 1 or len(purchase) != 1:
+            return False
+        fb, pb = np.asarray(free[0]["box"]), np.asarray(purchase[0]["box"])
+        distance = np.abs(fb.mean(axis=0)-pb.mean(axis=0))
+        size = np.maximum(np.ptp(fb, axis=0), np.ptp(pb, axis=0))
+        if distance[0] > size[0]*3 or distance[1] > size[1]*12:
+            return False
     grouped = details.get("texts")
     if not isinstance(grouped, dict):
         return False
@@ -271,12 +335,13 @@ def paid_free_offer_is_safe(matches: MatchMap, details: dict[str, Any]) -> bool:
 
 
 def _dice_switch_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
-    matches, details = recognize_activity_controls(image)
-    on = bool(matches.get("dice_switch_on"))
-    off = bool(matches.get("dice_switch_off"))
-    if on == off:
-        return "unknown", details
-    return ("on" if on else "off"), details
+    _matches, details = recognize_activity_controls(image)
+    try:
+        entry = unique_target(details.get("anchors", {}), "dice_auto", image)
+        toggle = adjacent_toggle(image, entry)
+        return toggle["state"], {**details, "toggle": toggle}
+    except ValueError as exc:
+        return "unknown", {**details, "error": str(exc)}
 
 
 def _read_texts_at(image: Image.Image, region: NormalizedRegion) -> tuple[list[str], dict[str, Any]]:
@@ -722,7 +787,7 @@ def _handle_token_exchange(
 def _handle_dice_auto(
     hwnd: int, image: Image.Image, *, logger: RunLogger, dry_run: bool
 ) -> tuple[bool, Image.Image, str]:
-    """Start dice auto-play and touch its switch only after fixed OCR says OFF."""
+    """Locate automatic play by text; enable only a verified adjacent OFF toggle."""
     click_ratio_logged(
         hwnd,
         image,
@@ -742,7 +807,7 @@ def _handle_dice_auto(
     )
     if not recognized:
         return False, current, (
-            "dice auto switch state was not confirmed by fixed-position text; "
+            "dice auto switch state was not confirmed near the OCR label; "
             "switch was not clicked"
         )
     state, details = _dice_switch_state(current)
@@ -808,20 +873,11 @@ def _handle_free_clothing(
     return _handle_activity(kind, hwnd, current, logger=logger, dry_run=False)
 
 
-def _clothing_style_2_rows(
-    image: Image.Image,
-) -> tuple[list[int], dict[str, Any] | None]:
-    row_groups = {
-        f"row_{index}": {
-            "region": _region(1030, 254 + index * 65, 146, 65),
-            "labels": ("获得", "领取", "免费"),
-        }
-        for index in range(5)
-    }
-    _texts, matches, error = LabelRecognitionSession(image).recognize(row_groups)
-    if error is not None:
-        return [], error
-    return [index for index in range(5) if matches.get(f"row_{index}")], None
+def _clothing_style_2_rows(image: Image.Image) -> tuple[list[int], dict[str, Any] | None]:
+    _matches, details = recognize_activity_controls(image)
+    if not details.get("available"):
+        return [], details
+    return list(range(len(details.get("anchors", {}).get("clothing_button", [])))), None
 
 
 def _handle_clothing_style_2(

@@ -16,6 +16,14 @@ if str(TOOLS_DIR) not in sys.path:
 import activity_rewards
 
 
+def _roulette_controls(size):
+    # Simulate a current OCR box; handler tests verify input/settlement behavior.
+    w,h=size
+    entry={"text":"旋转1次", "box":[[w*.64,h*.69],[w*.68,h*.69],[w*.68,h*.73],[w*.64,h*.73]]}
+    return {"free_roulette":["1次免费"],"token_roulette":["旋转1次"]}, {
+        "available":True,"anchors":{"free_roulette":[entry],"token_roulette":[entry]}}
+
+
 class ActivityDispatchTests(unittest.TestCase):
     def test_activity_badge_region_covers_current_list_edge(self) -> None:
         image = Image.new("RGB", (1000, 600))
@@ -324,6 +332,7 @@ class ActivitySettlementTests(unittest.TestCase):
                 with (
                     self.subTest(kind=kind, size=size),
                     patch("reward_flow.click_client") as click,
+                    patch("activity_rewards.recognize_activity_controls", return_value=_roulette_controls(size)),
                     patch("activity_rewards._activity_token_balance", return_value=(1, {})),
                     patch("activity_rewards._wait_for_image", return_value=(True, Image.new("RGB", size))),
                     patch("activity_rewards._return_to_activity_index", return_value=(True, None, "returned")),
@@ -346,6 +355,7 @@ class ActivitySettlementTests(unittest.TestCase):
         image = Image.new("RGB", (2304, 1296))
         with (
             patch("reward_flow.click_client") as click,
+            patch("activity_rewards.recognize_activity_controls", return_value=_roulette_controls(image.size)),
             patch("activity_rewards._wait_for_image", return_value=(False, image)),
             patch("activity_rewards._return_to_activity_index") as return_index,
         ):
@@ -363,6 +373,7 @@ class ActivitySettlementTests(unittest.TestCase):
         image = Image.new("RGB", (2304, 1296))
         with (
             patch("reward_flow.click_client") as click,
+            patch("activity_rewards.recognize_activity_controls", return_value=_roulette_controls(image.size)),
             patch("activity_rewards._wait_for_image") as wait,
         ):
             ok, _image, reason = activity_rewards._handle_activity(
