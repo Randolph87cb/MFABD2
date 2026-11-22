@@ -453,6 +453,7 @@ def improvement_prompt(
 今日 summary：{summary_path or '无，请查看每日状态与监督日志'}
 监督日志：{supervisor_log}
 当前阶段结果：{json.dumps(report.get('statuses', {}), ensure_ascii=False)}
+用户已排除全部公会内容，不检查、不签到、不加入，也不作为待开发缺口；历史路线图不能覆盖此要求。
 按现有路线图顺序排列的候选差距：
 {json.dumps(candidates, ensure_ascii=False, indent=2)}
 

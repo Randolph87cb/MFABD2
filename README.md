@@ -44,6 +44,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools\install_daily_task.ps1
 游戏操作通过项目本地 Python/Win32 入口完成，无需桌面端控制插件；使用方式与证据规则见
 [`docs/cli-game-control.md`](docs/cli-game-control.md)。
 
+公会相关内容按用户要求全部排除：不进入、不检查、不签到、不加入，也不作为后续开发缺口。
+
 每轮运行由 `tools\daily_supervisor.py` 监督：
 
 - 登录时检测维护公告，关闭游戏和本轮启动器，等待公告结束时间后一小时再登录并续跑；

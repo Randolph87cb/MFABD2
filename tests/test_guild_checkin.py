@@ -124,18 +124,21 @@ class GuildFlowTests(unittest.TestCase):
                     self.assertEqual(click.call_args.args[2], (208 / 2304, 60 / 1296))
                     self.assertEqual(click.call_args.kwargs["key"], "guild_return_home")
 
-    def test_ensure_home_routes_guild_shell_without_claiming_checkin(self):
+    def test_ensure_home_does_not_probe_or_operate_guild(self):
         image = Image.new("RGB", (2304, 1296))
-        for recovered in (True, False):
-            with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-                stack.enter_context(patch("open_game.find_game_window", return_value=123))
-                stack.enter_context(patch.object(daily, "safe_capture_client", return_value=image))
-                stack.enter_context(patch.object(daily, "classify_state", return_value=("unknown", {})))
-                stack.enter_context(patch.object(daily, "recognize_season_navigation", return_value=("unknown", {})))
-                stack.enter_context(patch.object(daily, "recognize_guild_navigation", return_value=(True, {})))
-                recover = stack.enter_context(patch.object(daily, "return_from_guild", return_value=(recovered, "home")))
-                self.assertEqual(daily.ensure_home(timeout=5, log_root=Path(directory)), (recovered, "home"))
-                recover.assert_called_once()
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            stack.enter_context(patch("open_game.find_game_window", return_value=123))
+            stack.enter_context(patch.object(daily, "safe_capture_client", return_value=image))
+            stack.enter_context(patch.object(daily, "classify_state", return_value=("unknown", {})))
+            stack.enter_context(patch.object(daily, "recognize_season_navigation", return_value=("unknown", {})))
+            stack.enter_context(patch.object(daily, "recognize_return_home_control", return_value=(False, {})))
+            probe = stack.enter_context(patch.object(guild, "recognize_guild_navigation"))
+            recover = stack.enter_context(patch.object(guild, "return_from_guild"))
+            ok, reason = daily.ensure_home(timeout=5, log_root=Path(directory))
+            self.assertFalse(ok)
+            self.assertIn("unknown", reason)
+            probe.assert_not_called()
+            recover.assert_not_called()
 
     def flow(self, *, failure=None, changed=False, home_changed=False, dry_run=False, bad_start=False):
         image = Image.new("RGB", (2304, 1296))
@@ -188,7 +191,7 @@ class GuildFlowTests(unittest.TestCase):
 
     def test_real_daily_entry_order_recovery_and_partial_plan(self):
         operations = ("ensure_home", "run_business_management", "run_restaurant_decor_recheck",
-                      "run_plaza_prayer", "run_guild_nonmember_check")
+                      "run_plaza_prayer")
         for fail in (None, *operations):
             calls = []
             roots = []
@@ -197,7 +200,7 @@ class GuildFlowTests(unittest.TestCase):
                 def run(**kwargs):
                     calls.append(name)
                     roots.append(kwargs["log_root"].name)
-                    return name != fail, "skipped:not joined" if name == operations[-1] else name
+                    return name != fail, name
                 return run
 
             with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
@@ -209,9 +212,8 @@ class GuildFlowTests(unittest.TestCase):
                         daily._execute_daily_phase("daily_claims", master=daily.MasterLogger(root), run_root=root)
                 else:
                     reason = daily._execute_daily_phase("daily_claims", master=daily.MasterLogger(root), run_root=root)
-                    self.assertIn("skipped:not joined", reason)
                     self.assertFalse(reason.startswith("skipped:"))  # Other claims still completed.
-                    self.assertEqual(roots[-1], "05-guild-prerequisite")
+                    self.assertEqual(roots[-1], "04-plaza-prayer")
             expected = list(operations)
             if fail == "ensure_home":
                 expected = ["ensure_home"]
@@ -224,7 +226,7 @@ class GuildFlowTests(unittest.TestCase):
             self.assertEqual(stage.availability, "partial")
             self.assertFalse(stage.implemented)
             self.assertTrue(stage.current_runnable)
-            self.assertIn("guild_checkin.run_guild_nonmember_check", stage.current_runners)
+            self.assertFalse(any("guild" in runner for runner in stage.current_runners))
             self.assertEqual([s.id for s in plan][7:10], ["weekly", "daily_claims", "task_rewards"])
 
 

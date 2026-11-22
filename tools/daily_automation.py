@@ -54,7 +54,6 @@ from daily_arena import run_daily_arena  # noqa: E402
 from business_management import run_business_management  # noqa: E402
 from plaza_prayer import run_plaza_prayer  # noqa: E402
 from restaurant_decor import run_restaurant_decor_recheck  # noqa: E402
-from guild_checkin import recognize_guild_navigation, return_from_guild, run_guild_nonmember_check  # noqa: E402
 from adventure_route import run_adventure_route_recheck  # noqa: E402
 from chapter_collection import run_chapter_absorb  # noqa: E402
 from chapter_probe import run_chapter_probe_recheck  # noqa: E402
@@ -145,7 +144,6 @@ MASTER_STAGE_NAMES = {
     "weekly_arcade": "周常访问街机页面",
     "weekly_lastnight": "周常末日之书一次战斗",
     "restaurant_decor_recheck": "餐馆装饰币余额与每日额度只读复核",
-    "guild_nonmember_check": "公会签到未加入前置检查",
     "business_management_home": "经营管理前返回主页",
     "business_management": "经营管理收益",
     "plaza_prayer": "广场每日祈求",
@@ -1080,14 +1078,6 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
                 if not ok:
                     logger.failure(reason)
                 return ok, reason
-            guild_found, guild_details = recognize_guild_navigation(image)
-            if guild_found:
-                path = logger.save_image(image, f"step-{step:03d}-guild.png")
-                logger.event(action="guild_recovery", details=guild_details, screenshot=str(path))
-                ok, reason = return_from_guild(hwnd, image, logger=logger)
-                if not ok:
-                    logger.failure(reason)
-                return ok, reason
         should_probe_return_home = state in {"unknown", "gacha_animation"} or (
             state == "blocking_ad_overlay"
             and details.get("classification_rule") == "blocking_overlay_brightness"
@@ -1532,7 +1522,6 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             ("business_management", run_business_management, "02-claim-rewards"),
             ("restaurant_decor_recheck", run_restaurant_decor_recheck, "03-decor-recheck"),
             ("plaza_prayer", run_plaza_prayer, "04-plaza-prayer"),
-            ("guild_nonmember_check", run_guild_nonmember_check, "05-guild-prerequisite"),
         ):
             if needs_recovery:
                 _require_phase(master, "prepare_home",
