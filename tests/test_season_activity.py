@@ -353,7 +353,7 @@ class SeasonFlowTests(unittest.TestCase):
             self.assertEqual((keys, labels), ([], []))
 
     def test_real_phase_order_failure_propagation_and_partial_plan(self):
-        for fail in (None, "ensure_home", "run_season_battle_recheck"):
+        for fail in (None, "ensure_home", "run_season_battle_recheck", "run_mamono_preparation_recheck"):
             calls = []
             def operation(name):
                 def run(**kwargs):
@@ -361,7 +361,7 @@ class SeasonFlowTests(unittest.TestCase):
                     return name != fail, "skipped:season audit" if name != fail else "failed"
                 return run
             with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
-                for name in ("ensure_home", "run_season_battle_recheck"):
+                for name in ("ensure_home", "run_season_battle_recheck", "run_mamono_preparation_recheck"):
                     stack.enter_context(patch.object(daily, name, operation(name)))
                 root = Path(directory)
                 if fail:
@@ -370,14 +370,15 @@ class SeasonFlowTests(unittest.TestCase):
                 else:
                     reason = daily._execute_daily_phase("season_activity", master=daily.MasterLogger(root), run_root=root)
                     self.assertTrue(reason.startswith("skipped:"))
-            self.assertEqual(calls, ["ensure_home"] if fail == "ensure_home" else ["ensure_home", "run_season_battle_recheck"])
+            expected = ["ensure_home", "run_season_battle_recheck", "run_mamono_preparation_recheck"]
+            self.assertEqual(calls, expected[:expected.index(fail) + 1] if fail else expected)
         for preset in ("fast", "detailed"):
             plan = get_daily_plan(preset)
             stage = next(s for s in plan if s.id == "season_activity")
             self.assertEqual(stage.availability, "partial")
             self.assertFalse(stage.implemented)
             self.assertTrue(stage.current_runnable)
-            self.assertEqual(stage.current_runners, ("season_activity.run_season_battle_recheck",))
+            self.assertEqual(stage.current_runners, ("season_activity.run_season_battle_recheck", "season_activity.run_mamono_preparation_recheck"))
             self.assertEqual([s.id for s in plan][5:8], ["arena", "season_activity", "weekly"])
 
 

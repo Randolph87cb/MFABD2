@@ -57,7 +57,7 @@ from restaurant_decor import run_restaurant_decor_recheck  # noqa: E402
 from adventure_route import run_adventure_route_recheck  # noqa: E402
 from chapter_collection import run_chapter_absorb  # noqa: E402
 from chapter_probe import run_chapter_probe_recheck  # noqa: E402
-from season_activity import recognize_season_navigation, return_from_season, run_season_battle_recheck  # noqa: E402
+from season_activity import recognize_season_navigation, return_from_season, run_season_battle_recheck, run_mamono_preparation_recheck  # noqa: E402
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
@@ -136,6 +136,7 @@ MASTER_STAGE_NAMES = {
     "crystal_cave_cycle": "执行圣石洞穴",
     "daily_arena": "每日竞技场",
     "season_battle_recheck": "只读复核赛季普通战斗资格",
+    "mamono_preparation_recheck": "只读复核魔兽准备期",
     "weekly_home": "周常前返回主页",
     "weekly_cabin": "周常小屋一次免费点赞",
     "weekly_cabin_second_like": "周常小屋第二次免费点赞",
@@ -1472,12 +1473,20 @@ def _execute_daily_phase(phase_id: str, *, master: MasterLogger, run_root: Path)
             lambda *, log_root: ensure_home(timeout=120.0, log_root=log_root),
             log_root=log_root / "01-return-home",
         )
-        return _require_phase(
+        first_reason = _require_phase(
             master,
             "season_battle_recheck",
             lambda *, log_root: run_season_battle_recheck(dry_run=False, log_root=log_root),
             log_root=log_root / "02-eligibility-recheck",
         )
+        second_reason = _require_phase(
+            master,
+            "mamono_preparation_recheck",
+            lambda *, log_root: run_mamono_preparation_recheck(dry_run=False, log_root=log_root),
+            log_root=log_root / "03-mamono-preparation",
+        )
+        reasons = f"普通资格：{first_reason}；魔兽：{second_reason}"
+        return "skipped:" + reasons if all(reason.startswith("skipped:") for reason in (first_reason, second_reason)) else reasons
     if phase_id == "weekly":
         _require_phase(
             master,

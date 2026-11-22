@@ -97,6 +97,9 @@ def recognize_season_page(image):
 
 def recognize_season_navigation(image):
     """Identify return navigation only; never infer battle eligibility or cost."""
+    prepared, preparation = recognize_mamono_preparation(image)
+    if prepared:
+        return "mamono_preparation", preparation
     state, details = recognize_season_page(image)
     if state != "unknown":
         return state, details
@@ -136,7 +139,7 @@ def return_from_season(hwnd, image, *, logger):
         return state == "main", details
 
     state, _ = recognize_season_navigation(image)
-    if state in {"normal_selection", "normal_locked"}:
+    if state in {"normal_selection", "normal_locked", "mamono_preparation"}:
         click_ratio_logged(hwnd, image, (208 / 2304, 60 / 1296),
                            key="season_normal_back", logger=logger)
         ok, image, _ = wait_for_recognition(
@@ -218,6 +221,91 @@ def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
             return True, reason
         reason = (f"skipped:赛季普通1未通关，重复奖励锁定，AP {second['reading']['ap']}/5，"
                   "普通战斗费用1；快速战斗未解锁，已只读复核并返回主页，未战斗")
+        logger.event(action="stop", result="success", reason=reason, battle=False)
+        return True, reason
+    except Exception as exc:
+        logger.failure(str(exc))
+        return False, str(exc)
+
+
+def recognize_mamono_preparation(image):
+    """Recognize the demonstrated locked preparation page, never a battle permit."""
+    if image.size != (2304, 1296):
+        return False, {"error": "unverified client size"}
+    try:
+        entries = _entries(image)
+        details = {"texts": entries}
+        if any(re.search(r"购买|充值|补充|不足|确认|取消|是否", text)
+               for _, _, text, score in entries if score >= .55):
+            return False, {**details, "error": "dialog or resource risk"}
+        arrow = np.asarray(image.convert("RGB"))[49:73, 203:216]
+        if float(np.mean(np.min(arrow, axis=2) > 210)) < .20:
+            return False, {**details, "error": "back control obscured"}
+        countdown = _one(entries, r"距离开始还剩([1-9]\d*)天", (1770, 30, 2040, 90))
+        anchors = (("魔兽", (330, 25, 420, 90)),
+                   ("我的名次与猎人段位", (880, 10, 1220, 55)),
+                   ("暂无排名信息", (880, 55, 1100, 100)),
+                   ("通关奖励", (1900, 150, 2110, 210)),
+                   ("编辑队伍", (1130, 1150, 1350, 1230)),
+                   ("去战斗", (1740, 1150, 1950, 1230)))
+        if (not countdown or not all(_one(entries, text, box) for text, box in anchors)
+                or not all(_one(entries, f"队伍{i}", (930, y - 35, 1060, y + 35))
+                           and _one(entries, "从狩猎期间开始解除", (1390, y, 1660, y + 60))
+                           for i, y in ((1, 440), (2, 598), (3, 756)))):
+            return False, {**details, "error": "unverified preparation locks/countdown"}
+        return True, {**details, "days": int(countdown.group(1)), "battle": False}
+    except Exception as exc:
+        return False, {"error": repr(exc)}
+
+
+def run_mamono_preparation_recheck(*, dry_run: bool, log_root: Path):
+    """Home → practice-only season → locked teams twice → unchanged home."""
+    logger = RunLogger(log_root, annotate_clicks=True)
+    logger.event(action="start", flow="mamono_preparation_recheck", dry_run=dry_run)
+    hwnd = find_game_window()
+    if not hwnd:
+        return False, "game window not found"
+
+    def wait(recognize, label):
+        ok, image, details = wait_for_recognition(
+            hwnd, logger=logger, label=label, recognize=recognize, timeout=45)
+        if not ok:
+            raise RuntimeError(label + " 未确认；停止，不进入战斗")
+        return image, details
+
+    def main(image):
+        state, details = recognize_season_page(image)
+        return (state == "main" and bool(_one(details.get("texts", []), "可练习战斗",
+                                              (1170, 890, 1360, 950)))), details
+
+    def click(image, x, y, key):
+        click_ratio_logged(hwnd, image, (x / 2304, y / 1296), key=key, logger=logger)
+
+    try:
+        ok, image, reason = prepare_actionable_home(hwnd, logger=logger, dry_run=dry_run)
+        if not ok:
+            raise RuntimeError(reason)
+        found, before = recognize_season_home(image, entry=True)
+        if not found:
+            raise RuntimeError("魔兽复核主页入口/余额未确认；未输入")
+        if dry_run:
+            return True, "dry-run planned mamono preparation audit; no input"
+        click(image, 2010, 935, "mamono_season_entry")
+        image, _ = wait(main, "mamono-practice-menu")
+        click(image, 1265, 1038, "mamono_entry")
+        image, first = wait(recognize_mamono_preparation, "mamono-preparation-1")
+        time.sleep(2)
+        image, second = wait(recognize_mamono_preparation, "mamono-preparation-2")
+        if first["days"] != second["days"]:
+            raise RuntimeError("魔兽准备期两帧变化；停止")
+        logger.event(action="preparation_readonly", days=second["days"], battle=False)
+        click(image, 208, 60, "mamono_back")
+        image, _ = wait(main, "mamono-menu-return")
+        click(image, 208, 60, "mamono_home")
+        _, after = wait(recognize_season_home, "mamono-home-return")
+        if before["balances"] != after["balances"]:
+            raise RuntimeError("魔兽只读复核返回主页余额变化")
+        reason = f"skipped:魔兽准备期，距离开始{second['days']}天，三队锁定；已返回主页，未战斗"
         logger.event(action="stop", result="success", reason=reason, battle=False)
         return True, reason
     except Exception as exc:
