@@ -192,17 +192,76 @@ class SeasonRecognitionTests(unittest.TestCase):
         self.assertEqual(details["reading"]["ap"], 0)
         self.assertFalse(details["reading"]["quick_battle"])
 
+    def test_navigation_across_seasons_does_not_grant_battle_eligibility(self):
+        for name, expected in (("season-normal-selection", "normal_selection"),
+                               ("season-main-highlighted", "main"),
+                               ("season-locked-1", "normal_locked"),
+                               ("season-main-last-day", "main"),
+                               ("season-loading", "unknown"),
+                               ("season-home-cheer", "unknown"),
+                               ("adventure-gold-setup-1", "unknown")):
+            with self.subTest(name=name), Image.open(FIXTURES / (name + ".png")) as image:
+                state, details = season.recognize_season_navigation(image)
+                self.assertEqual(state, expected, details)
+                if state == "normal_selection":
+                    self.assertEqual(details["navigation_stage"], 6)
+                    self.assertNotIn("reading", details)
+                    self.assertEqual(season.recognize_season_page(image)[0], "unknown")
+
+    def test_highlighted_menu_still_requires_header_and_neighbouring_controls(self):
+        with Image.open(FIXTURES / "season-main-highlighted.png") as image:
+            entries = season._entries(image)
+            for label in ("帮助", "行程", "活动服装", "剧情", "挑战战斗", "魔兽追踪者", "任务", "活动商店"):
+                changed = [entry for entry in entries if entry[2] != label]
+                with self.subTest(label=label), patch.object(season, "_entries", return_value=changed):
+                    self.assertEqual(season.recognize_season_navigation(image)[0], "unknown")
+
+    def test_navigation_requires_back_arrow_controls_and_no_modal(self):
+        with Image.open(FIXTURES / "season-normal-selection.png") as source:
+            image = source.convert("RGB")
+        entries = season._entries(image)
+        for label in ("普通战斗", "活动服装", "反复奖励", "通关奖励", "在战斗中获胜",
+                      "胜利且全员生存", "在8回合内获胜", "普通战斗6"):
+            changed = [entry for entry in entries if entry[2] != label]
+            with self.subTest(label=label), patch.object(season, "_entries", return_value=changed):
+                self.assertEqual(season.recognize_season_navigation(image)[0], "unknown")
+        for changed in (entries + [(1150, 600, "确认购买", .99)],
+                        [(x, y, text, .94 if text == "普通战斗6" else score)
+                         for x, y, text, score in entries]):
+            with patch.object(season, "_entries", return_value=changed):
+                self.assertEqual(season.recognize_season_navigation(image)[0], "unknown")
+        image.paste("black", (203, 49, 216, 73))
+        with patch.object(season, "_entries", return_value=entries):
+            self.assertEqual(season.recognize_season_navigation(image)[0], "unknown")
+
+    def test_navigation_uses_shared_title_and_controls_without_stage_enumeration(self):
+        with Image.open(FIXTURES / "season-normal-selection.png") as image:
+            entries = season._entries(image)
+            for stage in (1, 2, 10, 15):
+                changed = [(x, y, f"普通战斗{stage}" if text == "普通战斗6" else
+                            text + "?帮助" if text in {"普通战斗", "通关奖励"} else text, score)
+                           for x, y, text, score in entries]
+                with self.subTest(stage=stage), patch.object(season, "_entries", return_value=changed):
+                    state, details = season.recognize_season_navigation(image)
+                    self.assertEqual(state, "normal_selection")
+                    self.assertEqual(details["navigation_stage"], stage)
+                    self.assertNotIn("reading", details)
+
 
 class SeasonFlowTests(unittest.TestCase):
-    def flow(self, *, failure=None, changed=False, home_changed=False, dry_run=False, bad_start=False):
+    def flow(self, *, failure=None, changed=False, home_changed=False, dry_run=False, bad_start=False,
+             navigation=False):
         image = Image.new("RGB", (2304, 1296), "white")
         labels = []
 
         def wait(hwnd, *, label, **kwargs):
             labels.append(label)
             reading = dict(READING, ap=4 if changed and label == "season-locked-2" else 5)
-            return failure != label, image, dict(reading=reading,
-                balances=(1, 2, 4 if home_changed and label == "season-home" else 3))
+            details = dict(reading=reading, balances=(1, 2, 4 if home_changed and label == "season-home" else 3))
+            if navigation:
+                details.pop("reading")
+                details["navigation_stage"] = 7 if changed and label == "season-locked-2" else 6
+            return failure != label, image, details
 
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             for name, value in (("find_game_window", 123),
@@ -222,6 +281,56 @@ class SeasonFlowTests(unittest.TestCase):
         self.assertTrue(reason.startswith("skipped:"))
         self.assertEqual(keys, ["season_entry", "season_normal_page", "season_normal_back", "season_return_home"])
         self.assertEqual(len(labels), 5)
+
+    def test_unaudited_selection_returns_home_without_fighting(self):
+        (ok, reason), keys, _ = self.flow(navigation=True)
+        self.assertTrue(ok, reason)
+        self.assertIn("资格未经验证", reason)
+        self.assertEqual(keys, ["season_entry", "season_normal_page", "season_normal_back", "season_return_home"])
+        (ok, _), keys, _ = self.flow(navigation=True, changed=True)
+        self.assertFalse(ok)
+        self.assertEqual(len(keys), 2)
+
+    def test_season_recovery_verifies_each_destination_and_never_retries(self):
+        image = Image.new("RGB", (2304, 1296))
+        for failure, expected_clicks in ((None, 2), ("season-recovery-main", 1), ("season-recovery-home", 2)):
+            with self.subTest(failure=failure), ExitStack() as stack:
+                stack.enter_context(patch.object(season, "recognize_season_navigation",
+                                                return_value=("normal_selection", {})))
+                def wait(*args, label, **kwargs):
+                    return label != failure, image, {}
+                stack.enter_context(patch.object(season, "wait_for_recognition", side_effect=wait))
+                click = stack.enter_context(patch.object(season, "click_ratio_logged"))
+                ok, _ = season.return_from_season(123, image, logger=None)
+                self.assertEqual(ok, failure is None)
+                self.assertEqual(click.call_count, expected_clicks)
+
+    def test_ensure_home_routes_verified_season_page_to_recovery(self):
+        image = Image.new("RGB", (2304, 1296))
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            stack.enter_context(patch("open_game.find_game_window", return_value=123))
+            stack.enter_context(patch.object(daily, "safe_capture_client", return_value=image))
+            stack.enter_context(patch.object(daily, "classify_state", return_value=("unknown", {})))
+            stack.enter_context(patch.object(daily, "recognize_season_navigation",
+                                            return_value=("normal_selection", {})))
+            recover = stack.enter_context(patch.object(daily, "return_from_season", return_value=(True, "home")))
+            self.assertEqual(daily.ensure_home(timeout=5, log_root=Path(directory)), (True, "home"))
+            recover.assert_called_once()
+
+    def test_navigation_only_main_does_not_allow_entering_unreadable_menu(self):
+        with Image.open(FIXTURES / "season-main-highlighted.png") as image:
+            with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+                stack.enter_context(patch.object(season, "find_game_window", return_value=123))
+                stack.enter_context(patch.object(season, "prepare_actionable_home", return_value=(True, image, "home")))
+                stack.enter_context(patch.object(season, "recognize_season_home", return_value=(True, {"balances": (1, 2, 3)})))
+                def wait(*args, recognize, **kwargs):
+                    found, details = recognize(image)
+                    return found, image, details
+                stack.enter_context(patch.object(season, "wait_for_recognition", side_effect=wait))
+                click = stack.enter_context(patch.object(season, "click_ratio_logged"))
+                ok, _ = season.run_season_battle_recheck(dry_run=False, log_root=Path(directory))
+                self.assertFalse(ok)
+                self.assertEqual([call.kwargs["key"] for call in click.call_args_list], ["season_entry"])
 
     def test_every_observation_failure_stops_without_repeat_or_later_input(self):
         for label, count in (("season-main", 1), ("season-locked-1", 2), ("season-locked-2", 2),

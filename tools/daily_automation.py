@@ -58,7 +58,7 @@ from guild_checkin import run_guild_nonmember_check  # noqa: E402
 from adventure_route import run_adventure_route_recheck  # noqa: E402
 from chapter_collection import run_chapter_absorb  # noqa: E402
 from chapter_probe import run_chapter_probe_recheck  # noqa: E402
-from season_activity import run_season_battle_recheck  # noqa: E402
+from season_activity import recognize_season_navigation, return_from_season, run_season_battle_recheck  # noqa: E402
 from weekly_cabin import run_weekly_cabin, run_weekly_cabin_second_like, run_weekly_cabin_third_like, run_weekly_cabin_fourth_like  # noqa: E402
 from weekly_arcade import run_weekly_arcade  # noqa: E402
 from weekly_lastnight import run_weekly_lastnight  # noqa: E402
@@ -1070,6 +1070,16 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
         step += 1
         image = safe_capture_client(hwnd, logger=logger)
         state, details = classify_state(image)
+        if state == "unknown":
+            season_state, season_details = recognize_season_navigation(image)
+            if season_state != "unknown":
+                path = logger.save_image(image, f"step-{step:03d}-season-{season_state}.png")
+                logger.event(action="season_recovery", state=season_state, details=season_details,
+                             screenshot=str(path))
+                ok, reason = return_from_season(hwnd, image, logger=logger)
+                if not ok:
+                    logger.failure(reason)
+                return ok, reason
         should_probe_return_home = state in {"unknown", "gacha_animation"} or (
             state == "blocking_ad_overlay"
             and details.get("classification_rule") == "blocking_overlay_brightness"

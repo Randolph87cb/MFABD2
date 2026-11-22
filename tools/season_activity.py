@@ -95,8 +95,67 @@ def recognize_season_page(image):
         return "unknown", {"error": repr(exc)}
 
 
+def recognize_season_navigation(image):
+    """Identify return navigation only; never infer battle eligibility or cost."""
+    state, details = recognize_season_page(image)
+    if state != "unknown":
+        return state, details
+    if image.size != (2304, 1296) or "texts" not in details:
+        return "unknown", details
+    # An unsafe overlay or hidden back arrow must not be bypassed by this fallback.
+    if details.get("error") != "unverified season or eligibility":
+        return "unknown", details
+    entries = details["texts"]
+    if (_label(entries, r".*帮助.*", (370, 30, 450, 90))
+            and _label(entries, r".*行程.*", (580, 30, 660, 90))
+            and _label(entries, r".*活动服装.*", (1450, 30, 2050, 90))
+            and all(_label(entries, ".*" + text + ".*", (x - 65, 1120, x + 65, 1180))
+                    for text, x in (("剧情", 588), ("挑战战斗", 1039),
+                                    ("魔兽追踪者", 1265), ("任务", 1490), ("活动商店", 1716)))):
+        # The selected menu can glow during transitions. The header and five
+        # neighbouring controls identify the back destination independently;
+        # this grants only navigation, never a click on the unreadable menu.
+        return "main", {**details, "navigation_only": True}
+    stage = _one(entries, r"普通战斗([1-9]\d*)", (1070, 135, 1260, 200))
+    if (stage and _label(entries, r".*普通战斗.*", (340, 30, 540, 90))
+            and _label(entries, r".*活动服装.*", (1450, 30, 2050, 90))
+            and all(_label(entries, ".*" + text + ".*", box) for text, box in (
+                ("反复奖励", (1950, 135, 2120, 200)),
+                ("通关奖励", (910, 280, 1080, 340)),
+                ("在战斗中获胜", (990, 360, 1190, 420)),
+                ("胜利且全员生存", (980, 480, 1220, 545)),
+                ("在8回合内获胜", (980, 605, 1210, 670))))):
+        return "normal_selection", {"texts": entries, "navigation_stage": int(stage.group(1))}
+    return "unknown", details
+
+
+def return_from_season(hwnd, image, *, logger):
+    """Use each observed back control once, verifying both destinations."""
+    def main_page(frame):
+        state, details = recognize_season_navigation(frame)
+        return state == "main", details
+
+    state, _ = recognize_season_navigation(image)
+    if state in {"normal_selection", "normal_locked"}:
+        click_ratio_logged(hwnd, image, (208 / 2304, 60 / 1296),
+                           key="season_normal_back", logger=logger)
+        ok, image, _ = wait_for_recognition(
+            hwnd, logger=logger, label="season-recovery-main", timeout=45,
+            recognize=main_page)
+        if not ok:
+            return False, "赛季返回主菜单未确认；停止输入"
+        state = "main"
+    if state != "main":
+        return False, "赛季返回控件未确认；未输入"
+    click_ratio_logged(hwnd, image, (208 / 2304, 60 / 1296),
+                       key="season_return_home", logger=logger)
+    ok, _, _ = wait_for_recognition(hwnd, logger=logger, label="season-recovery-home",
+                                    timeout=45, recognize=_recognize_actionable_home)
+    return ok, "returned to real_home" if ok else "赛季返回主页未确认；停止输入"
+
+
 def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
-    """Home → season → two locked-1 reads → season → unchanged home.
+    """Home → season → two selection reads → season → unchanged home.
 
     A successful audit is a skipped battle, never battle completion. There are
     no skill, battle, reward, AP toggle or purchase inputs and no state writes.
@@ -114,10 +173,13 @@ def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
             raise RuntimeError(label + " 未确认；不重试输入，不进入战斗")
         return image, details
 
-    def page(expected):
+    def page(expected, *, entry=False):
         def recognize(image):
-            state, details = recognize_season_page(image)
-            return state == expected, details
+            # Entering normal battle needs the readable menu itself. The more
+            # tolerant identity is only for auditing selections and going back.
+            state, details = recognize_season_page(image) if entry else recognize_season_navigation(image)
+            found = state == expected or (expected == "normal_locked" and state == "normal_selection")
+            return found, details
         return recognize
 
     def click(image, point, key):
@@ -133,20 +195,27 @@ def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
         if dry_run:
             return True, "dry-run planned season eligibility audit; no input or state write"
         click(image, (2010, 935), "season_entry")
-        image, _ = wait(page("main"), "season-main")
+        image, _ = wait(page("main", entry=True), "season-main")
         click(image, (813, 1040), "season_normal_page")
         image, first = wait(page("normal_locked"), "season-locked-1")
         time.sleep(2)
         image, second = wait(page("normal_locked"), "season-locked-2")
-        if first["reading"] != second["reading"]:
-            raise RuntimeError("赛季资格/AP两帧变化；停止，不进入战斗")
-        logger.event(action="eligibility_readonly", reading=second["reading"], battle=False)
+        if ((first.get("reading"), first.get("navigation_stage"))
+                != (second.get("reading"), second.get("navigation_stage"))):
+            raise RuntimeError("赛季关卡/资格/AP两帧变化；停止，不进入战斗")
+        logger.event(action="eligibility_readonly", reading=second.get("reading"),
+                     navigation_stage=second.get("navigation_stage"), battle=False)
         click(image, (208, 60), "season_normal_back")
         image, _ = wait(page("main"), "season-main-return")
         click(image, (208, 60), "season_return_home")
         image, after = wait(recognize_season_home, "season-home")
         if before["balances"] != after["balances"]:
             raise RuntimeError("赛季只读返回后主页余额变化")
+        if "reading" not in second:
+            reason = (f"skipped:赛季普通{second['navigation_stage']}选择页已确认，战斗资格未经验证；"
+                      "已返回主页，未战斗")
+            logger.event(action="stop", result="success", reason=reason, battle=False)
+            return True, reason
         reason = (f"skipped:赛季普通1未通关，重复奖励锁定，AP {second['reading']['ap']}/5，"
                   "普通战斗费用1；快速战斗未解锁，已只读复核并返回主页，未战斗")
         logger.event(action="stop", result="success", reason=reason, battle=False)
