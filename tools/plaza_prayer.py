@@ -18,7 +18,7 @@ from PIL import Image
 from free_gacha import RunLogger, post_home_key, safe_capture_client
 from game_text_recognition import _ocr_engine, recognize_home_labels, recognize_return_home_control
 from open_game import find_game_window
-from reward_flow import click_ratio_logged, prepare_actionable_home, wait_for_recognition
+from reward_flow import click_ratio_logged, navigate_from_home, prepare_actionable_home, wait_for_recognition
 
 
 def recognize_prayer_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
@@ -111,11 +111,16 @@ def run_plaza_prayer(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     ok, image, reason = prepare_actionable_home(hwnd, logger=logger, dry_run=dry_run)
     if not ok:
         return stop(reason)
-    click_ratio_logged(hwnd, image, (2033 / 2304, 1170 / 1296),
-                       key="prayer_game_cards", logger=logger, dry_run=dry_run)
+    def collection(frame):
+        state, details = recognize_prayer_page(frame)
+        return state in {"collection", "square_card"}, {**details, "state": state}
+
+    ok, image, details = navigate_from_home(
+        hwnd, image, (2033 / 2304, 1170 / 1296), key="prayer_game_cards",
+        logger=logger, dry_run=dry_run, recognize=collection, label="collection",
+        click=click_ratio_logged, wait=wait_for_recognition)
     if dry_run:
         return True, "dry-run planned square cartridge entry; no prayer sent"
-    ok, image, details = wait_page({"collection", "square_card"}, "collection")
     if not ok:
         return stop("未识别游戏卡珍藏集，未执行祈求")
     for index in range(2):

@@ -19,7 +19,7 @@ from free_gacha import (
 from game_text_recognition import recognize_home_labels
 from open_game import find_game_window
 from home_notifications import detect_notification_badge
-from reward_flow import wait_for_recognition
+from reward_flow import _recognize_actionable_home, navigate_from_home, wait_for_recognition
 
 
 NO_REGULAR_CUSTOMER_REWARDS = "regular-customer notes have no reward notification"
@@ -123,6 +123,24 @@ def open_business_management(*, dry_run: bool, log_root: Path) -> tuple[bool, st
         label="after-business-management-open",
         transient_states={"loading", "blocking_ad_overlay"},
     )
+    if state == "real_home":
+        # A transient fade is not proof the entry opened. Retry only once,
+        # after a fresh frame confirms the original actionable source.
+        image = safe_capture_client(hwnd, logger=logger)
+        state, _ = classify_state(image)
+        source, evidence = _recognize_actionable_home(image)
+        path = logger.save_image(image, "business-entry-retry-source.png")
+        logger.event(action="navigation_retry_source", confirmed=source,
+                     details=evidence, screenshot=str(path))
+        if source:
+            def destination(frame):
+                current, details = classify_state(frame)
+                return current == "business_management_dialog", details
+            ok, image, _ = navigate_from_home(
+                hwnd, image, (0.085, 0.235), key="home_business_management",
+                recognize=destination, label="business-entry-retry", logger=logger,
+                attempts=1)
+            state = "business_management_dialog" if ok else classify_state(image)[0]
     if state != "business_management_dialog":
         reason = f"business-management entry ended at unexpected state: {state}"
         logger.failure(reason)

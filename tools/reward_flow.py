@@ -290,9 +290,50 @@ def wait_for_recognition(
         if found:
             return True, image, details
         now = time.monotonic()
+        if details.get("network_loading"):
+            deadline = now + timeout
         if now >= deadline:
             return False, image, details
         time.sleep(poll.next_delay(remaining=deadline - now))
+
+
+def navigate_from_home(hwnd, image, point, *, key, recognize, label, logger,
+                       dry_run=False, timeout=30.0, attempts=2, click=None, wait=None):
+    """Retry navigation once only on a fresh, verified actionable source page.
+
+    Loading is observation, never destination success. Unknown destinations
+    cannot authorize another input. This helper must not wrap reward/like inputs.
+    """
+    click = click or click_ratio_logged
+    wait = wait or wait_for_recognition
+
+    def destination(frame):
+        found, details = recognize(frame)
+        if not found:
+            state, _ = classify_state(frame)
+            details = {**details, "network_loading": state in {"loading", "restaurant_loading"}}
+        return found, details
+
+    for attempt in range(attempts):
+        click(hwnd, image, point, key=key, logger=logger, dry_run=dry_run)
+        if dry_run:
+            return True, image, {"dry_run": True}
+        ok, image, details = wait(
+            hwnd, logger=logger, label=label, recognize=destination, timeout=timeout)
+        if ok or attempt == attempts - 1:
+            return ok, image, details
+        # Capture again: the last poll may be stale after expensive OCR.
+        image = safe_capture_client(hwnd, logger=logger)
+        ok, details = recognize(image)
+        if ok:
+            return True, image, details
+        source, evidence = _recognize_actionable_home(image)
+        screenshot = logger.save_image(image, f"{key}-retry-source.png")
+        logger.event(action="navigation_retry_source", key=key, confirmed=source,
+                     details=evidence, screenshot=str(screenshot))
+        if not source:
+            return False, image, details
+    return False, image, details
 
 
 def dismiss_reward_overlays(

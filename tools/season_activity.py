@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from chapter_collection import _difference, _entries, _one
+from chapter_collection import _crop_text, _difference, _entries, _one
 from free_gacha import RunLogger
 from open_game import find_game_window
 from reward_flow import _recognize_actionable_home, click_ratio_logged, prepare_actionable_home, wait_for_recognition
@@ -46,6 +46,10 @@ def recognize_season_home(image, *, entry=False):
             # subtitle in the season panel identify navigation, not permission
             # to fight. The destination must still pass its own layout checks.
             countdown = _label(entries, r"D-(?:\d{1,2}|DAY)", (1900, 810, 2120, 895))
+            if countdown is None and not any(1900 <= x <= 2120 and 810 <= y <= 895
+                                            for x, y, _, _ in entries):
+                # The moving artwork can make full-frame OCR omit the badge.
+                countdown = _crop_text(image, (1900, 810, 2120, 895), r"D-(?:\d{1,2}|DAY)")
             subtitle = _one(entries, r".+解锁", (1880, 975, 2150, 1035))
             if not countdown or not subtitle:
                 return False, {**details, "error": "unverified season entry controls"}

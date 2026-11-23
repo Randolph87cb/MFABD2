@@ -858,7 +858,9 @@ def recognize_restaurant_state(
             image,
             {
                 "title": {
-                    "region": (0.06, 0.035, 0.10, 0.045),
+                    # Isolate the title baseline from NPC speech above it.
+                    "region": (125 / 2304, 58 / 1296, 230 / 2304, 42 / 1296),
+                    "ocr_width": 460,
                     "labels": RESTAURANT_LABEL_GROUPS["title"]["labels"],
                 },
             },

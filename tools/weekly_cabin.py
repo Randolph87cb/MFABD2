@@ -16,7 +16,7 @@ from PIL import Image
 from free_gacha import RunLogger
 from game_text_recognition import _ocr_engine, recognize_home_labels
 from open_game import find_game_window
-from reward_flow import click_ratio_logged, prepare_actionable_home, wait_for_recognition
+from reward_flow import click_ratio_logged, navigate_from_home, prepare_actionable_home, wait_for_recognition
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -178,11 +178,16 @@ def run_weekly_cabin(*, dry_run: bool, log_root: Path,
         return stop(reason)
     if image.size != (2304, 1296):
         return stop("unverified client size; no cabin input")
-    click_ratio_logged(hwnd, image, (200 / 2304, 235 / 1296), key="weekly_cabin_entry",
-                       logger=logger, dry_run=dry_run)
+    def own_cabin(frame):
+        state, details = recognize_cabin_page(frame)
+        return state == "own_cabin", {**details, "state": state}
+
+    ok, image, _details = navigate_from_home(
+        hwnd, image, (200 / 2304, 235 / 1296), key="weekly_cabin_entry",
+        logger=logger, dry_run=dry_run, recognize=own_cabin, label="own-cabin",
+        click=click_ratio_logged, wait=wait_for_recognition)
     if dry_run:
         return True, "dry-run planned cabin entry; no like or weekly record written"
-    ok, image, _details = wait_page({"own_cabin"}, "own-cabin")
     if not ok:
         return stop("未确认自家小屋，不进入参观")
     click_ratio_logged(hwnd, image, (209 / 2304, 299 / 1296), key="cabin_visit", logger=logger)
