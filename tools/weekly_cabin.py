@@ -16,7 +16,7 @@ from PIL import Image
 from free_gacha import RunLogger
 from game_text_recognition import _ocr_engine, recognize_home_labels
 from open_game import find_game_window
-from reward_flow import click_ratio_logged, navigate_from_home, prepare_actionable_home, wait_for_recognition
+from reward_flow import _recognize_actionable_home, click_ratio_logged, navigate_from_home, prepare_actionable_home, wait_for_recognition
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +49,7 @@ def _write_record(path: Path, record: dict[str, Any], *, reserve: bool) -> None:
         target.replace(path)
 
 
-def recognize_cabin_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
+def recognize_cabin_page(image: Image.Image, *, navigation_only=False) -> tuple[str, dict[str, Any]]:
     """Only the observed PC layout; own/popular/loading pages cannot send likes."""
     if image.size != (2304, 1296):
         return "unknown", {"error": "unverified client size"}
@@ -74,9 +74,15 @@ def recognize_cabin_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
         return matches[0] if len(matches) == 1 else None
 
     details: dict[str, Any] = {"texts": entries}
+    if any(850 <= x <= 1450 and 650 <= y <= 830
+           and re.fullmatch(r"载入中[.…。]*\d{1,3}%", text) for x, y, text in entries):
+        return "unknown", {**details, "network_loading": True}
     own = find("我的小屋", (330, 25, 500, 90))
     edit = find("编辑房间", (1850, 1160, 2150, 1240))
     frame = np.asarray(image.convert("RGB"))
+    # A navigation identity must also have an unobstructed back arrow.
+    if navigation_only and float(np.mean(np.min(frame[49:73, 203:216], axis=2) > 210)) < .20:
+        return "unknown", {**details, "error": "back control obscured"}
     if own and edit and frame[1180:1220, 1950:2050].mean() > 150:
         return "own_cabin", details
     title = find("参观", (330, 25, 420, 90))
@@ -91,10 +97,13 @@ def recognize_cabin_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if selected < 0.10:
         # A known visit page only permits switching the category, never liking.
         return "visit_other", details
+    if navigation_only:
+        return "visit_random", details
     identity = find(r"[^\s]{1,32}", (1000, 1175, 1310, 1220))
     counter = find(r"0|[1-9]\d{0,8}", (2030, 165, 2170, 215))
     if not (identity and counter):
-        return "unknown", {**details, "error": "unverified cabin identity or like count"}
+        return "unknown", {**details, "error": "unverified cabin identity or like count",
+                           "identity_missing": identity is None, "count_verified": counter is not None}
     details.update(identity=identity[2], count=int(counter[2]))
     icon = np.asarray(image.convert("RGB").crop(LIKE_BOX)).astype(int)
     with Image.open(Path(__file__).parent / "assets" / "cabin-like.png") as template:
@@ -110,6 +119,52 @@ def recognize_cabin_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if details["blue_match"] >= 0.90 and details["white_match"] < 0.10:
         return "like_done", details
     return "unknown", details
+
+
+def recognize_cabin_navigation(image):
+    """Page/back identity only; never grant permission to like a cabin."""
+    return recognize_cabin_page(image, navigation_only=True)
+
+
+def return_from_cabin(hwnd, image, *, logger):
+    state, details = recognize_cabin_navigation(image)
+    if state not in {"own_cabin", "visit_other", "visit_random"}:
+        return False, "小屋返回控件未确认；未输入"
+    logger.event(action="cabin_navigation_recovery", state=state, details=details)
+    click_ratio_logged(hwnd, image, (208 / 2304, 60 / 1296), key="cabin_return_home", logger=logger)
+    ok, _, _ = wait_for_recognition(hwnd, logger=logger, recognize=_recognize_actionable_home,
+                                    label="cabin-recovery-home", timeout=45)
+    return ok, "returned to real_home" if ok else "小屋返回主页未确认；停止输入"
+
+
+def next_readable_cabin(hwnd, image, details, *, logger):
+    """Browse at most two next cabins when only the owner text is unreadable."""
+    for attempt in range(2):
+        if not (details.get("identity_missing") and details.get("count_verified")):
+            break
+        state, navigation = recognize_cabin_navigation(image)
+        if state != "visit_random":
+            break
+        # The fixed PC next arrow is navigation, independent of the like icon.
+        box = (1420, 1160, 1505, 1240)
+        with Image.open(Path(__file__).parent / "assets/cabin-next.png") as source:
+            expected = np.min(np.asarray(source.convert("RGB")), axis=2) > 210
+        actual = np.min(np.asarray(image.convert("RGB").crop(box)), axis=2) > 210
+        overlap = float(np.sum(actual & expected) / max(1, np.sum(actual | expected)))
+        logger.event(action="cabin_next_control", attempt=attempt + 1, overlap=overlap,
+                     navigation=navigation)
+        if overlap < .90:
+            break
+        click_ratio_logged(hwnd, image, (1464 / 2304, 1200 / 1296),
+                           key="cabin_next_unreadable_owner", logger=logger)
+        def readable(frame):
+            current, evidence = recognize_cabin_page(frame)
+            return current in {"like_ready", "like_done"}, {**evidence, "state": current}
+        ok, image, details = wait_for_recognition(hwnd, logger=logger, recognize=readable,
+                                                 label=f"next-cabin-{attempt + 1}", timeout=30)
+        if ok:
+            return True, image, details
+    return False, image, details
 
 
 def run_weekly_cabin(*, dry_run: bool, log_root: Path,
@@ -198,7 +253,9 @@ def run_weekly_cabin(*, dry_run: bool, log_root: Path,
         click_ratio_logged(hwnd, image, (323 / 2304, 265 / 1296), key="cabin_random", logger=logger)
         ok, image, details = wait_page({"like_ready", "like_done"}, "random-cabin")
         if not ok:
-            return stop("未确认随机小屋、身份与点赞状态")
+            ok, image, details = next_readable_cabin(hwnd, image, details, logger=logger)
+            if not ok:
+                return stop("未确认随机小屋、身份与点赞状态")
     liked = details["state"] == "like_ready"
     identity, before = details["identity"], details["count"]
     if liked and identity == excluded_identity:

@@ -140,8 +140,11 @@ class CabinWeekTests(unittest.TestCase):
 class CabinFlowTests(unittest.TestCase):
     def run_flow(self, *, initial="like_ready", after_identity="guest", after_count=11,
                  home=True, dry_run=False, crash=False, excluded_identity=None, second=False,
-                 third=False, fourth=False, initial_identity="guest"):
+                 third=False, fourth=False, initial_identity="guest", unreadable_first=False):
         image = Image.new("RGB", (2304, 1296), "white")
+        if unreadable_first:
+            with Image.open(FIXTURES / "cabin-unreadable-owner.png") as source:
+                image = source.convert("RGB")
         records, keys = [], []
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -194,6 +197,10 @@ class CabinFlowTests(unittest.TestCase):
                     state, details = "visit_other", {}
                 elif label == "random-cabin":
                     state, details = initial, {"identity": initial_identity, "count": 10}
+                    if unreadable_first:
+                        state, details = "unknown", {"identity_missing": True, "count_verified": True}
+                elif label.startswith("next-cabin-"):
+                    state, details = initial, {"identity": initial_identity, "count": 10}
                 else:
                     state, details = "like_done", {"identity": after_identity, "count": after_count}
                 with patch("weekly_cabin.recognize_cabin_page", return_value=(state, details)):
@@ -227,6 +234,13 @@ class CabinFlowTests(unittest.TestCase):
                 if fourth:
                     self.assertEqual(third_path.read_bytes(), third_bytes)
         return result, keys, records
+
+    def test_unreadable_owner_browses_then_verifies_one_like_and_keeps_prior_records(self):
+        (ok, _), keys, records = self.run_flow(fourth=True, unreadable_first=True)
+        self.assertTrue(ok)
+        self.assertEqual(keys.count("cabin_next_unreadable_owner"), 1)
+        self.assertEqual(keys.count("one_free_cabin_like"), 1)
+        self.assertEqual(records[0]["status"], "completed")
 
     def test_single_like_durable_before_input_and_same_week_skip(self):
         (ok, _), keys, records = self.run_flow()

@@ -11,6 +11,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import business_management as business
 import reward_flow as flow
 import season_activity as season
+import weekly_cabin as cabin
+import daily_automation as daily
 from free_gacha import classify_state
 from plaza_prayer import recognize_prayer_page
 from weekly_cabin import recognize_cabin_page
@@ -94,3 +96,64 @@ class NavigationTransitionTests(unittest.TestCase):
                 recognize=MagicMock(side_effect=[(False, {"network_loading": True}), (True, {})]))
         self.assertTrue(ok)
         click.assert_not_called()
+
+
+class CabinIdentityRecoveryTests(unittest.TestCase):
+    def test_unreadable_owner_permits_navigation_but_never_a_like(self):
+        with Image.open(FIXTURES / "cabin-unreadable-owner.png") as image:
+            state, details = cabin.recognize_cabin_page(image)
+            self.assertEqual(state, "unknown")
+            self.assertTrue(details["identity_missing"])
+            self.assertTrue(details["count_verified"])
+            self.assertEqual(cabin.recognize_cabin_navigation(image)[0], "visit_random")
+            for box in ((203, 49, 216, 73), (330, 25, 450, 90), (1850, 1160, 2150, 1240)):
+                covered = image.copy()
+                covered.paste("black", box)
+                self.assertEqual(cabin.recognize_cabin_navigation(covered)[0], "unknown")
+        with Image.open(FIXTURES / "season-home-countdown-omitted.png") as image:
+            self.assertEqual(cabin.recognize_cabin_navigation(image)[0], "unknown")
+
+    def test_unreadable_cabin_recovery_precedes_brightness_overlay_inputs(self):
+        with Image.open(FIXTURES / "cabin-unreadable-owner.png") as image, \
+                tempfile.TemporaryDirectory() as directory, \
+                patch("open_game.find_game_window", return_value=123), \
+                patch.object(daily, "safe_capture_client", return_value=image), \
+                patch.object(daily, "classify_state", return_value=("blocking_ad_overlay", {})), \
+                patch.object(daily, "return_from_cabin", return_value=(True, "home")) as recover, \
+                patch.object(daily, "click_with_fixed_retry") as dismiss:
+            self.assertEqual(daily.ensure_home(timeout=5, log_root=Path(directory)), (True, "home"))
+        recover.assert_called_once()
+        dismiss.assert_not_called()
+
+    def test_cabin_back_requires_navigation_and_confirmed_home(self):
+        image = Image.new("RGB", (2304, 1296))
+        for state, home in (("unknown", False), ("visit_random", False), ("visit_random", True)):
+            with self.subTest(state=state, home=home), \
+                    patch.object(cabin, "recognize_cabin_navigation", return_value=(state, {})), \
+                    patch.object(cabin, "click_ratio_logged") as click, \
+                    patch.object(cabin, "wait_for_recognition", return_value=(home, image, {})):
+                ok, _ = cabin.return_from_cabin(123, image, logger=MagicMock())
+            self.assertEqual(ok, home)
+            self.assertEqual(click.call_count, int(state != "unknown"))
+
+    def test_browse_is_bounded_and_never_sends_a_like(self):
+        unreadable = {"identity_missing": True, "count_verified": True}
+        with Image.open(FIXTURES / "cabin-unreadable-owner.png") as image:
+            for found in (True, False):
+                with self.subTest(found=found), \
+                        patch.object(cabin, "recognize_cabin_navigation", return_value=("visit_random", {})), \
+                        patch.object(cabin, "click_ratio_logged") as click, \
+                        patch.object(cabin, "wait_for_recognition", return_value=(found, image, unreadable)):
+                    ok, _, _ = cabin.next_readable_cabin(123, image, unreadable, logger=MagicMock())
+                self.assertEqual(ok, found)
+                self.assertEqual(click.call_count, 1 if found else 2)
+                self.assertEqual({call.kwargs["key"] for call in click.call_args_list},
+                                 {"cabin_next_unreadable_owner"})
+            for details, covered in (({}, False), ({"identity_missing": True}, False), (unreadable, True)):
+                candidate = image.copy()
+                if covered:
+                    candidate.paste("black", (1420, 1160, 1505, 1240))
+                with patch.object(cabin, "recognize_cabin_navigation", return_value=("visit_random", {})), \
+                        patch.object(cabin, "click_ratio_logged") as click:
+                    self.assertFalse(cabin.next_readable_cabin(123, candidate, details, logger=MagicMock())[0])
+                click.assert_not_called()
