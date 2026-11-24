@@ -9,7 +9,7 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image, ImageEnhance
+from PIL import Image, ImageDraw, ImageEnhance
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import daily_automation
@@ -60,9 +60,17 @@ class LastNightTests(unittest.TestCase):
             with patch.object(flow, "_ocr_engine", side_effect=RuntimeError("OCR unavailable")):
                 self.assertEqual(flow.recognize_lastnight_page(image)[0], "unknown")
 
+    def test_result_page_is_known_when_the_damage_digits_cannot_be_read(self):
+        with Image.open(FIXTURES / "lastnight-result-2304x1296.png") as image:
+            ImageDraw.Draw(image).rectangle((1620, 202, 1910, 282), fill=(62, 47, 36))
+            self.assertEqual(daily_automation.classify_state(image)[0], "lastnight_result")
+            state, details = flow.recognize_lastnight_page(image)
+        self.assertEqual(state, "result", details)
+        self.assertNotIn("damage", details)
+
     def run_flow(self, root, *, fail_at=None, conflict=False, reserve_error=False,
                  complete_error=False, dry_run=False, cross_at=None, new_record=False,
-                 new_record_damage=700068622, return_ready_image=None):
+                 new_record_damage=700068622, return_ready_image=None, leave_retry_damage=None):
         events = []
         image = Image.new("RGB", (2304, 1296))
         states = ["collection", "field_spawn", "ready", "battle", "result", "result", "field_spawn", "home"]
@@ -70,11 +78,15 @@ class LastNightTests(unittest.TestCase):
             states.insert(6, "new_record")
         if return_ready_image is not None:
             states.insert(7 if new_record else 6, "ready")
+        if leave_retry_damage is not None:
+            states.insert(6, "result")
         calls = 0
         def wait(*_, **kwargs):
             nonlocal calls
             index = calls
             calls += 1
+            if index == 6 and leave_retry_damage is not None:
+                return False, image, dict(state="result", leave_available=True, damage=leave_retry_damage)
             if index >= 6 and states[index] == "ready" and return_ready_image is not None:
                 found, details = kwargs["recognize"](return_ready_image)
                 return found and index != fail_at, return_ready_image, details
@@ -108,6 +120,14 @@ class LastNightTests(unittest.TestCase):
             stack.enter_context(patch.object(flow.time, "sleep"))
             result = flow.run_weekly_lastnight(dry_run=dry_run, log_root=root / "logs", state_root=root / "state")
         return result, events
+
+    def test_leave_is_retried_once_only_for_the_same_verified_result(self):
+        for damage, returned, clicks in ((700068622, True, 2), (700068623, False, 1)):
+            with self.subTest(damage=damage), tempfile.TemporaryDirectory() as temporary:
+                (ok, reason), events = self.run_flow(Path(temporary), leave_retry_damage=damage)
+                self.assertEqual(ok, returned, reason)
+                self.assertEqual(events.count("lastnight_leave_result"), clicks)
+                self.assertEqual(events.count("lastnight_start_once"), 1)
 
     def test_one_battle_completes_only_after_two_results_and_home(self):
         with tempfile.TemporaryDirectory() as temporary:

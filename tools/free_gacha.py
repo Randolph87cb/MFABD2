@@ -43,6 +43,7 @@ from game_text_recognition import (
     recognize_gacha_target_labels,
     recognize_game_loading_labels,
     recognize_home_labels,
+    recognize_lastnight_result_labels,
     recognize_plaza_labels,
     recognize_quick_hunt_map_labels,
     recognize_reward_overlay_labels,
@@ -63,6 +64,7 @@ VK_H = 0x48
 VK_P = 0x50
 SW_SHOWNOACTIVATE = 4
 UNBOUNDED_LOADING_STATES = {"loading", "restaurant_loading"}
+MAX_OVERLAY_DISMISSALS = 6
 
 CLICK_POINTS = {
     "home_business_management": (0.085, 0.235),
@@ -177,6 +179,7 @@ STATE_NAMES = {
     "real_home": "主页",
     "home_overlay": "弹窗页面",
     "blocking_ad_overlay": "广告弹窗",
+    "lastnight_result": "末日之书结算",
     "plaza": "广场",
     "gacha_page": "抽卡页面",
     "confirm_free_gacha": "免费抽卡确认",
@@ -553,6 +556,51 @@ def _mean_region_difference(
     return float(np.mean(np.abs(before_region - after_region)))
 
 
+def _overlay_border_coverage(image: Image.Image) -> dict[str, float]:
+    """Find long, aligned bright-to-dark steps along a central panel's four sides."""
+    gray = np.asarray(image.convert("L").resize((384, 216), Image.Resampling.BILINEAR), dtype=np.float32)
+
+    def side(frame: np.ndarray) -> float:
+        height, width = frame.shape
+        span = frame[round(height * 0.34):round(height * 0.66)]
+        coverage = []
+        for position in range(round(width * 0.08), round(width * 0.38)):
+            outside = span[:, position - 4:position - 1].mean(axis=1)
+            inside = span[:, position + 1:position + 4].mean(axis=1)
+            local_jump = span[:, position + 1] - span[:, position - 1]
+            coverage.append(float(np.mean((inside - outside > 20) & (local_jump > 15))))
+        return max(coverage)
+
+    return {"left": side(gray), "right": side(gray[:, ::-1]),
+            "top": side(gray.T), "bottom": side(gray.T[:, ::-1])}
+
+
+def overlay_content_changed(before: Image.Image, after: Image.Image) -> bool:
+    """Use persistent copy first and broad visual changes when text is absent."""
+    groups = {"panel": {"region": (0.19, 0.16, 0.62, 0.68), "labels": ()}}
+
+    def panel_text(image: Image.Image) -> set[str]:
+        texts, _, _ = LabelRecognitionSession(image).recognize(groups)
+        words = {"".join(character for character in text.upper() if character.isalpha())
+                 for text in texts.get("panel", [])}
+        return {word for word in words if len(word) >= 2}
+
+    previous_text, current_text = panel_text(before), panel_text(after)
+    if previous_text and current_text:
+        return len(previous_text & current_text) < 0.60 * min(len(previous_text), len(current_text))
+    if previous_text or current_text or before.size != after.size:
+        return False
+
+    def panel_image(image: Image.Image) -> np.ndarray:
+        width, height = image.size
+        region = (round(width * 0.19), round(height * 0.16), round(width * 0.81), round(height * 0.84))
+        panel = image.crop(region).convert("RGB").resize((64, 36), Image.Resampling.BOX)
+        return np.asarray(panel, dtype=np.float32)
+
+    difference = np.abs(panel_image(before) - panel_image(after)).mean(axis=2)
+    return float(np.mean(difference > 20)) >= 0.25
+
+
 def detect_selected_gacha_target(image: Image.Image) -> str | None:
     text_target, text_details = recognize_gacha_target_labels(image)
     if text_target is not None:
@@ -683,6 +731,12 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     if reward_overlay_match:
         return "reward_overlay", details
 
+    lastnight_result_match, lastnight_result_text = recognize_lastnight_result_labels(image, session=text_session)
+    if lastnight_result_match:
+        details["lastnight_result_text"] = lastnight_result_text
+        details["classification_rule"] = "lastnight_result_text"
+        return "lastnight_result", details
+
     notes_match, notes_text = recognize_regular_customer_notes_labels(
         image,
         session=text_session,
@@ -772,10 +826,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and home_bottom_nav["dark_ratio"] > 0.95
         and home_right_events["dark_ratio"] > 0.90
     )
-    if large_activity_overlay_like:
-        details["classification_rule"] = "blocking_overlay_brightness"
-        return "blocking_ad_overlay", details
-
     blocking_ad_overlay_like = (
         full["dark_ratio"] > 0.55
         and center["mean"] > 150
@@ -785,10 +835,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and home_bottom_nav["dark_ratio"] > 0.95
         and home_right_events["dark_ratio"] > 0.90
     )
-    if blocking_ad_overlay_like:
-        details["classification_rule"] = "blocking_overlay_brightness"
-        return "blocking_ad_overlay", details
-
     dark_item_overlay_like = (
         full["dark_ratio"] > 0.95
         and center["mean"] > full["mean"] + 25
@@ -796,9 +842,18 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         and modal["edge_ratio"] > 0.012
         and home_bottom_nav["dark_ratio"] > 0.98
     )
-    if dark_item_overlay_like:
-        details["classification_rule"] = "blocking_overlay_brightness"
-        return "blocking_ad_overlay", details
+    overlay_like = (
+        full["dark_ratio"] > 0.45
+        and center["mean"] > full["mean"] + 35
+        and center["contrast"] > 35
+        and home_bottom_nav["dark_ratio"] > 0.85
+    )
+    if large_activity_overlay_like or blocking_ad_overlay_like or dark_item_overlay_like or overlay_like:
+        border_coverage = _overlay_border_coverage(image)
+        details["blocking_overlay_border_coverage"] = border_coverage
+        if min(border_coverage.values()) >= 0.55:
+            details["classification_rule"] = "blocking_overlay_brightness"
+            return "blocking_ad_overlay", details
 
     loading_like = full["mean"] < 45 and full["dark_ratio"] > 0.92 and full["edge_ratio"] < 0.005
     if loading_like:
@@ -850,16 +905,6 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
     )
     if dark_animation_like or reveal_animation_like:
         return "gacha_animation", details
-
-    overlay_like = (
-        full["dark_ratio"] > 0.45
-        and center["mean"] > full["mean"] + 35
-        and center["contrast"] > 35
-        and home_bottom_nav["dark_ratio"] > 0.85
-    )
-    if overlay_like:
-        details["classification_rule"] = "blocking_overlay_brightness"
-        return "blocking_ad_overlay", details
 
     home_labels_match, home_text = recognize_home_labels(
         image,
@@ -1417,6 +1462,7 @@ def run_free_gacha(
     target_index = 0
     switched: set[str] = set()
     result_back_target: str | None = None
+    overlay_dismissals = 0
     last_progress_at = time.monotonic()
     previous_state: str | None = None
     step = 0
@@ -1489,6 +1535,11 @@ def run_free_gacha(
             continue
 
         if state in {"home_overlay", "blocking_ad_overlay", "gacha_item_overlay"}:
+            if overlay_dismissals >= MAX_OVERLAY_DISMISSALS:
+                reason = f"an overlay remains after {overlay_dismissals} dismissal steps"
+                logger.failure(reason)
+                return ActionResult(state, "stop", reason)
+            overlay_dismissals += 1
             overlay_before = image.copy()
             ok, _, _, reason = click_with_fixed_retry(
                 hwnd,
@@ -1496,7 +1547,7 @@ def run_free_gacha(
                 "dismiss_overlay",
                 verify=lambda next_state, next_image: (
                     next_state not in {"home_overlay", "blocking_ad_overlay", "gacha_item_overlay"}
-                    or _mean_region_difference(overlay_before, next_image) >= 2.5
+                    or overlay_content_changed(overlay_before, next_image)
                 ),
                 description="dismiss home overlay",
                 dry_run=dry_run,

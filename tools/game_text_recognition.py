@@ -286,8 +286,16 @@ REWARD_OVERLAY_LABEL_GROUPS = {
     },
     "footer": {
         "region": (0.38, 0.72, 0.38, 0.24),
-        "labels": ("点击画面即可返回",),
+        "labels": ("点击画面即可返回", "奖励已发放至背包"),
     },
+}
+
+LASTNIGHT_RESULT_LABEL_GROUPS = {
+    "title": {"region": (0.69, 0.02, 0.14, 0.09), "labels": ()},
+    "final_damage": {"region": (0.68, 0.10, 0.15, 0.06), "labels": ()},
+    "top_damage": {"region": (0.68, 0.22, 0.16, 0.07), "labels": ()},
+    "retry": {"region": (0.74, 0.90, 0.10, 0.07), "labels": ()},
+    "leave": {"region": (0.86, 0.90, 0.10, 0.07), "labels": ()},
 }
 
 BUSINESS_MANAGEMENT_LABEL_GROUPS = {
@@ -1431,6 +1439,26 @@ def recognize_quick_hunt_setup_labels(
     }
 
 
+def recognize_lastnight_result_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Identify the result layout even when the animated damage digits are unreadable."""
+    texts, _, error = _recognize_with_session(image, LASTNIGHT_RESULT_LABEL_GROUPS, session)
+    if error is not None:
+        return False, error
+    normalized = {name: {_normalize_text(text) for text in values} for name, values in texts.items()}
+    found = (
+        bool(normalized["title"] & {"RESULT", "IRESULT", "LRESULT"})
+        and "最终伤害" in normalized["final_damage"]
+        and "全体最高伤害" in normalized["top_damage"]
+        and "重新挑战" in normalized["retry"]
+        and "离开" in normalized["leave"]
+    )
+    return found, {"available": True, "texts": texts}
+
+
 def recognize_reward_overlay_labels(
     image: Image.Image,
     *,
@@ -1444,13 +1472,15 @@ def recognize_reward_overlay_labels(
     )
     if error is not None:
         return False, error
-    is_reward_overlay = "点击画面即可返回" in matches["footer"]
+    is_reward_overlay = "点击画面即可返回" in matches["footer"] or (
+        "赛季奖励" in matches["header"] and "奖励已发放至背包" in matches["footer"]
+    )
     return is_reward_overlay, {
         "available": True,
         "texts": grouped_texts,
         "matches": matches,
         "requirements": {
-            "header": "optional reward title",
-            "footer": 1,
+            "footer": "点击画面即可返回",
+            "season_reward_alternative": ["赛季奖励", "奖励已发放至背包"],
         },
     }

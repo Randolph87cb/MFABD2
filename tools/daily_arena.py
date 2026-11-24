@@ -13,6 +13,7 @@ from PIL import Image
 
 from adaptive_wait import AdaptivePoll
 from free_gacha import (
+    MAX_OVERLAY_DISMISSALS,
     RunLogger,
     _click_ratio,
     _mean_region_difference,
@@ -20,6 +21,7 @@ from free_gacha import (
     _stats,
     classify_state,
     click_with_fixed_retry,
+    overlay_content_changed,
     post_quick_cartridge_key,
     safe_capture_client,
     wait_for_state,
@@ -149,22 +151,23 @@ def enter_battlefield(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     logger.event(action="classify", state=state, details=details, screenshot=str(image_path))
     # Home labels remain readable behind promotions; they do not prove that
     # the return-battlefield control is interactive. Clear the obstruction first.
-    for _ in range(6):
-        if state not in {"home_overlay", "blocking_ad_overlay"} or is_returnable_battlefield(
+    for _ in range(MAX_OVERLAY_DISMISSALS):
+        if state not in {"home_overlay", "blocking_ad_overlay", "reward_overlay"} or is_returnable_battlefield(
             state, image,
         ):
             break
+        dismiss_key = "reward_overlay_dismiss" if state == "reward_overlay" else "dismiss_overlay"
         overlay_before = image
         ok, state, image, reason = click_with_fixed_retry(
             hwnd,
             image,
-            "dismiss_overlay",
+            dismiss_key,
             verify=lambda candidate, candidate_image: (
                 candidate in ARENA_ENTRY_TRANSITIONS | {"real_home", "restaurant_home"}
                 or is_returnable_battlefield(candidate, candidate_image)
                 or (
                     candidate in {"home_overlay", "blocking_ad_overlay"}
-                    and _mean_region_difference(overlay_before, candidate_image) >= 2.5
+                    and overlay_content_changed(overlay_before, candidate_image)
                 )
             ),
             description="dismiss home overlay before entering battlefield",

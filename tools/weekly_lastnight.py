@@ -13,7 +13,7 @@ import numpy as np
 from PIL import Image
 
 from free_gacha import RunLogger
-from game_text_recognition import _ocr_engine
+from game_text_recognition import _ocr_engine, recognize_lastnight_result_labels
 from open_game import find_game_window
 from reward_flow import click_ratio_logged, prepare_actionable_home, swipe_ratio_logged, wait_for_recognition
 from weekly_arcade import _home
@@ -93,14 +93,22 @@ def recognize_lastnight_page(image: Image.Image) -> tuple[str, dict[str, Any]]:
                 and one("TOPRECORD", (1950, 1120, 2250, 1195))
                 and _crop_matches(image, (1885, 42, 1935, 85), "lastnight-skip.png")):
             return "battle", details
-        damage = one(r"[1-9]\d{0,2}(?:,\d{3})*", (1600, 205, 2020, 290))
-        if (one("I?RESULT", (1600, 30, 1870, 135)) and damage
-                and one("最终伤害", (1580, 140, 1820, 200))
-                and one("全体最高伤害", (1580, 285, 1880, 370))
-                and one("重新挑战", (1720, 1170, 1930, 1250))
-                and one("离开", (1980, 1170, 2190, 1250))
-                and _crop_matches(image, (1950, 1180, 2185, 1240), "lastnight-leave.png")):
-            return "result", {**details, "damage": int(damage[2].replace(",", ""))}
+        if any(1600 <= x <= 1870 and 30 <= y <= 135 and text.endswith("RESULT")
+               or 1580 <= x <= 1820 and 140 <= y <= 200 and text == "最终伤害"
+               for x, y, text, _ in entries):
+            result_found, result_text = recognize_lastnight_result_labels(image)
+            if result_found:
+                details["result_text"] = result_text
+                details["leave_available"] = _crop_matches(image, (1950, 1180, 2185, 1240), "lastnight-leave.png")
+                damage_pattern = r"[1-9]\d{0,2}(?:,\d{3})*"
+                damage = one(damage_pattern, (1600, 205, 2020, 290))
+                if damage is None:
+                    cropped = _texts(image.crop((1620, 195, 1910, 286)))
+                    if len(cropped) == 1 and cropped[0][3] >= 0.95 and re.fullmatch(damage_pattern, cropped[0][2]):
+                        damage = cropped[0]
+                if damage is not None:
+                    details["damage"] = int(damage[2].replace(",", ""))
+                return "result", details
         return "unknown", details
     except Exception as exc:
         return "unknown", {"error": repr(exc)}
@@ -119,7 +127,7 @@ def _pending_results(record, week):
     for sample in samples:
         with Image.open(sample) as image:
             state, details = recognize_lastnight_page(image)
-        if state != "result":
+        if state != "result" or "damage" not in details:
             raise ValueError("pending record lacks verified result images")
         damages.append(details["damage"])
     if damages[0] != damages[1]:
@@ -202,13 +210,18 @@ def run_weekly_lastnight(*, dry_run: bool, log_root: Path,
             current_week()
             click_ratio_logged(hwnd, image, (x / 2304, y / 1296), key=key, logger=logger)
 
-        def wait(states, label, timeout=45):
+        def wait(states, label, timeout=45, *, retry_result_damage=None):
             def recognize(frame):
                 state, details = recognize_lastnight_page(frame)
-                return state in states, {**details, "state": state}
+                result_ready = state != "result" or ("damage" in details and details["leave_available"])
+                return state in states and result_ready, {**details, "state": state}
             ok, frame, details = wait_for_recognition(hwnd, logger=logger, label=label,
                                                        recognize=recognize, timeout=timeout)
-            if not ok:
+            same_result = (
+                retry_result_damage is not None and details.get("state") == "result"
+                and details.get("damage") == retry_result_damage and details.get("leave_available")
+            )
+            if not ok and not same_result:
                 raise RuntimeError(f"末日之书 {label} 未通过验证，不重试输入")
             current_week()
             return frame, details
@@ -234,7 +247,11 @@ def run_weekly_lastnight(*, dry_run: bool, log_root: Path,
             raise RuntimeError("末日之书两帧伤害冲突，禁止离开或重放")
         samples.append(str(logger.save_image(image, "lastnight-result-verified-2.png")))
         click(2060, 1210, "lastnight_leave_result")
-        image, details = wait({"field_spawn", "field", "new_record", "ready"}, "lastnight-return-field")
+        return_states = {"field_spawn", "field", "new_record", "ready"}
+        image, details = wait(return_states, "lastnight-return-field", retry_result_damage=damage)
+        if details["state"] == "result":
+            click(2060, 1210, "lastnight_leave_result")
+            image, details = wait(return_states, "lastnight-return-field-retry")
         if details["state"] == "new_record":
             if details["damage"] != damage:
                 raise RuntimeError("末日之书新纪录与结算伤害冲突，保留未决")

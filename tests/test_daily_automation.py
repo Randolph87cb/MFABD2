@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import ANY, MagicMock, patch
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 
 TOOLS_DIR = Path(__file__).resolve().parents[1] / "tools"
@@ -3397,13 +3397,13 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                     state, _details = classify_state(image)
                 self.assertEqual(state, expected)
 
-    def test_season_reward_without_return_hint_remains_a_blocking_overlay(self) -> None:
+    def test_season_reward_without_return_hint_uses_its_reward_labels(self) -> None:
         with Image.open(FIXTURES / "arena-season-reward-overlay-2567x1446.png") as overlay:
             overlay_state, _details = classify_state(overlay)
         with Image.open(FIXTURES / "arena-lobby-2567x1446.png") as lobby:
             lobby_state, _details = classify_state(lobby)
 
-        self.assertEqual(overlay_state, "blocking_ad_overlay")
+        self.assertEqual(overlay_state, "reward_overlay")
         self.assertEqual(lobby_state, "arena_lobby")
 
     def test_v2318_touch_screen_is_actionable(self) -> None:
@@ -3529,6 +3529,48 @@ class DailyAutomationEntryRecognitionTests(unittest.TestCase):
                 succeeded = overlay_transition_succeeded(before, "blocking_ad_overlay", after)
 
         self.assertTrue(succeeded)
+
+    def test_overlay_requires_aligned_brightness_steps(self) -> None:
+        with Image.open(FIXTURES / "blocking-ad-overlay.png") as image:
+            self.assertEqual(classify_state(image)[0], "blocking_ad_overlay")
+
+        panel = Image.new("RGB", (384, 216), (18, 18, 18))
+        ImageDraw.Draw(panel).rectangle((90, 56, 294, 172), fill=(244, 244, 244))
+        self.assertEqual(classify_state(panel)[0], "blocking_ad_overlay")
+        smooth = panel.filter(ImageFilter.GaussianBlur(16))
+        self.assertNotEqual(classify_state(smooth)[0], "blocking_ad_overlay")
+
+    def test_overlay_progress_uses_stable_copy_before_artwork(self) -> None:
+        before = Image.new("RGB", (384, 216), "black")
+        after = Image.new("RGB", (384, 216), "white")
+        with patch("free_gacha.LabelRecognitionSession") as session:
+            recognize = session.return_value.recognize
+            recognize.side_effect = [({"panel": ["签到成功", "活动还剩38天"]}, {}, None),
+                                     ({"panel": ["签到成功", "活动还剩37天"]}, {}, None)]
+            self.assertFalse(overlay_transition_succeeded(before, "blocking_ad_overlay", after))
+            recognize.side_effect = None
+            recognize.return_value = ({"panel": []}, {}, None)
+            self.assertFalse(overlay_transition_succeeded(before, "blocking_ad_overlay", before.copy()))
+            self.assertTrue(overlay_transition_succeeded(before, "blocking_ad_overlay", after))
+
+    @patch("builtins.print")
+    def test_ensure_home_stops_even_if_each_overlay_dismissal_reports_progress(self, _print: MagicMock) -> None:
+        image = Image.new("RGB", (384, 216), "black")
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            patch("open_game.find_game_window", return_value=123),
+            patch("daily_automation.safe_capture_client", return_value=image),
+            patch("daily_automation.classify_state", return_value=("blocking_ad_overlay", {})),
+            patch("daily_automation.recognize_cabin_navigation", return_value=("unknown", {})),
+            patch("daily_automation._confirm_pass_reward_page", return_value=(False, {})),
+            patch("daily_automation.recognize_activity_navigation", return_value=(False, {})),
+            patch("daily_automation.click_with_fixed_retry",
+                  return_value=(True, "blocking_ad_overlay", image, "next overlay")) as click,
+        ):
+            ok, reason = ensure_home(timeout=5.0, log_root=Path(temporary))
+
+        self.assertFalse(ok, reason)
+        self.assertEqual(click.call_count, 6)
 
     def test_unknown_frame_does_not_complete_overlay_dismissal(self) -> None:
         before = Image.new("RGB", (1280, 720), "black")

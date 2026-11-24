@@ -29,11 +29,13 @@ from enter_game import TOUCH_CLICK, recognize_entry_state  # noqa: E402
 from adaptive_wait import AdaptivePoll  # noqa: E402
 from free_gacha import (  # noqa: E402
     CLICK_POINTS,
+    MAX_OVERLAY_DISMISSALS,
     RunLogger,
     _click_ratio,
     _mean_region_difference,
     classify_state,
     click_with_fixed_retry,
+    overlay_content_changed,
     run_free_gacha,
     safe_capture_client,
 )
@@ -619,7 +621,7 @@ def overlay_transition_succeeded(before: Any, next_state: str, after: Any) -> bo
     if next_state in {"real_home", "plaza", "loading"}:
         return True
     if next_state in {"home_overlay", "blocking_ad_overlay"}:
-        return _mean_region_difference(before, after) >= 2.5
+        return overlay_content_changed(before, after)
     if next_state in {"unknown", "gacha_animation"}:
         # Login ads can lead directly to a Pickup promotion. Hand it back to
         # ensure_home only when entry OCR confirms it, never on artwork alone.
@@ -1064,6 +1066,7 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
     last_progress_at = time.monotonic()
     previous_state: str | None = None
     loading_transition_pending = False
+    overlay_dismissals = 0
     step = 0
     poll = AdaptivePoll()
     while time.monotonic() - last_progress_at < timeout:
@@ -1204,6 +1207,11 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             description = f"return home from {state}"
             expected = {"real_home", "home_overlay", "blocking_ad_overlay", "loading"}
         elif state in {"home_overlay", "blocking_ad_overlay"}:
+            if overlay_dismissals >= MAX_OVERLAY_DISMISSALS:
+                reason = f"returning home still shows an overlay after {overlay_dismissals} dismissal steps"
+                logger.failure(reason)
+                return False, reason
+            overlay_dismissals += 1
             key = "dismiss_overlay"
             description = "dismiss home overlay"
             expected = {"real_home", "plaza", "loading"}
