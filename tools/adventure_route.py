@@ -124,6 +124,16 @@ def _hunting_map(image):
     return balance is not None and bright >= 0.20, {**details, "free_rice": balance}
 
 
+def _category_point(image, label):
+    """Locate the current navigation label; never reuse an icon coordinate."""
+    entries = _entries(image)
+    candidates = [(x, y, score) for x, y, text, score in entries
+                  if 120 <= x <= 290 and 130 <= y <= 620 and text == label]
+    if len(candidates) != 1 or not candidates[0][2] >= .95:
+        raise ValueError("category label missing, ambiguous or low confidence")
+    return candidates[0][:2]
+
+
 def run_adventure_route_recheck(*, dry_run: bool, log_root: Path) -> tuple[bool, str]:
     """Hunting map/result → gold map → two setup reads → cancel → hunting map."""
     logger = RunLogger(log_root, annotate_clicks=True)
@@ -170,8 +180,23 @@ def run_adventure_route_recheck(*, dry_run: bool, log_root: Path) -> tuple[bool,
     initial_rice = details["free_rice"]
     if dry_run:
         return True, "dry-run planned route recheck; no input"
-    click(image, (210, 312), "route_gold_category")
+    try:
+        point = _category_point(image, "金币")
+    except Exception as exc:
+        return stop(str(exc))
+    click(image, point, "route_gold_category")
     ok, image, details = wait("route-gold-map", route_recognizer())
+    if not ok:
+        # One retry is permitted only on a freshly verified, unchanged source.
+        source_ok, source = _hunting_map(image)
+        if source_ok and source["free_rice"] == initial_rice:
+            try:
+                point = _category_point(image, "金币")
+            except Exception as exc:
+                return stop(str(exc))
+            logger.event(action="retry_category", source=source, limit=1)
+            click(image, point, "route_gold_category_retry")
+            ok, image, details = wait("route-gold-map", route_recognizer())
     if not ok or details["reading"]["free_rice"] != initial_rice:
         return stop("gold route or unchanged free rice unverified; no setup input")
     click(image, (1973, 1188), "route_open_setup")
@@ -189,7 +214,11 @@ def run_adventure_route_recheck(*, dry_run: bool, log_root: Path) -> tuple[bool,
     ok, image, details = wait("route-after-cancel", route_recognizer())
     if not ok or details["reading"]["free_rice"] != initial_rice:
         return stop("route cancellation or unchanged rice unverified")
-    click(image, (210, 185), "route_restore_hunting")
+    try:
+        point = _category_point(image, "狩猎场")
+    except Exception as exc:
+        return stop(str(exc))
+    click(image, point, "route_restore_hunting")
     ok, image, details = wait("route-restored-hunting", _hunting_map)
     if not ok or details["free_rice"] != initial_rice:
         return stop("hunting map restoration or unchanged rice unverified")

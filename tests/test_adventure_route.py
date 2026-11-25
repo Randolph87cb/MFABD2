@@ -19,6 +19,19 @@ SETUP = dict(**MAP, count=1, rice_cost=6, fixed_gold=22000, free_only=True)
 
 
 class RouteRecognitionTests(unittest.TestCase):
+    def test_current_category_labels_on_recorded_unchanged_source(self):
+        with Image.open(FIXTURES / "adventure-gold-click-unchanged.png") as image:
+            found, details = route._hunting_map(image)
+            self.assertTrue(found, details)
+            x, y = route._category_point(image, "金币")
+            self.assertTrue(180 < x < 240 and 325 < y < 355, (x, y))
+            self.assertIsNone(route.recognize_gold_route(image)[0])
+            for entries in ([], [(210, 340, "金币", .94)],
+                            [(210, 340, "金币", .99)] * 2):
+                with patch.object(route, "_entries", return_value=entries):
+                    with self.assertRaises(ValueError):
+                        route._category_point(image, "金币")
+
     def test_recorded_weekday_bonus_setup_is_recognized(self):
         # 2026-11-06 route-setup-1-05: weekday bonus doubles the fixed gold.
         with Image.open(FIXTURES / "adventure-gold-setup-weekday-bonus.png") as image:
@@ -142,7 +155,7 @@ class RouteRecognitionTests(unittest.TestCase):
 
 class RouteFlowTests(unittest.TestCase):
     def flow(self, *, failure=None, changed=None, changed_field="free_rice",
-             reward=False, dry_run=False, bad_start=False):
+             reward=False, dry_run=False, bad_start=False, retry_source=False, fail_once=False):
         image = Image.new("RGB", (2304, 1296), "white")
         events = []
 
@@ -155,14 +168,16 @@ class RouteFlowTests(unittest.TestCase):
                     data["reading"][changed_field] = 1
                 else:
                     data["free_rice"] = 1
-            return failure != label, image, data
+            failed = failure == label and (not fail_once or events.count(label) == 1)
+            return not failed, image, data
 
         with tempfile.TemporaryDirectory() as temporary, \
                 patch("adventure_route.find_game_window", return_value=123), \
                 patch("adventure_route.safe_capture_client", return_value=image), \
                 patch("adventure_route.classify_state", return_value=("reward_overlay" if reward else "quick_hunt_map", {})), \
                 patch("adventure_route.recognize_reward_overlay_labels", return_value=(not bad_start, {})), \
-                patch("adventure_route._hunting_map", return_value=(not bad_start, {"free_rice": 0})), \
+                patch("adventure_route._hunting_map", side_effect=[(not bad_start, {"free_rice": 0}), (retry_source, {"free_rice": 0})]), \
+                patch("adventure_route._category_point", return_value=(210, 340)), \
                 patch("adventure_route.wait_for_recognition", side_effect=wait), \
                 patch("adventure_route.time.sleep"), \
                 patch("adventure_route.click_ratio_logged") as click:
@@ -177,6 +192,17 @@ class RouteFlowTests(unittest.TestCase):
             self.assertEqual(keys, (["route_dismiss_hunting_result"] if reward else []) + [
                 "route_gold_category", "route_open_setup", "route_cancel_setup", "route_restore_hunting"])
             self.assertEqual(len(events), 6 if reward else 5)
+
+    def test_unchanged_source_allows_only_one_category_retry(self):
+        (ok, _), keys, _ = self.flow(failure="route-gold-map", retry_source=True)
+        self.assertFalse(ok)
+        self.assertEqual(keys, ["route_gold_category", "route_gold_category_retry"])
+
+    def test_category_retry_can_continue_through_cancel_and_restore(self):
+        (ok, reason), keys, _ = self.flow(failure="route-gold-map", retry_source=True, fail_once=True)
+        self.assertTrue(ok, reason)
+        self.assertEqual(keys, ["route_gold_category", "route_gold_category_retry",
+                                "route_open_setup", "route_cancel_setup", "route_restore_hunting"])
 
     def test_each_failure_stops_without_retry_or_later_input(self):
         expected_clicks = {"route-hunting-entry": 1, "route-gold-map": 2,

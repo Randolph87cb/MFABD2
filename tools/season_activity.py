@@ -245,7 +245,17 @@ def recognize_mamono_preparation(image):
         arrow = np.asarray(image.convert("RGB"))[49:73, 203:216]
         if float(np.mean(np.min(arrow, axis=2) > 210)) < .20:
             return False, {**details, "error": "back control obscured"}
-        countdown = _one(entries, r"距离开始还剩([1-9]\d*)天", (1770, 30, 2040, 90))
+        # Days become hours/minutes on the last preparation day. Keep the
+        # stable prefix and complete duration, independently of season artwork.
+        duration = r"(?:[1-9]\d*天|(?:[01]?\d|2[0-3])小时(?:[0-5]?\d分钟)?|[1-5]?\d分钟)"
+        countdown = _one(entries, "距离开始还剩(" + duration + ")", (1630, 30, 2040, 90))
+        if countdown is None and (not any(1630 <= x <= 2040 and 30 <= y <= 90
+                                          for x, y, _, _ in entries)
+                                  or any(1630 <= x <= 2040 and 30 <= y <= 90 and score >= .95
+                                         and text.startswith("距离开始还剩")
+                                         and not re.fullmatch("距离开始还剩(" + duration + ")", text)
+                                         for x, y, text, score in entries)):
+            countdown = _crop_text(image, (1630, 30, 2040, 90), "距离开始还剩(" + duration + ")")
         anchors = (("魔兽", (330, 25, 420, 90)),
                    ("我的名次与猎人段位", (880, 10, 1220, 55)),
                    ("暂无排名信息", (880, 55, 1100, 100)),
@@ -257,7 +267,14 @@ def recognize_mamono_preparation(image):
                            and _one(entries, "从狩猎期间开始解除", (1390, y, 1660, y + 60))
                            for i, y in ((1, 440), (2, 598), (3, 756)))):
             return False, {**details, "error": "unverified preparation locks/countdown"}
-        return True, {**details, "days": int(countdown.group(1)), "battle": False}
+        text = countdown.group(1)
+        parts = {unit: int(value) for value, unit in re.findall(r"(\d+)(天|小时|分钟)", text)}
+        minutes = parts.get("天", 0) * 1440 + parts.get("小时", 0) * 60 + parts.get("分钟", 0)
+        if minutes <= 0:
+            return False, {**details, "error": "preparation countdown expired"}
+        precision = 1 if "分钟" in parts else 60 if "小时" in parts else 1440
+        return True, {**details, "days": parts.get("天"), "countdown": text,
+                      "minutes": minutes, "precision": precision, "battle": False}
     except Exception as exc:
         return False, {"error": repr(exc)}
 
@@ -298,18 +315,23 @@ def run_mamono_preparation_recheck(*, dry_run: bool, log_root: Path):
         image, _ = wait(main, "mamono-practice-menu")
         click(image, 1265, 1038, "mamono_entry")
         image, first = wait(recognize_mamono_preparation, "mamono-preparation-1")
+        first_at = time.monotonic()
         time.sleep(2)
         image, second = wait(recognize_mamono_preparation, "mamono-preparation-2")
-        if first["days"] != second["days"]:
+        elapsed = (time.monotonic() - first_at) / 60
+        # Compare the represented time intervals, allowing natural minute and
+        # unit rollovers, but rejecting increases or unrelated countdowns.
+        if (second["minutes"] > first["minutes"] + first["precision"] - 1
+                or second["minutes"] + second["precision"] <= first["minutes"] - elapsed):
             raise RuntimeError("魔兽准备期两帧变化；停止")
-        logger.event(action="preparation_readonly", days=second["days"], battle=False)
+        logger.event(action="preparation_readonly", countdown=second["countdown"], battle=False)
         click(image, 208, 60, "mamono_back")
         image, _ = wait(main, "mamono-menu-return")
         click(image, 208, 60, "mamono_home")
         _, after = wait(recognize_season_home, "mamono-home-return")
         if before["balances"] != after["balances"]:
             raise RuntimeError("魔兽只读复核返回主页余额变化")
-        reason = f"skipped:魔兽准备期，距离开始{second['days']}天，三队锁定；已返回主页，未战斗"
+        reason = f"skipped:魔兽准备期，距离开始{second['countdown']}，三队锁定；已返回主页，未战斗"
         logger.event(action="stop", result="success", reason=reason, battle=False)
         return True, reason
     except Exception as exc:
