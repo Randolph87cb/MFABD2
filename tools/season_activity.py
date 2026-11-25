@@ -31,16 +31,35 @@ def _label(entries, pattern, box):
     return matches[0][0]
 
 
+# Value centres exclude resource icons; crop padding below preserves glyph edges.
+HOME_BALANCE_BOXES = ((1220, 45, 1350, 95), (1390, 45, 1570, 95), (1630, 45, 1770, 95))
+HOME_BALANCE_PATTERN = r"0|[1-9]\d{0,2}(?:,\d{3})*"
+
+
+def _home_balance(image, entries, box):
+    """Separate value text from resource icons and re-read omitted/merged OCR."""
+    left, top, right, bottom = box
+    candidates = [e for e in entries if left <= e[0] <= right and top <= e[1] <= bottom]
+    numbers = [e for e in candidates if re.fullmatch(HOME_BALANCE_PATTERN, e[2])]
+    if len(numbers) > 1:
+        return None  # Conflicting or duplicate values must not be selected.
+    if len(candidates) == 1 and numbers:
+        return _one(entries, HOME_BALANCE_PATTERN, box)  # Retain confidence gate.
+    return _crop_text(image, (left - 10, top - 5, right + 10, bottom + 5), HOME_BALANCE_PATTERN)
+
+
 def recognize_season_home(image, *, entry=False):
     found, details = _recognize_actionable_home(image)
     if not found or image.size != (2304, 1296):
         return False, details
     try:
         entries = _entries(image)
-        balances = [_one(entries, r"0|[1-9]\d{0,2}(?:,\d{3})*", box) for box in (
-            (1200, 40, 1350, 95), (1390, 40, 1570, 95), (1600, 40, 1770, 95))]
+        details = {**details, "texts": entries}
+        balances = [_home_balance(image, entries, box) for box in HOME_BALANCE_BOXES]
         if not all(balances):
-            return False, {**details, "error": "unverified home balances"}
+            return False, {**details, "error": "unverified home balances",
+                           "unverified_balance_boxes": [box for box, value in zip(HOME_BALANCE_BOXES, balances)
+                                                        if value is None]}
         if entry:
             # The entry artwork changes every season. A countdown and unlock
             # subtitle in the season panel identify navigation, not permission
@@ -197,6 +216,7 @@ def run_season_battle_recheck(*, dry_run: bool, log_root: Path):
         if not ok:
             raise RuntimeError(reason)
         found, before = recognize_season_home(image, entry=True)
+        logger.event(action="season_home_check", found=found, details=before)
         if not found:
             raise RuntimeError("赛季入口/主页余额未确认；未输入")
         if dry_run:
@@ -307,6 +327,7 @@ def run_mamono_preparation_recheck(*, dry_run: bool, log_root: Path):
         if not ok:
             raise RuntimeError(reason)
         found, before = recognize_season_home(image, entry=True)
+        logger.event(action="mamono_home_check", found=found, details=before)
         if not found:
             raise RuntimeError("魔兽复核主页入口/余额未确认；未输入")
         if dry_run:

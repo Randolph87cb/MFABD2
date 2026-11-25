@@ -96,7 +96,8 @@ class SeasonRecognitionTests(unittest.TestCase):
         with Image.open(FIXTURES / "season-home-cheer.png") as source:
             image = source.convert("RGB")
         entries = season._entries(image)
-        with patch.object(season, "_recognize_actionable_home", return_value=(True, {})):
+        with patch.object(season, "_recognize_actionable_home", return_value=(True, {})), \
+                patch.object(season, "_crop_text", return_value=None):
             for label in ("普通战斗解锁", "D-12", "177,376"):
                 for replacement, score, duplicate in (("OTHER", .99, False), (label, .94, False),
                                                        (label, float("nan"), False), (label, .99, True)):
@@ -121,7 +122,8 @@ class SeasonRecognitionTests(unittest.TestCase):
         with Image.open(FIXTURES / "season-home-blood-low-confidence.png") as source:
             image = source.convert("RGB")
         entries = season._entries(image)
-        with patch.object(season, "_recognize_actionable_home", return_value=(True, {})):
+        with patch.object(season, "_recognize_actionable_home", return_value=(True, {})), \
+                patch.object(season, "_crop_text", return_value=None):
             for label in ("D-DAY", "魔兽追踪者解锁", "177,351"):
                 for replacement, score, duplicate in ((label, .94, False),
                                                        (label, float("nan"), False),

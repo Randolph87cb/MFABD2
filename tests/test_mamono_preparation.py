@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+import itertools
 import tempfile
 import unittest
 from contextlib import ExitStack
@@ -68,6 +69,7 @@ class MamonoPreparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             stack.enter_context(patch.object(season, "find_game_window", return_value=123))
             stack.enter_context(patch.object(season.time, "sleep"))
+            stack.enter_context(patch.object(season.time, "monotonic", side_effect=itertools.count(100, 2)))
             stack.enter_context(patch.object(season, "_entries", side_effect=lambda im: self.entries[id(im)]))
             stack.enter_context(patch.object(season, "prepare_actionable_home", return_value=(True, self.frames["mamono-home-before"], "home")))
             stack.enter_context(patch.object(season, "click_ratio_logged", side_effect=lambda *a, **k: keys.append(k["key"])))
