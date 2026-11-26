@@ -7,11 +7,11 @@ from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import patch
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 import daily_automation as daily
-from free_gacha import classify_state
+from free_gacha import classify_state, _overlay_border_coverage
 from game_text_recognition import LabelRecognitionSession, recognize_home_ad_labels
 
 FIXTURES = Path(__file__).parent / "fixtures/recognition"
@@ -50,6 +50,35 @@ class HomeAdRecoveryTests(unittest.TestCase):
         image.paste("black", (round(image.width * .60), round(image.height * .10),
                               round(image.width * .85), round(image.height * .30)))
         self.assertFalse(recognize_home_ad_labels(image, session=LabelRecognitionSession(image))[0])
+
+    def test_dark_ad_border_is_recognized_without_suppression_text(self):
+        with Image.open(FIXTURES / "home-ad-visible-menu-20261126.png") as source:
+            image = source.convert("RGB")
+        image.paste("black", (round(image.width * .60), round(image.height * .10),
+                              round(image.width * .85), round(image.height * .30)))
+        for size in (image.size, (1280, 720)):
+            with self.subTest(size=size):
+                state, details = classify_state(image.resize(size))
+                self.assertEqual(state, "blocking_ad_overlay")
+                self.assertEqual(details["classification_rule"], "blocking_overlay_brightness")
+
+    def test_colour_border_still_requires_value_increase_and_sharp_edge(self):
+        # Dark red is much brighter in HSV value than the dim surround,
+        # while its grayscale luminance differs by less than 20.
+        panel = Image.new("RGB", (384, 216), (18, 18, 18))
+        ImageDraw.Draw(panel).rectangle((90, 56, 294, 172), fill=(80, 0, 0))
+        self.assertGreaterEqual(min(_overlay_border_coverage(panel).values()), .55)
+        self.assertLess(min(_overlay_border_coverage(panel.filter(ImageFilter.GaussianBlur(16))).values()), .55)
+        # A saturation change at equal HSV value is insufficient.
+        equal_value = Image.new("RGB", (384, 216), (30, 30, 30))
+        ImageDraw.Draw(equal_value).rectangle((90, 56, 294, 172), fill=(0, 0, 30))
+        self.assertLess(min(_overlay_border_coverage(equal_value).values()), .55)
+
+    def test_wider_bands_do_not_turn_smooth_brightness_into_a_panel(self):
+        panel = Image.new("RGB", (384, 216), (18, 18, 18))
+        ImageDraw.Draw(panel).rectangle((90, 56, 294, 172), fill=(244, 244, 244))
+        self.assertGreaterEqual(min(_overlay_border_coverage(panel).values()), .55)
+        self.assertLess(min(_overlay_border_coverage(panel.filter(ImageFilter.GaussianBlur(16))).values()), .55)
 
     def recover(self, states, ticks=None):
         image = Image.new("RGB", (384, 216))

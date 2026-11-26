@@ -558,22 +558,37 @@ def _mean_region_difference(
 
 
 def _overlay_border_coverage(image: Image.Image) -> dict[str, float]:
-    """Find long, aligned bright-to-dark steps along a central panel's four sides."""
+    """Find aligned panel edges using luminance and wider HSV pixel bands."""
+    small = image.convert("RGB").resize((384, 216), Image.Resampling.BILINEAR)
     gray = np.asarray(image.convert("L").resize((384, 216), Image.Resampling.BILINEAR), dtype=np.float32)
+    hsv = np.asarray(small.convert("HSV"), dtype=np.float32)
+    frame = np.stack((gray, hsv[:, :, 1], hsv[:, :, 2]), axis=2)
 
     def side(frame: np.ndarray) -> float:
-        height, width = frame.shape
+        height, width, _ = frame.shape
         span = frame[round(height * 0.34):round(height * 0.66)]
         coverage = []
         for position in range(round(width * 0.08), round(width * 0.38)):
             outside = span[:, position - 4:position - 1].mean(axis=1)
             inside = span[:, position + 1:position + 4].mean(axis=1)
             local_jump = span[:, position + 1] - span[:, position - 1]
-            coverage.append(float(np.mean((inside - outside > 20) & (local_jump > 15))))
+            luminance_edge = (inside[:, 0] - outside[:, 0] > 20) & (local_jump[:, 0] > 15)
+            outside_band = span[:, position - 6:position - 3].mean(axis=1)
+            inside_band = span[:, position + 3:position + 6].mean(axis=1)
+            # Dark coloured artwork may have low luminance but a clear colour
+            # edge. Saturation alone also finds ordinary page decorations;
+            # require an inward value increase and a sharp local value step.
+            colour_edge = (
+                (np.abs(inside_band[:, 1] - outside_band[:, 1]) > 25)
+                & (inside_band[:, 2] - outside_band[:, 2] > 25)
+                & (local_jump[:, 2] > 15)
+            )
+            coverage.append(float(np.mean(luminance_edge | colour_edge)))
         return max(coverage)
 
-    return {"left": side(gray), "right": side(gray[:, ::-1]),
-            "top": side(gray.T), "bottom": side(gray.T[:, ::-1])}
+    transposed = frame.transpose(1, 0, 2)
+    return {"left": side(frame), "right": side(frame[:, ::-1]),
+            "top": side(transposed), "bottom": side(transposed[:, ::-1])}
 
 
 def overlay_content_changed(before: Image.Image, after: Image.Image) -> bool:
