@@ -43,6 +43,7 @@ from game_text_recognition import (
     recognize_gacha_target_labels,
     recognize_game_loading_labels,
     recognize_home_labels,
+    recognize_home_ad_labels,
     recognize_lastnight_result_labels,
     recognize_plaza_labels,
     recognize_quick_hunt_map_labels,
@@ -704,6 +705,12 @@ def classify_state(image: Image.Image) -> tuple[str, dict[str, Any]]:
         return "loading", details
 
     text_session = LabelRecognitionSession(image)
+
+    ad_match, ad_text = recognize_home_ad_labels(image, session=text_session)
+    details["home_ad_text"] = ad_text
+    if ad_match:
+        details["classification_rule"] = "home_ad_suppression_control"
+        return "blocking_ad_overlay", details
 
     terms_match, terms_text = recognize_terms_agreement_labels(
         image,

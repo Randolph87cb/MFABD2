@@ -1133,7 +1133,8 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             screenshot=str(path),
             details=details,
         )
-        if previous_state is not None and state != previous_state:
+        if (previous_state is not None and state != previous_state
+                and state not in {"unknown", "gacha_animation"}):
             last_progress_at = time.monotonic()
             poll.reset()
             logger.event(
@@ -1232,6 +1233,15 @@ def ensure_home(*, timeout: float, log_root: Path) -> tuple[bool, str]:
             key = "arena_rank_confirm"
             description = "confirm leftover arena rank change before returning home"
             expected = {"arena_lobby", "plaza", "real_home", "loading"}
+        elif state in {"unknown", "gacha_animation"}:
+            # A login promotion may still be playing when recovery starts in
+            # a new phase, without the preceding loading frame in memory.
+            # Observe only, bounded by the existing stall timeout; artwork
+            # never grants permission to dismiss or skip an unknown page.
+            logger.event(action="wait_unrecognized_transition", state=state,
+                         screenshot=str(path))
+            time.sleep(poll.next_delay())
+            continue
         else:
             reason = f"cannot safely return home from state={state}"
             logger.failure(reason)

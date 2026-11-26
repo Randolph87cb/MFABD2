@@ -616,6 +616,41 @@ def _recognize_with_session(
     return _recognize_label_groups(image, groups)
 
 
+def recognize_home_ad_labels(
+    image: Image.Image,
+    *,
+    session: LabelRecognitionSession | None = None,
+) -> tuple[bool, dict[str, Any]]:
+    """Detect the persistent ad suppression control, independent of ad artwork."""
+    groups = {
+        "suppression": {
+            "region": (0.60, 0.10, 0.25, 0.20),
+            "ocr_width": 800,
+            "labels": (),
+        },
+    }
+    texts, _matches, error = _recognize_with_session(image, groups, session)
+    if error is not None:
+        return False, error
+
+    def found(values: dict[str, list[str]]) -> bool:
+        return any("7天内不再显示" in _normalize_text(text)
+                   for text in values.get("suppression", []))
+
+    matched = found(texts)
+    details = {"available": True, "texts": texts, "crop_reread": False}
+    if not matched and session is not None:
+        # A full-frame box can merge this control with adjacent artwork or
+        # place its center outside the ROI. Isolate it before accepting home.
+        texts, _matches, error = _recognize_label_groups(image, groups)
+        details.update(crop_reread=True, crop_texts=texts)
+        if error is not None:
+            details["crop_error"] = error
+        else:
+            matched = found(texts)
+    return matched, details
+
+
 def recognize_home_labels(
     image: Image.Image,
     *,
