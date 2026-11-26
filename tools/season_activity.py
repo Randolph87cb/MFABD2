@@ -299,6 +299,20 @@ def recognize_mamono_preparation(image):
         return False, {"error": repr(exc)}
 
 
+def recognize_mamono_menu(image):
+    """Separate menu identity from the optional preparation-period marker."""
+    state, details = recognize_season_page(image)
+    if state != "main":
+        return False, details
+    box = (1170, 890, 1360, 950)
+    marker = _one(details["texts"], "可练习战斗", box)
+    reread = marker is None
+    if reread:
+        marker = _crop_text(image, box, "可练习战斗")
+    return True, {**details, "preparation_marker": marker is not None,
+                  "marker_crop_reread": reread, "battle": False}
+
+
 def run_mamono_preparation_recheck(*, dry_run: bool, log_root: Path):
     """Home → practice-only season → locked teams twice → unchanged home."""
     logger = RunLogger(log_root, annotate_clicks=True)
@@ -314,11 +328,6 @@ def run_mamono_preparation_recheck(*, dry_run: bool, log_root: Path):
             raise RuntimeError(label + " 未确认；停止，不进入战斗")
         return image, details
 
-    def main(image):
-        state, details = recognize_season_page(image)
-        return (state == "main" and bool(_one(details.get("texts", []), "可练习战斗",
-                                              (1170, 890, 1360, 950)))), details
-
     def click(image, x, y, key):
         click_ratio_logged(hwnd, image, (x / 2304, y / 1296), key=key, logger=logger)
 
@@ -333,7 +342,21 @@ def run_mamono_preparation_recheck(*, dry_run: bool, log_root: Path):
         if dry_run:
             return True, "dry-run planned mamono preparation audit; no input"
         click(image, 2010, 935, "mamono_season_entry")
-        image, _ = wait(main, "mamono-practice-menu")
+        image, menu = wait(recognize_mamono_menu, "mamono-practice-menu")
+        if not menu["preparation_marker"]:
+            # Absence is not proof of formal availability. Confirm a second
+            # menu frame, then return using known navigation. Retain failure
+            # rather than claim a preparation skip or enter an unaudited mode.
+            time.sleep(2)
+            image, menu = wait(recognize_mamono_menu, "mamono-menu-recheck")
+            if not menu["preparation_marker"]:
+                logger.event(action="mamono_period_unverified", details=menu, battle=False)
+                click(image, 208, 60, "mamono_home")
+                _, after = wait(recognize_season_home, "mamono-home-return")
+                if before["balances"] != after["balances"]:
+                    raise RuntimeError("魔兽只读复核返回主页余额变化")
+                raise RuntimeError("赛季主菜单已确认，但两帧及ROI重读均未确认准备期标记；"
+                                   "已返回主页，未进入魔兽；正式开放、队伍与免费费用尚未验证")
         click(image, 1265, 1038, "mamono_entry")
         image, first = wait(recognize_mamono_preparation, "mamono-preparation-1")
         first_at = time.monotonic()
@@ -347,7 +370,7 @@ def run_mamono_preparation_recheck(*, dry_run: bool, log_root: Path):
             raise RuntimeError("魔兽准备期两帧变化；停止")
         logger.event(action="preparation_readonly", countdown=second["countdown"], battle=False)
         click(image, 208, 60, "mamono_back")
-        image, _ = wait(main, "mamono-menu-return")
+        image, _ = wait(recognize_mamono_menu, "mamono-menu-return")
         click(image, 208, 60, "mamono_home")
         _, after = wait(recognize_season_home, "mamono-home-return")
         if before["balances"] != after["balances"]:

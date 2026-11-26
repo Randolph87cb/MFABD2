@@ -22,7 +22,8 @@ class MamonoPreparationTests(unittest.TestCase):
         cls.frames = {name: Image.open(FIXTURES / (name + ".png")).convert("RGB")
                       for name in ("mamono-home-before", "mamono-menu", "mamono-preparation-1",
                                    "mamono-preparation-2", "mamono-menu-return", "mamono-home-after",
-                                   "mamono-loading", "season-locked-1", "mamono-preparation-hours")}
+                                   "mamono-loading", "season-locked-1", "mamono-preparation-hours",
+                                   "mamono-menu-marker-unconfirmed-20261126")}
         cls.entries = {id(frame): season._entries(frame) for frame in cls.frames.values()}
 
     def test_native_preparation_and_adjacent_pages(self):
@@ -62,9 +63,9 @@ class MamonoPreparationTests(unittest.TestCase):
             self.assertFalse(season.recognize_mamono_preparation(frame)[0])
 
     def flow(self, *, fail=None, changed_days=False, changed_balance=False, dry_run=False,
-             countdowns=None):
-        names = iter(("mamono-menu", "mamono-preparation-1", "mamono-preparation-2",
-                      "mamono-menu-return", "mamono-home-after"))
+             countdowns=None, menu_names=None):
+        names = iter(menu_names or ("mamono-menu", "mamono-preparation-1", "mamono-preparation-2",
+                                   "mamono-menu-return", "mamono-home-after"))
         keys = []
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             stack.enter_context(patch.object(season, "find_game_window", return_value=123))
@@ -150,6 +151,54 @@ class MamonoPreparationTests(unittest.TestCase):
             click = stack.enter_context(patch.object(season, "click_ratio_logged"))
             self.assertTrue(season.return_from_season(123, frame, logger=None)[0])
             self.assertEqual(click.call_count, 2)
+
+    def test_menu_identity_is_independent_of_preparation_marker(self):
+        for name, expected, marker in (("mamono-menu", True, True),
+                                       ("mamono-menu-marker-unconfirmed-20261126", True, False),
+                                       ("mamono-preparation-hours", False, None),
+                                       ("mamono-home-before", False, None)):
+            with self.subTest(name=name):
+                ok, details = season.recognize_mamono_menu(self.frames[name])
+                self.assertEqual(ok, expected, details)
+                if ok:
+                    self.assertEqual(details["preparation_marker"], marker)
+                    self.assertFalse(details["battle"])
+
+    def test_marker_omitted_in_full_frame_is_reread_from_roi(self):
+        frame = self.frames["mamono-menu"]
+        entries = [e for e in self.entries[id(frame)] if e[2] != "可练习战斗"]
+        original = season._entries
+        with patch.object(season, "_entries", side_effect=lambda image: entries if image is frame else original(image)):
+            ok, details = season.recognize_mamono_menu(frame)
+        self.assertTrue(ok, details)
+        self.assertTrue(details["preparation_marker"])
+        self.assertTrue(details["marker_crop_reread"])
+
+    def test_unconfirmed_marker_returns_home_but_retains_failure(self):
+        missing = "mamono-menu-marker-unconfirmed-20261126"
+        result, keys = self.flow(menu_names=(missing, missing, "mamono-home-after"))
+        self.assertFalse(result[0], result)
+        self.assertIn("已返回主页，未进入魔兽", result[1])
+        self.assertIn("尚未验证", result[1])
+        self.assertEqual(keys, ["mamono_season_entry", "mamono_home"])
+        for fail in ("mamono-menu-recheck", "mamono-home-return"):
+            result, keys = self.flow(menu_names=(missing, missing, "mamono-home-after"), fail=fail)
+            self.assertFalse(result[0], result)
+            self.assertNotIn("mamono_entry", keys)
+
+    def test_period_change_to_preparation_uses_verified_second_frame(self):
+        result, keys = self.flow(menu_names=("mamono-menu-marker-unconfirmed-20261126", "mamono-menu",
+                                            "mamono-preparation-1", "mamono-preparation-2",
+                                            "mamono-menu-return", "mamono-home-after"))
+        self.assertTrue(result[0], result)
+        self.assertEqual(keys, ["mamono_season_entry", "mamono_entry", "mamono_back", "mamono_home"])
+
+    def test_return_menu_does_not_require_period_marker(self):
+        result, keys = self.flow(menu_names=("mamono-menu", "mamono-preparation-1",
+                                            "mamono-preparation-2", "mamono-menu-marker-unconfirmed-20261126",
+                                            "mamono-home-after"))
+        self.assertTrue(result[0], result)
+        self.assertEqual(keys[-1], "mamono_home")
 
 
 if __name__ == "__main__":
