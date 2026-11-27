@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from PIL import Image, ImageEnhance
 
@@ -23,7 +23,11 @@ class MamonoPreparationTests(unittest.TestCase):
                       for name in ("mamono-home-before", "mamono-menu", "mamono-preparation-1",
                                    "mamono-preparation-2", "mamono-menu-return", "mamono-home-after",
                                    "mamono-loading", "season-locked-1", "mamono-preparation-hours",
-                                   "mamono-menu-marker-unconfirmed-20261126")}
+                                   "mamono-menu-marker-unconfirmed-20261126", "mamono-menu-no-practice-20261127",
+                                   "mamono-active-20261029")}
+        unverified = cls.frames["mamono-active-20261029"].copy()
+        unverified.paste("black", (1630, 30, 2060, 90))
+        cls.frames["mamono-period-unverified"] = unverified
         cls.entries = {id(frame): season._entries(frame) for frame in cls.frames.values()}
 
     def test_native_preparation_and_adjacent_pages(self):
@@ -45,7 +49,7 @@ class MamonoPreparationTests(unittest.TestCase):
         for anchor in ("魔兽", "队伍1", "队伍2", "队伍3", "距离开始还剩3天",
                        "从狩猎期间开始解除", "去战斗"):
             changes.append([e for e in entries if e[2] != anchor])
-            for confidence in (.94, float("nan")):
+            for confidence in (.89 if anchor == "魔兽" else .94, float("nan")):
                 changes.append([(x, y, text, confidence if text == anchor else score)
                                 for x, y, text, score in entries])
         changes.append(entries + [e for e in entries if e[2] == "魔兽"])
@@ -77,11 +81,11 @@ class MamonoPreparationTests(unittest.TestCase):
             def wait(*args, **kwargs):
                 frame = self.frames[next(names)]
                 ok, details = kwargs["recognize"](frame)
-                if countdowns and kwargs["label"].startswith("mamono-preparation-"):
+                if countdowns and kwargs["label"].startswith("mamono-period-"):
                     index = int(kwargs["label"][-1]) - 1
                     minutes, precision = countdowns[index]
                     details = {**details, "minutes": minutes, "precision": precision}
-                if changed_days and kwargs["label"] == "mamono-preparation-2":
+                if changed_days and kwargs["label"] == "mamono-period-2":
                     details = {**details, "days": 1, "minutes": 1440}
                 if changed_balance and kwargs["label"] == "mamono-home-return":
                     details = {**details, "balances": (0, 0, 0)}
@@ -95,8 +99,8 @@ class MamonoPreparationTests(unittest.TestCase):
         self.assertTrue(result[0], result)
         self.assertTrue(result[1].startswith("skipped:"))
         self.assertEqual(keys, ["mamono_season_entry", "mamono_entry", "mamono_back", "mamono_home"])
-        for fail, count in (("mamono-practice-menu", 1), ("mamono-preparation-1", 2),
-                            ("mamono-preparation-2", 2), ("mamono-menu-return", 3),
+        for fail, count in (("mamono-practice-menu", 1), ("mamono-period-1", 2),
+                            ("mamono-period-2", 2), ("mamono-menu-return", 3),
                             ("mamono-home-return", 4)):
             result, keys = self.flow(fail=fail)
             self.assertFalse(result[0], result)
@@ -174,24 +178,28 @@ class MamonoPreparationTests(unittest.TestCase):
         self.assertTrue(details["preparation_marker"])
         self.assertTrue(details["marker_crop_reread"])
 
-    def test_unconfirmed_marker_returns_home_but_retains_failure(self):
-        missing = "mamono-menu-marker-unconfirmed-20261126"
-        result, keys = self.flow(menu_names=(missing, missing, "mamono-home-after"))
-        self.assertFalse(result[0], result)
-        self.assertIn("已返回主页，未进入魔兽", result[1])
-        self.assertIn("尚未验证", result[1])
-        self.assertEqual(keys, ["mamono_season_entry", "mamono_home"])
-        for fail in ("mamono-menu-recheck", "mamono-home-return"):
-            result, keys = self.flow(menu_names=(missing, missing, "mamono-home-after"), fail=fail)
-            self.assertFalse(result[0], result)
-            self.assertNotIn("mamono_entry", keys)
+    def test_missing_badge_still_audits_the_destination_period(self):
+        for missing in ("mamono-menu-marker-unconfirmed-20261126", "mamono-menu-no-practice-20261127"):
+            for period in ("mamono-preparation-1", "mamono-active-20261029"):
+                result, keys = self.flow(menu_names=(missing, period, period,
+                                                    missing, "mamono-home-after"))
+                self.assertTrue(result[0], result)
+                self.assertTrue(result[1].startswith("skipped:"))
+                if period.startswith("mamono-active"):
+                    self.assertIn("准备期检查不适用", result[1])
+                    self.assertIn("正式战斗未实现", result[1])
+                self.assertEqual(keys, ["mamono_season_entry", "mamono_entry", "mamono_back", "mamono_home"])
 
-    def test_period_change_to_preparation_uses_verified_second_frame(self):
-        result, keys = self.flow(menu_names=("mamono-menu-marker-unconfirmed-20261126", "mamono-menu",
-                                            "mamono-preparation-1", "mamono-preparation-2",
-                                            "mamono-menu-return", "mamono-home-after"))
-        self.assertTrue(result[0], result)
-        self.assertEqual(keys, ["mamono_season_entry", "mamono_entry", "mamono_back", "mamono_home"])
+    def test_unknown_or_changing_period_remains_a_failure_without_battle_inputs(self):
+        for first, second in (("mamono-active-20261029", "mamono-preparation-1"),
+                              ("mamono-preparation-1", "mamono-active-20261029"),
+                              ("mamono-period-unverified", "mamono-period-unverified"),
+                              ("mamono-active-20261029", "mamono-loading")):
+            result, keys = self.flow(menu_names=("mamono-menu-no-practice-20261127", first, second))
+            self.assertFalse(result[0], result)
+            self.assertEqual(keys, ["mamono_season_entry", "mamono_entry"])
+        self.assertEqual(season.recognize_season_navigation(self.frames["mamono-period-unverified"])[0],
+                         "mamono_selection")
 
     def test_return_menu_does_not_require_period_marker(self):
         result, keys = self.flow(menu_names=("mamono-menu", "mamono-preparation-1",
@@ -199,6 +207,107 @@ class MamonoPreparationTests(unittest.TestCase):
                                             "mamono-home-after"))
         self.assertTrue(result[0], result)
         self.assertEqual(keys[-1], "mamono_home")
+
+    def test_native_active_page_is_only_period_evidence(self):
+        frame = self.frames["mamono-active-20261029"]
+        with patch.object(season, "_entries", return_value=self.entries[id(frame)]):
+            state, details = season.recognize_mamono_page(frame)
+            self.assertEqual(state, "active", details)
+            self.assertEqual(details["minutes"], 6 * 1440)
+            self.assertFalse(details["battle"])
+            self.assertNotIn("free", details)
+            self.assertFalse(season.recognize_mamono_preparation(frame)[0])
+            self.assertEqual(season.recognize_season_navigation(frame)[0], "mamono_active")
+
+    def test_fixed_title_accepts_help_and_uses_title_confidence_only(self):
+        frame = self.frames["mamono-active-20261029"]
+        entries = self.entries[id(frame)]
+        for score, expected in ((.94, "active"), (.90, "active"), (.89, "unknown"), (float("nan"), "unknown")):
+            changed = [(x, y, "魔兽?帮助" if t == "魔兽" else t, score if t == "魔兽" else s)
+                       for x, y, t, s in entries]
+            with self.subTest(score=score), patch.object(season, "_entries", return_value=changed):
+                self.assertEqual(season.recognize_mamono_page(frame)[0], expected)
+
+    def test_active_merged_or_omitted_countdown_and_title_are_crop_reread(self):
+        frame = self.frames["mamono-active-20261029"]
+        entries = self.entries[id(frame)]
+        for changed in (
+                [e for e in entries if not e[2].startswith("距离结束")],
+                [(x, y, t + "100" if t.startswith("距离结束") else t, s) for x, y, t, s in entries],
+                [e for e in entries if e[2] != "魔兽"]):
+            with patch.object(season, "_entries", return_value=changed):
+                state, details = season.recognize_mamono_page(frame)
+            self.assertEqual(state, "active", details)
+            self.assertEqual(details["minutes"], 8640)
+
+    def test_unverified_countdown_allows_only_return_navigation(self):
+        frame = self.frames["mamono-active-20261029"]
+        entries = self.entries[id(frame)]
+        changes = [[(x, y, "距离结束还剩" + value if t.startswith("距离结束") else t, s)
+                    for x, y, t, s in entries] for value in ("0分钟", "24小时", "6天100", "23小时60分钟")]
+        changes.extend([
+            [(x, y, t, .94 if t.startswith("距离结束") else s) for x, y, t, s in entries],
+            entries + [e for e in entries if e[2].startswith("距离结束")],
+            entries + [(1530, 468, "从狩猎期间开始解除", .99)],
+        ])
+        for changed in changes:
+            with patch.object(season, "_entries", return_value=changed), patch.object(season, "_crop_text", return_value=None):
+                state, details = season.recognize_season_navigation(frame)
+            self.assertEqual(state, "mamono_selection", details)
+            self.assertNotIn("period", details)
+            self.assertFalse(details["battle"])
+
+    def test_obscured_or_unsafe_active_page_is_not_a_return_permit(self):
+        frame = self.frames["mamono-active-20261029"]
+        entries = self.entries[id(frame)]
+        for changed in (entries + [(1150, 600, "确认购买", .99)],
+                        entries + [(375, 62, "魔兽", .99)],
+                        [e for e in entries if e[2] != "去战斗"]):
+            with patch.object(season, "_entries", return_value=changed), patch.object(season, "_crop_text", return_value=None):
+                self.assertEqual(season.recognize_season_navigation(frame)[0], "unknown")
+        for box in ((203, 49, 216, 73), (330, 25, 420, 90)):
+            covered = frame.copy()
+            covered.paste("black", box)
+            self.assertEqual(season.recognize_season_navigation(covered)[0], "unknown")
+
+    def test_active_return_verifies_both_destinations_without_battle(self):
+        for name in ("mamono-active-20261029", "mamono-period-unverified"):
+            frame = self.frames[name]
+            with self.subTest(name=name), patch.object(season, "_entries", return_value=self.entries[id(frame)]), \
+                    patch.object(season, "wait_for_recognition", side_effect=[
+                        (True, self.frames["mamono-menu-no-practice-20261127"], {}),
+                        (True, self.frames["mamono-home-after"], {})]), \
+                    patch.object(season, "click_ratio_logged") as click:
+                self.assertTrue(season.return_from_season(123, frame, logger=None)[0])
+            self.assertEqual([call.kwargs["key"] for call in click.call_args_list],
+                             ["season_normal_back", "season_return_home"])
+
+    def test_entry_uses_current_menu_text_centre(self):
+        frame = self.frames["mamono-menu-no-practice-20261127"]
+        expected = next((x / frame.width, y / frame.height)
+                        for x, y, t, s in self.entries[id(frame)] if t == "魔兽追踪者")
+        points = []
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(season, "find_game_window", return_value=123), \
+                patch.object(season, "prepare_actionable_home", return_value=(True, frame, "home")), \
+                patch.object(season, "recognize_season_home", return_value=(True, {"balances": (1, 2, 3)})), \
+                patch.object(season, "wait_for_recognition", side_effect=[
+                    (True, frame, season.recognize_mamono_menu(frame)[1]), (False, frame, {})]), \
+                patch.object(season, "click_ratio_logged", side_effect=lambda *a, **k: points.append(a[2])):
+            self.assertFalse(season.run_mamono_preparation_recheck(dry_run=False, log_root=Path(directory))[0])
+        self.assertEqual(points[1], expected)
+
+    def test_season_wait_keeps_network_loading_unbounded(self):
+        frame = self.frames["mamono-loading"]
+        with patch.object(season, "classify_state", return_value=("loading", {})), \
+                patch("reward_flow.safe_capture_client", return_value=frame), \
+                patch("reward_flow.time.monotonic", side_effect=[0, 1000]), \
+                patch("reward_flow.time.sleep"), patch.object(season, "click_ratio_logged") as click:
+            ok, _, _ = season._wait_for_season_recognition(
+                123, logger=MagicMock(), label="network", timeout=1,
+                recognize=MagicMock(side_effect=[(False, {}), (True, {})]))
+        self.assertTrue(ok)
+        click.assert_not_called()
 
 
 if __name__ == "__main__":

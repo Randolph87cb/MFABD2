@@ -162,7 +162,7 @@ _STAGES = (
         id="season_activity",
         name="赛季活动快速战斗",
         availability=PARTIAL,
-        unavailable_reason="现有流程复核普通战斗资格及魔兽准备期三队锁定并安全返回；尚未实现赛季快速战斗或魔兽正式战斗。",
+        unavailable_reason="现有流程只读复核普通战斗资格、魔兽时期及准备期三队锁定并安全返回；正式期只跳过不适用的准备期检查，尚未实现赛季快速战斗或魔兽正式战斗。",
         safety_gate="仅能执行已解锁的免费战斗，禁止购买体力、刷新次数或自动消耗付费货币。",
         current_runners=("season_activity.run_season_battle_recheck", "season_activity.run_mamono_preparation_recheck"),
     ),
